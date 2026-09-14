@@ -1,0 +1,36 @@
+/* NowLyrics settings page. Keys are the English strings in NowLyrics.plist. */
+
+"Enabled" = "Enabled";
+"Apps" = "Apps";
+"Choose Apps" = "Choose Apps";
+"Display" = "Display";
+"Artist field" = "Artist field";
+"Track and artist" = "Track and artist";
+"Next line" = "Next line";
+"Leave alone" = "Leave alone";
+"Offset" = "Offset";
+"Lyrics Sources" = "Lyrics Sources";
+"Preferred" = "Preferred";
+"Default order" = "Default order";
+"Musixmatch" = "Musixmatch";
+"LRCLIB" = "LRCLIB";
+"NetEase Music" = "NetEase Music";
+"User Token" = "User Token";
+"API Key" = "API Key";
+"paste debug info" = "paste debug info";
+"your own key" = "your own key";
+"Advanced" = "Advanced";
+"Diagnostics" = "Diagnostics";
+"Quit app on change" = "Quit app on change";
+"About" = "About";
+"Version" = "Version";
+"Shows the current lyric line in place of the track title on the lock screen, in Control Center, the Dynamic Island and CarPlay." = "Shows the current lyric line in place of the track title on the lock screen, in Control Center, the Dynamic Island and CarPlay.";
+"Applies immediately. Only players that publish now-playing info will show anything." = "Applies immediately. Only players that publish now-playing info will show anything.";
+"A positive offset shows lyrics earlier. Drag the slider, or tap the value to type one, e.g. 0.25 or -300ms." = "A positive offset shows lyrics earlier. Drag the slider, or tap the value to type one, e.g. 0.25 or -300ms.";
+"The preferred source is tried first. Musixmatch needs the token from its app (Settings → Get help → Copy debug info) or an API key. NetEase lyrics are Simplified Chinese." = "The preferred source is tried first. Musixmatch needs the token from its app (Settings → Get help → Copy debug info) or an API key. NetEase lyrics are Simplified Chinese.";
+"Diagnostics shows which source answered in the artist field. Quit app on change kills the app on every settings change." = "Diagnostics shows which source answered in the artist field. Quit app on change kills the app on every settings change.";
+"Inspired by AMLyrics. MIT License." = "Inspired by AMLyrics. MIT License.";
+"Clear lyrics cache" = "Clear lyrics cache";
+"Lyrics cache cleared" = "Lyrics cache cleared";
+"Apps that are not running clear theirs when next opened." = "Apps that are not running clear theirs when next opened.";
+"OK" = "OK";

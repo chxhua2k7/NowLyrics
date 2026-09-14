@@ -1,0 +1,240 @@
+//
+//  NLOffsetCell.m
+//  The one piece of the settings page that needs code: the offset row, a
+//  slider that applies as you drag plus a field the value can be typed into.
+//  Everything else on the page is stock Preferences cells driven by
+//  prefs/NowLyrics.plist.
+//
+//  This bundle is also where AltList gets loaded from. Its framework used to
+//  be this bundle's executable (a symlink); now that the bundle has code of its
+//  own, it is dlopen'ed here so ATLApplicationListMultiSelectionController
+//  resolves when the plist names it.
+//
+
+#import <UIKit/UIKit.h>
+#import <Preferences/PSControlTableCell.h>
+#import <Preferences/PSSpecifier.h>
+#import <dlfcn.h>
+#import <rootless.h>
+
+__attribute__((constructor))
+static void NLLoadAltList(void) {
+    dlopen(ROOT_PATH("/Library/Frameworks/AltList.framework/AltList"), RTLD_NOW);
+}
+
+static const double kNLOffsetLimit = 3.0;   // seconds either way, same as the engine tolerates comfortably
+static const double kNLSliderStep = 0.1;    // dragging snaps to this; typing can be finer
+
+static double NLClamp(double v) {
+    if (isnan(v)) return 0;
+    return MIN(MAX(v, -kNLOffsetLimit), kNLOffsetLimit);
+}
+
+#pragma mark - Control
+
+// A UIControl so PSControlTableCell can treat it like any other: it fires
+// UIControlEventValueChanged whenever the committed value changes, whether
+// that came from the slider or from the field.
+@interface NLOffsetControl : UIControl <UITextFieldDelegate>
+@property (nonatomic, assign) double value;   // seconds, positive means lyrics appear earlier
+@property (nonatomic, assign) BOOL stacked;   // value pill on the first line, slider full width below
+@end
+
+@implementation NLOffsetControl {
+    UISlider *_slider;
+    UITextField *_field;
+    BOOL _commitPending;
+}
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    if ((self = [super initWithFrame:frame])) {
+        _slider = [[UISlider alloc] init];
+        _slider.minimumValue = -kNLOffsetLimit;
+        _slider.maximumValue = kNLOffsetLimit;
+        [_slider addTarget:self action:@selector(sliderMoved:) forControlEvents:UIControlEventValueChanged];
+        [_slider addTarget:self action:@selector(sliderReleased:)
+          forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
+        [self addSubview:_slider];
+
+        _field = [[UITextField alloc] init];
+        _field.borderStyle = UITextBorderStyleNone;
+        _field.backgroundColor = [UIColor tertiarySystemFillColor];
+        _field.layer.cornerRadius = 8;
+        _field.layer.cornerCurve = kCACornerCurveContinuous;
+        _field.keyboardType = UIKeyboardTypeNumbersAndPunctuation;   // has both "-" and "."
+        _field.returnKeyType = UIReturnKeyDone;
+        _field.textAlignment = NSTextAlignmentCenter;
+        _field.font = [UIFont monospacedDigitSystemFontOfSize:15 weight:UIFontWeightRegular];
+        _field.autocorrectionType = UITextAutocorrectionTypeNo;
+        _field.delegate = self;
+        [self addSubview:_field];
+
+        [self showValue];
+    }
+    return self;
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    CGRect b = self.bounds;
+    CGFloat fieldWidth = 84, fieldHeight = 30;
+    if (_stacked) {
+        // First line is the row's own title line (44pt); the slider takes the rest.
+        _field.frame = CGRectMake(CGRectGetMaxX(b) - fieldWidth, (44 - fieldHeight) / 2, fieldWidth, fieldHeight);
+        _slider.frame = CGRectMake(CGRectGetMinX(b), 44, b.size.width, b.size.height - 44);
+    } else {
+        _field.frame = CGRectMake(CGRectGetMaxX(b) - fieldWidth, (b.size.height - fieldHeight) / 2, fieldWidth, fieldHeight);
+        _slider.frame = CGRectMake(CGRectGetMinX(b), 0, CGRectGetMinX(_field.frame) - 12 - CGRectGetMinX(b), b.size.height);
+    }
+}
+
+- (void)setValue:(double)value {
+    _value = NLClamp(value);
+    _slider.value = (float)_value;
+    if (!_field.isEditing) [self showValue];
+}
+
+- (void)showValue {
+    _field.text = _value == 0 ? @"0.00 s" : [NSString stringWithFormat:@"%+.2f s", _value];
+}
+
+// Applies live, so the line on the lock screen can be watched moving while the
+// thumb is still held. Every commit is a Darwin notification that makes each
+// process with the tweak loaded re-read the file, so while dragging they are
+// coalesced to a few per second; letting go commits at once.
+- (void)sliderMoved:(UISlider *)slider {
+    double snapped = round(slider.value / kNLSliderStep) * kNLSliderStep;
+    if (fabs(snapped - _value) < kNLSliderStep / 2) return;
+    _value = NLClamp(snapped);
+    [self showValue];
+    if (_commitPending) return;
+    _commitPending = YES;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (self->_commitPending) [self commit];
+    });
+}
+
+- (void)sliderReleased:(UISlider *)slider {
+    slider.value = (float)_value;   // park the thumb on the step it committed
+    [self commit];
+}
+
+- (void)commit {
+    _commitPending = NO;
+    [self sendActionsForControlEvents:UIControlEventValueChanged];
+}
+
+#pragma mark Typing
+
+- (void)textFieldDidBeginEditing:(UITextField *)field {
+    field.text = [NSString stringWithFormat:@"%g", _value];   // plain number, easier to edit
+    [field selectAll:nil];
+}
+
+- (BOOL)textFieldShouldReturn:(UITextField *)field {
+    [field resignFirstResponder];
+    return YES;
+}
+
+// Accepts "0.3", "-0.25", "+1", "0,3" and "300ms". Anything else puts the old
+// value back.
+- (void)textFieldDidEndEditing:(UITextField *)field {
+    NSString *text = [[field.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]
+                      stringByReplacingOccurrencesOfString:@"," withString:@"."];
+    NSScanner *scanner = [NSScanner scannerWithString:text];
+    double typed = 0;
+    if (text.length && [scanner scanDouble:&typed]) {
+        NSString *rest = [[text substringFromIndex:scanner.scanLocation] lowercaseString];
+        if ([rest containsString:@"ms"]) typed /= 1000.0;
+        typed = NLClamp(round(typed * 100) / 100);   // hundredths are plenty
+        if (typed != _value) {
+            _value = typed;
+            _slider.value = (float)_value;
+            [self commit];
+        }
+    }
+    [self showValue];
+}
+
+@end
+
+#pragma mark - Cell
+
+@interface PSControlTableCell (NLPrivate)
+- (UIControl *)newControl;
+- (id)controlValue;
+@end
+
+@interface NLOffsetCell : PSControlTableCell
+@end
+
+@implementation NLOffsetCell {
+    NSNumber *_lastSent;
+}
+
+- (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier specifier:(PSSpecifier *)specifier {
+    if ((self = [super initWithStyle:style reuseIdentifier:reuseIdentifier specifier:specifier])) {
+        // The base class hands controls to the accessory slot, which is far too
+        // narrow for a slider; lay it out ourselves instead.
+        self.accessoryView = nil;
+        self.selectionStyle = UITableViewCellSelectionStyleNone;
+        if (!self.control) self.control = [self newControl];   // in case the base class did not ask
+        if (self.control.superview != self.contentView) [self.contentView addSubview:self.control];
+        [self.control addTarget:self action:@selector(controlChanged:) forControlEvents:UIControlEventValueChanged];
+    }
+    return self;
+}
+
+- (UIControl *)newControl {
+    return [[NLOffsetControl alloc] initWithFrame:CGRectZero];
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    CGRect content = self.contentView.bounds;
+    CGFloat inset = 16;
+    NLOffsetControl *control = (NLOffsetControl *)self.control;
+
+    // Tall row: icon, title and the value on a normal-looking first line, the
+    // slider across the full width underneath. Short row: everything side by side.
+    if (content.size.height >= 64) {
+        CGFloat line = 44;
+        CGRect icon = self.imageView.frame;
+        icon.origin.y = round((line - icon.size.height) / 2);
+        self.imageView.frame = icon;
+
+        CGRect title = self.textLabel.frame;
+        title.origin.y = round((line - title.size.height) / 2);
+        title.size.width = MIN(title.size.width, content.size.width - inset - 84 - 12 - title.origin.x);
+        self.textLabel.frame = title;
+
+        control.stacked = YES;
+        control.frame = CGRectMake(inset, 0, content.size.width - inset * 2, content.size.height - 6);
+    } else {
+        control.stacked = NO;
+        CGFloat left = MAX(CGRectGetMaxX(self.textLabel.frame) + 12, 96);
+        control.frame = CGRectMake(left, 0, content.size.width - left - inset, content.size.height);
+    }
+}
+
+- (id)controlValue {
+    return @(((NLOffsetControl *)self.control).value);
+}
+
+- (void)setValue:(id)value {
+    [super setValue:value];
+    double v = [value respondsToSelector:@selector(doubleValue)] ? [value doubleValue] : 0;
+    ((NLOffsetControl *)self.control).value = v;
+    _lastSent = @(((NLOffsetControl *)self.control).value);
+}
+
+// Writes the preference and posts the specifier's notification, once per
+// distinct value: the base class may have wired this event too.
+- (void)controlChanged:(UIControl *)control {
+    NSNumber *v = [self controlValue];
+    if (_lastSent && [_lastSent isEqualToNumber:v]) return;
+    _lastSent = v;
+    [self.specifier performSetterWithValue:v];
+}
+
+@end

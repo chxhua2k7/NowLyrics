@@ -1,0 +1,32 @@
+/* NowLyrics settings page. Keys are the English strings in NowLyrics.plist. */
+
+"Enabled" = "启用";
+"Apps" = "音乐 App";
+"Choose Apps" = "选择 App";
+"Display" = "显示";
+"Artist field" = "艺人栏位";
+"Track and artist" = "曲名与艺人";
+"Next line" = "下一句";
+"Leave alone" = "保持原样";
+"Offset" = "偏移";
+"Lyrics Sources" = "歌词来源";
+"Preferred" = "优先来源";
+"Default order" = "默认顺序";
+"NetEase Music" = "网易云音乐";
+"paste debug info" = "粘贴 debug info";
+"your own key" = "你自己的密钥";
+"Advanced" = "高级";
+"Diagnostics" = "诊断";
+"Quit app on change" = "改设置时退出 App";
+"About" = "关于";
+"Version" = "版本";
+"Shows the current lyric line in place of the track title on the lock screen, in Control Center, the Dynamic Island and CarPlay." = "在锁定屏幕、控制中心、灵动岛与 CarPlay 上,用当前歌词行取代曲名显示。";
+"Applies immediately. Only players that publish now-playing info will show anything." = "即时生效。只有会发布 now-playing 信息的播放器才会显示歌词。";
+"A positive offset shows lyrics earlier. Drag the slider, or tap the value to type one, e.g. 0.25 or -300ms." = "偏移为正值时歌词提早出现。拖滑块,或点数值直接输入,例如 0.25 或 -300ms。";
+"The preferred source is tried first. Musixmatch needs the token from its app (Settings → Get help → Copy debug info) or an API key. NetEase lyrics are Simplified Chinese." = "优先来源会先尝试。Musixmatch 需要其 App 的 token(设置 → Get help → Copy debug info)或 API Key。网易云歌词为简体中文。";
+"Diagnostics shows which source answered in the artist field. Quit app on change kills the app on every settings change." = "诊断会在艺人栏位显示是哪个来源回应的。改设置时退出 App 会在每次改动时把 App 关掉。";
+"Inspired by AMLyrics. MIT License." = "灵感来自 AMLyrics。MIT 许可。";
+"Clear lyrics cache" = "清除歌词缓存";
+"Lyrics cache cleared" = "歌词缓存已清除";
+"Apps that are not running clear theirs when next opened." = "没在运行的 App 会在下次打开时清除。";
+"OK" = "好";

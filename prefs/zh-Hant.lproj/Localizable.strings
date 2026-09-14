@@ -1,0 +1,32 @@
+/* NowLyrics settings page. Keys are the English strings in NowLyrics.plist. */
+
+"Enabled" = "啟用";
+"Apps" = "音樂 App";
+"Choose Apps" = "選擇 App";
+"Display" = "顯示";
+"Artist field" = "演出者欄位";
+"Track and artist" = "曲名與演出者";
+"Next line" = "下一句";
+"Leave alone" = "維持原樣";
+"Offset" = "偏移";
+"Lyrics Sources" = "歌詞來源";
+"Preferred" = "優先來源";
+"Default order" = "預設順序";
+"NetEase Music" = "網易雲音樂";
+"paste debug info" = "貼上 debug info";
+"your own key" = "你自己的金鑰";
+"Advanced" = "進階";
+"Diagnostics" = "診斷";
+"Quit app on change" = "改設定時結束 App";
+"About" = "關於";
+"Version" = "版本";
+"Shows the current lyric line in place of the track title on the lock screen, in Control Center, the Dynamic Island and CarPlay." = "在鎖定畫面、控制中心、動態島與 CarPlay 上,用當前歌詞行取代曲名顯示。";
+"Applies immediately. Only players that publish now-playing info will show anything." = "即時生效。只有會發布 now-playing 資訊的播放器才會顯示歌詞。";
+"A positive offset shows lyrics earlier. Drag the slider, or tap the value to type one, e.g. 0.25 or -300ms." = "偏移為正值時歌詞提早出現。拖拉桿,或點數值直接輸入,例如 0.25 或 -300ms。";
+"The preferred source is tried first. Musixmatch needs the token from its app (Settings → Get help → Copy debug info) or an API key. NetEase lyrics are Simplified Chinese." = "優先來源會先嘗試。Musixmatch 需要其 App 的 token(設定 → Get help → Copy debug info)或 API Key。網易雲歌詞為簡體中文。";
+"Diagnostics shows which source answered in the artist field. Quit app on change kills the app on every settings change." = "診斷會在演出者欄位顯示是哪個來源回應的。改設定時結束 App 會在每次改動時把 App 關掉。";
+"Inspired by AMLyrics. MIT License." = "概念來自 AMLyrics。MIT 授權。";
+"Clear lyrics cache" = "清除歌詞快取";
+"Lyrics cache cleared" = "歌詞快取已清除";
+"Apps that are not running clear theirs when next opened." = "沒在執行的 App 會在下次開啟時清除。";
+"OK" = "好";
