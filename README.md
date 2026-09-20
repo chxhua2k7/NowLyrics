@@ -180,4 +180,4 @@ To look up lyrics, NowLyrics sends the track title, artist, album and duration t
 
 ## License
 
-© 2026 c3x14n. All rights reserved. This repository holds the documentation for NowLyrics; the software is proprietary and distributed through Havoc.
+© 2026 chxhua2k7. All rights reserved. This repository holds the documentation for NowLyrics; the software is proprietary and distributed through Havoc.

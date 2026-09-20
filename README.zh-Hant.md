@@ -142,4 +142,4 @@ NowLyrics 在 [Havoc](https://havoc.app) 販售。在 Sileo 加入 Havoc 來源,
 
 ## 授權
 
-© 2026 c3x14n。保留所有權利。這個 repo 只放 NowLyrics 的說明文件;軟體本身為專有軟體,透過 Havoc 發行。
+© 2026 chxhua2k7。保留所有權利。這個 repo 只放 NowLyrics 的說明文件;軟體本身為專有軟體,透過 Havoc 發行。
