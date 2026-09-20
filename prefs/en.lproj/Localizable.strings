@@ -29,7 +29,7 @@
 "A positive offset shows lyrics earlier. Drag the slider, or tap the value to type one, e.g. 0.25 or -300ms." = "A positive offset shows lyrics earlier. Drag the slider, or tap the value to type one, e.g. 0.25 or -300ms.";
 "The preferred source is tried first. Musixmatch needs the token from its app (Settings → Get help → Copy debug info) or an API key. NetEase lyrics are Simplified Chinese." = "The preferred source is tried first. Musixmatch needs the token from its app (Settings → Get help → Copy debug info) or an API key. NetEase lyrics are Simplified Chinese.";
 "Diagnostics shows which source answered in the artist field. Quit app on change kills the app on every settings change." = "Diagnostics shows which source answered in the artist field. Quit app on change kills the app on every settings change.";
-"Inspired by AMLyrics. MIT License." = "Inspired by AMLyrics. MIT License.";
+"© 2026 chxhua2k7. Inspired by AMLyrics." = "© 2026 chxhua2k7. Inspired by AMLyrics.";
 "Clear lyrics cache" = "Clear lyrics cache";
 "Lyrics cache cleared" = "Lyrics cache cleared";
 "Apps that are not running clear theirs when next opened." = "Apps that are not running clear theirs when next opened.";

@@ -25,7 +25,7 @@
 "A positive offset shows lyrics earlier. Drag the slider, or tap the value to type one, e.g. 0.25 or -300ms." = "オフセットが正の値なら歌詞が早く表示されます。スライダーをドラッグするか、数値をタップして 0.25 や -300ms のように入力してください。";
 "The preferred source is tried first. Musixmatch needs the token from its app (Settings → Get help → Copy debug info) or an API key. NetEase lyrics are Simplified Chinese." = "優先する取得元から順に試します。Musixmatch にはアプリのトークン(設定 → Get help → Copy debug info)か API Key が必要です。NetEase の歌詞は簡体字です。";
 "Diagnostics shows which source answered in the artist field. Quit app on change kills the app on every settings change." = "診断はどの取得元が応答したかをアーティスト欄に表示します。設定変更時にアプリを終了は、設定を変えるたびにアプリを終了します。";
-"Inspired by AMLyrics. MIT License." = "AMLyrics に着想を得ています。MIT ライセンス。";
+"© 2026 chxhua2k7. Inspired by AMLyrics." = "© 2026 chxhua2k7。AMLyrics に着想を得ています。";
 "Clear lyrics cache" = "歌詞キャッシュを消去";
 "Lyrics cache cleared" = "歌詞キャッシュを消去しました";
 "Apps that are not running clear theirs when next opened." = "起動していないアプリは、次回起動時に消去されます。";

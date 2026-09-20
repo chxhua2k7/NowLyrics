@@ -93,9 +93,9 @@ Music; see "arm64e must come from Xcode" below.
 Requires [AltList](https://github.com/opa334/AltList) (`com.opa334.altlist`) at
 runtime — it provides the app picker; the settings bundle `dlopen`s it.
 
-The package is `com.c3x14n.nowlyrics`. Versions before 2.22 were packaged as
-`app.nowlyrics`; the control file's `Conflicts`/`Replaces` make dpkg remove
-that one when this is installed. The preference domain and the reload
+The package is `com.c3x14n.nowlyrics`. The control file declares `Conflicts`
+and `Replaces` on `com.82flex.amlyrics`: both tweaks rewrite the same Music
+item, so installing NowLyrics removes AMLyrics. The preference domain and the reload
 notification keep the `app.nowlyrics` name, so settings survive the rename.
 
 Packaging on-device may fail with `exec of gzip -c1 failed`: `dm.pl` hard-codes
@@ -353,4 +353,4 @@ reload, so a fetch already running keeps a consistent view.
 
 ## License
 
-MIT
+© 2026 chxhua2k7. All rights reserved. NowLyrics is sold through Havoc; this source is not offered under an open-source license.

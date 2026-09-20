@@ -75,8 +75,8 @@ make package FINALPACKAGE=1
 執行期需要 [AltList](https://github.com/opa334/AltList)(`com.opa334.altlist`),
 它提供 App 選擇器,設定 bundle 會 dlopen 它。
 
-套件識別碼是 `com.c3x14n.nowlyrics`。2.22 之前的版本打包成 `app.nowlyrics`,control 裡的
-`Conflicts`/`Replaces` 讓 dpkg 在裝這個時自動把舊的移除。偏好設定的 domain 和重載通知仍叫
+套件識別碼是 `com.c3x14n.nowlyrics`。control 對 `com.82flex.amlyrics` 同時宣告 `Conflicts` 和
+`Replaces`:兩者會改同一個 Music 項目,所以裝 NowLyrics 時會把 AMLyrics 移除。偏好設定的 domain 和重載通知仍叫
 `app.nowlyrics`,所以設定不會因為改名而遺失。
 
 在裝置上打包時若出現 `exec of gzip -c1 failed`,是因為 `dm.pl` 對 `control.tar`
@@ -285,4 +285,4 @@ MediaPlayer 的 App 會漏掉,但會發布 now-playing 資訊的播放器都是�
 
 ## License
 
-MIT
+© 2026 chxhua2k7。保留所有權利。NowLyrics 透過 Havoc 販售,原始碼不以開源授權釋出。
