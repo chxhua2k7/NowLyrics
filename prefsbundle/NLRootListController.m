@@ -30,6 +30,10 @@
 #error NL_VERSION comes from PACKAGE_VERSION in the Makefile
 #endif
 
+@interface UIImage (NLPrivate)
++ (UIImage *)_applicationIconImageForBundleIdentifier:(NSString *)bundleID format:(int)format scale:(CGFloat)scale;
+@end
+
 @interface NLRootListController : PLLocalizedListController
 @end
 
@@ -71,6 +75,13 @@ static UIImage *NLTileIcon(NSString *symbolName, UIColor *color) {
 
 static void NLApplyIcon(PSSpecifier *specifier) {
     if ([specifier propertyForKey:PSIconImageKey]) return;   // drawn already, or a real image from the plist
+    // `iconApp`: the installed app's own icon (the 29 pt "small" format), so the
+    // row matches what the user sees on the home screen. Falls back to the symbol.
+    NSString *app = [specifier propertyForKey:@"iconApp"];
+    if ([app isKindOfClass:[NSString class]]) {
+        UIImage *icon = [UIImage _applicationIconImageForBundleIdentifier:app format:0 scale:UIScreen.mainScreen.scale];
+        if (icon) { [specifier setProperty:icon forKey:PSIconImageKey]; return; }
+    }
     NSString *symbol = [specifier propertyForKey:@"iconSymbol"];
     UIColor *color = NLColorFromHex([specifier propertyForKey:@"iconColor"]);
     if (![symbol isKindOfClass:[NSString class]] || !color) return;
@@ -80,6 +91,23 @@ static void NLApplyIcon(PSSpecifier *specifier) {
 #pragma mark - Controller
 
 @implementation NLRootListController
+
+// "Apply" in the navigation bar: the players that have NowLyrics enabled quit
+// and relaunch with the current settings. Everything applies live anyway; this
+// is for the times a fresh start is wanted without "Quit app on change" on.
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:[self nlLocalized:@"Apply"]
+                                                                              style:UIBarButtonItemStyleDone
+                                                                             target:self
+                                                                             action:@selector(nlApply:)];
+}
+
+- (void)nlApply:(id)sender {
+    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
+                                         CFSTR("app.nowlyrics/Apply"), NULL, NULL, true);
+    [[[UINotificationFeedbackGenerator alloc] init] notificationOccurred:UINotificationFeedbackTypeSuccess];
+}
 
 - (NSMutableArray *)specifiers {
     NSMutableArray *specifiers = [super specifiers];

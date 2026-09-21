@@ -17,6 +17,7 @@
 "your own key" = "自分のキー";
 "Advanced" = "詳細";
 "Diagnostics" = "診断";
+"Fix Spotify Connect titles" = "Spotify Connect の曲名修正";
 "Quit app on change" = "設定変更時にアプリを終了";
 "About" = "情報";
 "Version" = "バージョン";
@@ -24,9 +25,10 @@
 "Applies immediately. Only players that publish now-playing info will show anything." = "すぐに反映されます。再生中情報を発信するプレーヤーでのみ表示されます。";
 "A positive offset shows lyrics earlier. Drag the slider, or tap the value to type one, e.g. 0.25 or -300ms." = "オフセットが正の値なら歌詞が早く表示されます。スライダーをドラッグするか、数値をタップして 0.25 や -300ms のように入力してください。";
 "The preferred source is tried first. Musixmatch needs the token from its app (Settings → Get help → Copy debug info) or an API key. NetEase lyrics are Simplified Chinese." = "優先する取得元から順に試します。Musixmatch にはアプリのトークン(設定 → Get help → Copy debug info)か API Key が必要です。NetEase の歌詞は簡体字です。";
-"Diagnostics shows which source answered in the artist field. Quit app on change kills the app on every settings change." = "診断はどの取得元が応答したかをアーティスト欄に表示します。設定変更時にアプリを終了は、設定を変えるたびにアプリを終了します。";
+"Diagnostics shows which source answered in the artist field. Quit app on change kills the app on every settings change. Fix Spotify Connect titles turns “Title • Artist / Playing on a device” back into the real title and artist." = "診断はどのソースが応答したかをアーティスト欄に表示します。設定変更時に App を終了は変更のたびに App を終了します。Spotify Connect の曲名修正は「曲名 • アーティスト / 他デバイスで再生中」を本来の曲名とアーティストに戻します。";
 "© 2026 chxhua2k7. Inspired by AMLyrics." = "© 2026 chxhua2k7。AMLyrics に着想を得ています。";
 "Clear lyrics cache" = "歌詞キャッシュを消去";
 "Lyrics cache cleared" = "歌詞キャッシュを消去しました";
 "Apps that are not running clear theirs when next opened." = "起動していないアプリは、次回起動時に消去されます。";
+"Apply" = "適用";
 "OK" = "OK";

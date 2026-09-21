@@ -142,6 +142,25 @@ NSString *NLCleanTitle(NSString *title) {
     return out.length ? out : title;
 }
 
+// While Spotify plays on another device (Spotify Connect) the phone reports the
+// track as "Title • Artist" and puts "Playing on <device>" in the artist field.
+// Returns YES and the real title and artist when that is what was reported.
+BOOL NLSplitConnectInfo(NSString *title, NSString *artist, NSString **outTitle, NSString **outArtist) {
+    if (title.length == 0 || artist.length == 0) return NO;
+    NSRange dot = [title rangeOfString:@" • "];
+    if (dot.location == NSNotFound || dot.location == 0 || NSMaxRange(dot) >= title.length) return NO;
+    static NSRegularExpression *device = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        device = [NSRegularExpression regularExpressionWithPattern:@"^(?:playing on|listening on|正在.*播放|正在.*播放中|再生中)"
+                                                           options:NSRegularExpressionCaseInsensitive error:nil];
+    });
+    if (![device firstMatchInString:artist options:0 range:NSMakeRange(0, artist.length)]) return NO;
+    if (outTitle) *outTitle = [title substringToIndex:dot.location];
+    if (outArtist) *outArtist = [title substringFromIndex:NSMaxRange(dot)];
+    return YES;
+}
+
 // Players often report "A, B, C"; catalogues index by the primary artist.
 NSString *NLPrimaryArtist(NSString *artist) {
     NSString *a = artist ?: @"";

@@ -266,7 +266,20 @@ void NLPublishRestore(void) {
     // from the main queue. That way the caller's thread does not matter.
     NSDictionary *snapshot = [nowPlayingInfo copy];
     MPNowPlayingInfoCenter *center = self;
-    %orig;
+
+    // Spotify Connect reports "Title • Artist" / "Playing on X". Rewrite the pair
+    // before the system sees it, otherwise the raw text shows for a moment at
+    // every track change until our first push lands.
+    if (NLSettingsCurrent().spotifyConnect) {
+        NSString *realT = nil, *realA = nil;
+        if (NLSplitConnectInfo(snapshot[MPMediaItemPropertyTitle], snapshot[MPMediaItemPropertyArtist], &realT, &realA)) {
+            NSMutableDictionary *clean = [snapshot mutableCopy];
+            clean[MPMediaItemPropertyTitle] = realT;
+            clean[MPMediaItemPropertyArtist] = realA;
+            snapshot = [clean copy];
+        }
+    }
+    %orig(snapshot);
 
     dispatch_async(dispatch_get_main_queue(), ^{
         NLIngestInfo(center, snapshot);
@@ -363,6 +376,13 @@ static void NLInstallHooks(void) {
 
 #pragma mark - Preference changes
 
+// The Apply button on the settings page: quit so the player comes back with a
+// clean slate, the same thing "Quit app on change" does automatically.
+static void NLApplyRequested(CFNotificationCenterRef center, void *observer,
+                             CFStringRef name, const void *object, CFDictionaryRef userInfo) {
+    if (NLSettingsReload().enabled) exit(0);
+}
+
 static void NLPrefsChanged(CFNotificationCenterRef center, void *observer,
                            CFStringRef name, const void *object, CFDictionaryRef userInfo) {
     NLSettings *old = NLSettingsCurrent();
@@ -412,6 +432,12 @@ static void NLPrefsChanged(CFNotificationCenterRef center, void *observer,
                                         NULL,
                                         NLPrefsChanged,
                                         (__bridge CFStringRef)kNLReloadNotification,
+                                        NULL,
+                                        CFNotificationSuspensionBehaviorCoalesce);
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
+                                        NULL,
+                                        NLApplyRequested,
+                                        (__bridge CFStringRef)kNLApplyNotification,
                                         NULL,
                                         CFNotificationSuspensionBehaviorCoalesce);
 

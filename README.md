@@ -136,8 +136,14 @@ deliberately short, this file has the details.
   this title" means no catalogue entry, "duration off" a length mismatch, "will
   retry" a timed-out request). *Quit app on change* terminates the host app on
   every settings change, which is rarely needed since everything applies live.
-  *Clear lyrics cache* deletes the downloaded lyrics in every app.
+  *Clear lyrics cache* deletes the downloaded lyrics in every app. *Fix Spotify
+  Connect titles* (on by default) splits the `Title • Artist` / `Playing on <device>`
+  pair Spotify reports while playing on another device back into a real title
+  and artist, so lookups and cache names stay clean.
 - **About** — the installed version.
+- **Apply** (top right) — quits the players that have NowLyrics enabled so they
+  relaunch with the current settings. Not normally needed, since everything
+  applies live; it is the manual form of *Quit app on change*.
 
 Changes post a Darwin notification (`app.nowlyrics/ReloadPrefs`), so they take
 effect without relaunching anything. Changing the sources also clears the

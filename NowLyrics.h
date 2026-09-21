@@ -56,6 +56,7 @@ typedef NS_ENUM(NSInteger, NLSource) {
 @property (nonatomic, readonly, copy) NSString *musixmatchToken;
 @property (nonatomic, readonly) BOOL killOnChange;
 @property (nonatomic, readonly) BOOL diagnostics;
+@property (nonatomic, readonly) BOOL spotifyConnect;   // split "Track • Artist" + "Playing on X" reported during Spotify Connect
 @property (nonatomic, readonly) NSTimeInterval offset;        // positive means lyrics appear earlier
 @property (nonatomic, readonly) NSTimeInterval cacheClearedAt; // when "Clear lyrics cache" was last tapped, 0 if never
 // Everything that invalidates lyrics already fetched, folded into one comparable string.
@@ -70,6 +71,7 @@ extern "C" {
 
 extern NSString *const kNLPrefsDomain;
 extern NSString *const kNLReloadNotification;
+extern NSString *const kNLApplyNotification;   // settings page's Apply button: enabled players quit so they relaunch fresh
 extern NSString *const kNLUserAgent;
 extern const NSTimeInterval kNLDurationTolerance;   // max track-length mismatch when matching
 
@@ -84,6 +86,7 @@ NLSettings *NLSettingsReload(void);     // re-reads the file and computes `enabl
 
 double NLNum(id value, double fallback);   // doubleValue that survives JSON null
 NSString *NLCleanTitle(NSString *title);
+BOOL NLSplitConnectInfo(NSString *title, NSString *artist, NSString **outTitle, NSString **outArtist);
 NSString *NLPrimaryArtist(NSString *artist);
 NSString *NLTrackKey(NSString *title, NSString *artist);
 NSString *NLLegacyTrackKey(NSString *title, NSString *artist, NSTimeInterval duration);   // pre-2.19 cache names

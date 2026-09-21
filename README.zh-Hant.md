@@ -107,8 +107,11 @@ sudo apt install gzip
   每個來源各自的結果(例如 `LRCLIB 3 timed, duration off by 41s · NetEase nothing under this title`;
   nothing under this title 是資料庫沒有條目、duration off 是時長對不上、will retry 是網路沒回應)。
   「Quit app on change」在每次改設定時直接結束宿主 App,平常用不到,因為所有設定本來就即時生效。
-  「Clear lyrics cache」把所有 App 下載過的歌詞刪掉。
+  「Clear lyrics cache」把所有 App 下載過的歌詞刪掉。「Spotify Connect 曲名修正」(預設開)把 Spotify 在其他裝置播放時
+  回報的「曲名 • 演出者」加「正在用某裝置播放」拆回真正的曲名和演出者,查詢和快取檔名才會正常。
 - **About** —— 目前安裝的版本。
+- **套用**(右上角)—— 把有開 NowLyrics 的播放器結束,讓它們用目前設定重新啟動。平常用不到,
+  因為設定本來就即時生效;它是「改設定時結束 App」的手動版。
 
 改動設定會發 Darwin 通知 `app.nowlyrics/ReloadPrefs`,tweak 收到後即時重載,不必重開 App。
 改了來源會順便清掉記憶體快取,磁碟快取保留。
