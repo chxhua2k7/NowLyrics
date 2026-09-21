@@ -270,6 +270,8 @@
 			<integer>1</integer>
 			<key>cell</key>
 			<string>PSEditTextCell</string>
+			<key>cellClass</key>
+			<string>NLEditTextCell</string>
 			<key>defaults</key>
 			<string>app.nowlyrics</string>
 			<key>iconColor</key>
@@ -292,6 +294,8 @@
 			<integer>1</integer>
 			<key>cell</key>
 			<string>PSEditTextCell</string>
+			<key>cellClass</key>
+			<string>NLEditTextCell</string>
 			<key>defaults</key>
 			<string>app.nowlyrics</string>
 			<key>iconColor</key>
