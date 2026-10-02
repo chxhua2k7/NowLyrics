@@ -51,8 +51,10 @@ static void NLIFileLog(NSString *format, ...) {
     [h closeFile];
 }
 #define NLI_LOG(...) NLIFileLog(__VA_ARGS__)
+#define NLI_DEBUG_HOOKS 1
 #else
 #define NLI_LOG(...) do {} while (0)
+#define NLI_DEBUG_HOOKS 0
 #endif
 
 // The pill. Its content view is what SpringBoard scales (a transform against a
@@ -450,7 +452,7 @@ static void NLIslandMeasureExtra(UIView *pill) {
     if (line < 30) line = compactBottom + 11;
     CGFloat extra = MIN(MAX(round((line - compactBottom) * 2) / 2, 0), 30);
     if (fabs(extra - gExtra) < 0.5) return;
-    NSLog(@"[NowLyricsIsland] island grows %.1f -> %.1f pt (line %.1f, compact bottom %.1f)", gExtra, extra, line, compactBottom);
+    NLI_LOG(@"island grows %.1f -> %.1f pt (line %.1f, compact bottom %.1f)", gExtra, extra, line, compactBottom);
     gExtra = extra;
     dispatch_async(dispatch_get_main_queue(), ^{ NLIslandInvalidateHeight(); });
 }
@@ -686,13 +688,16 @@ static void NLIslandInvalidateHeight(void) {
 }
 %end
 
-#ifdef NLI_FILELOG
+// Probes for the NLI_FILELOG builds. Logos ignores #ifdef, so the group is
+// always compiled and only installed (%init) when NLI_DEBUG_HOOKS is 1.
 @interface SBSAElementContextMutator : NSObject
 @end
 
 static NSString *NLIInsets(NSDirectionalEdgeInsets i) {
     return [NSString stringWithFormat:@"{t %.1f l %.1f b %.1f r %.1f}", i.top, i.leading, i.bottom, i.trailing];
 }
+
+%group NLIDebug
 
 %hook SBSystemApertureViewController
 - (NSDirectionalEdgeInsets)preferredEdgeOutsetsForLayoutMode:(NSInteger)mode suggestedOutsets:(NSDirectionalEdgeInsets)suggested maximumOutsets:(NSDirectionalEdgeInsets)maximum forTargetWithOverrider:(id)overrider isDefaultValue:(BOOL *)isDefault {
@@ -715,7 +720,8 @@ static NSString *NLIInsets(NSDirectionalEdgeInsets i) {
     if (![seen containsObject:key] && seen.count < 40) { [seen addObject:key]; NLI_LOG(@"SBSA setPreferredEdgeOutsets %@ on %@", key, self); }
 }
 %end
-#endif
+
+%end
 
 %hook SBMediaController
 - (void)_mediaRemoteNowPlayingInfoDidChange:(id)notification {
@@ -743,6 +749,9 @@ static void NLIslandPrefsChanged(CFNotificationCenterRef center, void *observer,
         if (!objc_getClass("SBSystemApertureSceneElement")) return;   // no Dynamic Island support in this iOS
         gSettings = NLIslandReadSettings();
         NLI_LOG(@"loaded on=%d fontSize=%.1f", gSettings.on, gSettings.fontSize);
+        if (NLI_DEBUG_HOOKS) {
+            %init(NLIDebug);
+        }
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, NLIslandPrefsChanged,
                                         (__bridge CFStringRef)kNLReloadNotification, NULL,
                                         CFNotificationSuspensionBehaviorCoalesce);
