@@ -299,6 +299,107 @@ BOOL NLHasContent(NSArray<NLLyricLine *> *lines) {
     return NO;
 }
 
+#pragma mark - Chorus
+
+static const NSUInteger kNLChorusMaxLines = 400;   // beyond this it is not a song, skip the O(n²) table
+static const NSUInteger kNLChorusMinLines = 2;
+static const NSUInteger kNLChorusMinChars = 12;    // after normalising; keeps "oh / yeah" pairs out
+static const NSUInteger kNLChorusMaxBridge = 2;    // lines between two occurrences that still make them one chorus...
+static const NSTimeInterval kNLChorusMaxBridgeTime = 10.0;   // ...as long as they are a tag, not a short verse
+
+// What makes two lines "the same": case, punctuation, spacing and bracketed
+// backing vocals ("(yeah)", "（合）") do not count.
+static NSString *NLChorusNormalize(NSString *text) {
+    static NSRegularExpression *brackets = nil;
+    static NSCharacterSet *drop = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        brackets = [NSRegularExpression regularExpressionWithPattern:@"[\\(（\\[【][^\\)）\\]】]*[\\)）\\]】]"
+                                                             options:0
+                                                               error:nil];
+        NSMutableCharacterSet *keep = [NSMutableCharacterSet letterCharacterSet];
+        [keep formUnionWithCharacterSet:[NSCharacterSet decimalDigitCharacterSet]];
+        drop = [keep invertedSet];
+    });
+    if (text.length == 0) return @"";
+    NSString *s = [brackets stringByReplacingMatchesInString:text options:0
+                                                       range:NSMakeRange(0, text.length) withTemplate:@""];
+    return [[[s lowercaseString] componentsSeparatedByCharactersInSet:drop] componentsJoinedByString:@""];
+}
+
+// The chorus is taken to be the run of consecutive lines that repeats the most,
+// weighted by how much text it holds: a single repeated line is too easily a
+// hook or an ad-lib, a block of them almost never is. The count is squared so
+// that a verse plus chorus sung twice does not beat the chorus alone sung four
+// times. A chorus that repeats inside itself shows up as occurrences a line or
+// two apart; those are one chorus with one start.
+void NLMarkChorus(NSArray<NLLyricLine *> *lines) {
+    NSUInteger n = lines.count;
+    for (NLLyricLine *line in lines) { line.chorus = NO; line.chorusStart = NO; }
+    if (n < kNLChorusMinLines * 2 || n > kNLChorusMaxLines) return;
+
+    NSMutableArray<NSString *> *norm = [NSMutableArray arrayWithCapacity:n];
+    for (NLLyricLine *line in lines) [norm addObject:NLChorusNormalize(line.text)];
+
+    // run[i*(n+1)+j]: how many lines match going forward from i and j. Blank
+    // lines never match, so a block cannot span an instrumental break.
+    NSUInteger w = n + 1;
+    uint16_t *run = calloc(w * w, sizeof(uint16_t));
+    if (!run) return;
+    for (NSInteger i = n - 1; i >= 0; i--) {
+        for (NSInteger j = n - 1; j >= 0; j--) {
+            if (i == j || norm[i].length == 0 || ![norm[i] isEqualToString:norm[j]]) continue;
+            run[i * w + j] = run[(i + 1) * w + (j + 1)] + 1;
+        }
+    }
+
+    NSUInteger bestStart = 0, bestLen = 0, bestCount = 0, bestScore = 0;
+    for (NSUInteger i = 0; i < n; i++) {
+        // Longest block starting at i that appears again somewhere without overlapping itself.
+        NSUInteger maxLen = 0;
+        for (NSUInteger j = i + 1; j < n; j++) {
+            maxLen = MAX(maxLen, MIN((NSUInteger)run[i * w + j], j - i));
+        }
+
+        NSUInteger chars = 0;
+        for (NSUInteger len = 1; len <= maxLen; len++) {
+            chars += norm[i + len - 1].length;
+            if (len < kNLChorusMinLines || chars < kNLChorusMinChars) continue;
+
+            NSUInteger count = 0;
+            for (NSUInteger k = 0; k + len <= n; ) {
+                if (k == i || run[i * w + k] >= len) { count++; k += len; }
+                else k++;
+            }
+            NSUInteger score = count * count * chars;
+            if (count >= 2 && (score > bestScore || (score == bestScore && count > bestCount))) {
+                bestStart = i; bestLen = len; bestCount = count; bestScore = score;
+            }
+        }
+    }
+
+    if (bestLen) {
+        NSUInteger prevEnd = NSNotFound;   // one past the last line of the previous occurrence
+        for (NSUInteger k = 0; k + bestLen <= n; ) {
+            if (k == bestStart || run[bestStart * w + k] >= bestLen) {
+                BOOL continues = (prevEnd != NSNotFound && k - prevEnd <= kNLChorusMaxBridge &&
+                                  (k == prevEnd || lines[k].start - lines[prevEnd].start <= kNLChorusMaxBridgeTime));
+                for (NSUInteger m = prevEnd; continues && m < k; m++) {
+                    if (lines[m].text.length == 0) continues = NO;   // a break in between: a new chorus
+                }
+                NSUInteger from = continues ? prevEnd : k;
+                for (NSUInteger m = from; m < k + bestLen; m++) lines[m].chorus = YES;
+                if (!continues) lines[k].chorusStart = YES;
+                k += bestLen;
+                prevEnd = k;
+            } else {
+                k++;
+            }
+        }
+    }
+    free(run);
+}
+
 #pragma mark - Manual overrides
 
 // Matching is string-based, so live takes, remasters and obscure tracks will fail

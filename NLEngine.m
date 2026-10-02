@@ -121,8 +121,8 @@ void NLEngineCancelFlip(void) {
 }
 
 // Lines are sorted, so binary search for the last one at or before the position.
-static NSString *NLLineAt(NSArray<NLLyricLine *> *lines, NSTimeInterval position,
-                          NSTimeInterval *nextStart, NSString **nextText) {
+static NLLyricLine *NLLineAt(NSArray<NLLyricLine *> *lines, NSTimeInterval position,
+                             NSTimeInterval *nextStart, NSString **nextText) {
     NSTimeInterval cutoff = position + kNLMargin;
     NSUInteger lo = 0, hi = lines.count;
     while (lo < hi) {
@@ -139,7 +139,7 @@ static NSString *NLLineAt(NSArray<NLLyricLine *> *lines, NSTimeInterval position
     for (NSUInteger i = lo; i < lines.count; i++) {
         if (lines[i].text.length) { *nextText = lines[i].text; break; }
     }
-    return (lo > 0) ? lines[lo - 1].text : nil;
+    return (lo > 0) ? lines[lo - 1] : nil;
 }
 
 typedef NS_ENUM(NSInteger, NLShow) {
@@ -174,7 +174,8 @@ static NLShow NLCompose(NLSettings *s, NSString **outTitle, NSString **outArtist
     }
 
     NSString *nextText = nil;
-    NSString *line = NLLineAt(lines, *outLookup, outNextStart, &nextText);
+    NLLyricLine *current = NLLineAt(lines, *outLookup, outNextStart, &nextText);
+    NSString *line = current.text;
 
     // Intros and instrumental breaks are empty lines; show the track title there.
     NSString *display = line.length ? line : gTrackTitle;
@@ -198,6 +199,11 @@ static NLShow NLCompose(NLSettings *s, NSString **outTitle, NSString **outArtist
 
     if (s.diagnostics) {
         NSString *status = NLStatusForKey(gTrackKey);
+        // Where the chorus detection thinks we are; ▶ marks the moment a chorus begins.
+        if (current.chorus) {
+            NSString *mark = current.chorusStart ? @"♪ chorus ▶" : @"♪ chorus";
+            status = status.length ? [status stringByAppendingFormat:@"  ·  %@", mark] : mark;
+        }
         if (status.length) {
             credit = credit.length ? [credit stringByAppendingFormat:@"  ·  %@", status] : status;
         }
@@ -259,6 +265,12 @@ static void NLRequestLyrics(NSString *key, NSString *title, NSString *artist,
             lines = nil;
         }
         NLLog(@"%@ → %lu lines (%@)", key, (unsigned long)lines.count, source);
+
+        // Before the lines go into the shared cache, while nothing else can see them.
+        NLMarkChorus(lines);
+        for (NLLyricLine *line in lines) {
+            if (line.chorusStart) NLLog(@"chorus start @ %.1f: %@", line.start, line.text);
+        }
 
         NSString *status = transient ? [source stringByAppendingString:@" (will retry)"] : (source ?: @"unknown");
         NLStoreResult(key, lines, status, transient);

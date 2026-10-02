@@ -26,6 +26,8 @@
 @interface NLLyricLine : NSObject
 @property (nonatomic, assign) NSTimeInterval start;
 @property (nonatomic, copy) NSString *text;
+@property (nonatomic, assign) BOOL chorus;        // inside the block NLMarkChorus() picked
+@property (nonatomic, assign) BOOL chorusStart;   // first line of one occurrence of it
 @end
 
 // What to put in the artist field while a lyric line occupies the title.
@@ -93,6 +95,7 @@ NSString *NLLegacyTrackKey(NSString *title, NSString *artist, NSTimeInterval dur
 NSArray<NLLyricLine *> *NLParseLRC(NSString *lrc);
 NSString *NLLinesToLRC(NSArray<NLLyricLine *> *lines);
 BOOL NLHasContent(NSArray<NLLyricLine *> *lines);   // at least two sung lines
+void NLMarkChorus(NSArray<NLLyricLine *> *lines);   // sets chorus/chorusStart; leaves them NO when nothing repeats
 NSString *NLCachePath(NSString *key);
 NSArray<NLLyricLine *> *NLManualLyrics(NSString *title, NSString *artist);
 BOOL NLClearCacheIfRequested(NSTimeInterval requestedAt);   // deletes cached files older than the request; YES if any went
