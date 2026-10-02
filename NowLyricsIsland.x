@@ -6,8 +6,13 @@
 //  - Height: -[SBSystemApertureSceneElement preferredEdgeOutsetsForLayoutMode:
 //    suggestedOutsets:maximumOutsets:] is asked for the now-playing element's
 //    frame; in compact layout (SpringBoard's mode 2; MediaRemoteUI numbers it 3)
-//    its bottom outset is pushed down. Outsets are negative outwards, and
-//    SpringBoard validates and animates the result like any element's own.
+//    its bottom outset is pushed down until the island ends exactly on the
+//    status bar's line (the top safe-area inset), never past it. Outsets are
+//    negative outwards, and SpringBoard validates and animates the result like
+//    any element's own.
+//  - Width: the line sits between the artwork and the waveform, under the
+//    camera, whose widths are the compact outsets SpringBoard computes. That
+//    keeps it clear of artwork-spinning tweaks too.
 //  - Strip: hung in the island's black pill (SBSystemApertureContainerView),
 //    found from the view SpringBoard hands to -_layoutSceneViewInContainerView:.
 //    That view only carries MediaRemoteUI's scene, and inside MediaRemoteUI only
@@ -32,29 +37,30 @@
 @end
 
 @interface SBSystemApertureViewController : UIViewController
+@property (readonly, nonatomic) CGRect minimumSensorRegionFrame;
 - (void)preferredEdgeOutsetsDidInvalidateForLayoutSpecifier:(id)specifier;
 @end
 
 static NSString *const kNLPrefsDomain = @"app.nowlyrics";
 static NSString *const kNLReloadNotification = @"app.nowlyrics/ReloadPrefs";
 static const NSInteger kNLCompactLayoutMode = 2;   // SpringBoard's numbering
-static const CGFloat kNLSideInset = 14;           // minimum, on a pill tall enough to have straight sides there
-static const CGFloat kNLCurvePadding = 5;          // kept clear of the rounded ends
-static const CGFloat kNLBottomGap = 5;             // between the strip and the pill's rounded bottom
+// The added band is only ~11 pt and a line's box (its font's line height) is
+// taller, so the box hangs 1 pt past the island's bottom: that point is line
+// spacing, never ink, and the capsule clip takes it. The text then sits in the
+// middle of the band instead of on the camera's edge.
+static const CGFloat kNLBottomGap = -1;
 
 #pragma mark - Settings
 
 typedef struct {
     BOOL on;
-    CGFloat height;      // pt added under the compact island
     CGFloat fontSize;
-    CGFloat offset;      // pt, positive moves the line down
     BOOL artworkColor;
     BOOL scrollUp;       // line change pushes up instead of fading
     CGFloat speed;       // marquee, pt/s
 } NLIslandSettings;
 
-static NLIslandSettings gSettings = { NO, 14, 11, 0, NO, NO, 30 };
+static NLIslandSettings gSettings = { NO, 11, NO, NO, 30 };
 
 static CGFloat NLNum(NSDictionary *prefs, NSString *key, CGFloat fallback, CGFloat lo, CGFloat hi) {
     id v = prefs[key];
@@ -77,9 +83,7 @@ static NLIslandSettings NLIslandReadSettings(void) {
     }
     NLIslandSettings s;
     s.on = NLBool(prefs, @"enabled", YES) && NLBool(prefs, @"islandLyrics", NO);
-    s.height = round(NLNum(prefs, @"islandHeight", 14, 8, 24));
     s.fontSize = NLNum(prefs, @"islandFontSize", 11, 9, 15);
-    s.offset = NLNum(prefs, @"islandOffset", 0, -6, 6);
     s.artworkColor = [prefs[@"islandColor"] isEqual:@"artwork"];
     s.scrollUp = [prefs[@"islandTransition"] isEqual:@"up"];
     s.speed = NLNum(prefs, @"islandMarqueeSpeed", 30, 10, 80);
@@ -91,6 +95,15 @@ static NLIslandSettings NLIslandReadSettings(void) {
 static __weak SBSystemApertureViewController *gApertureVC = nil;
 static __weak SBSystemApertureSceneElement *gElement = nil;
 static __weak UIView *gSceneContainer = nil;   // as handed to -_layoutSceneViewInContainerView:
+
+// Geometry. gExtra is what the island is grown by: the distance from the
+// compact island's bottom to the status bar's line, measured once the pill is
+// on screen (11 pt on a 14 Pro until then). The side widths are SpringBoard's
+// own compact outsets: artwork on the leading side, waveform on the trailing.
+static CGFloat gExtra = 11;
+static CGFloat gLeadingWidth = 34;
+static CGFloat gTrailingWidth = 30;
+static const CGFloat kNLContentGap = 4;   // between the line and the artwork or waveform
 
 static NSString *gTitle = nil;
 static UIColor *gArtworkColor = nil;
@@ -112,9 +125,10 @@ static UIView *NLPillFor(UIView *view) {
 
 #pragma mark - Strip view
 
-// A clipping strip with the line in it. Lines too wide for the strip scroll
-// back and forth at the set speed, with the edges faded so the text does not
-// end in a hard cut.
+// A clipping strip with the line in it. Line changes animate an inner content
+// view, so a pushed-out line is cut at the strip's edge instead of sliding over
+// the artwork. Lines too wide for the strip scroll back and forth at the set
+// speed, with the edges faded so the text does not end in a hard cut.
 @interface NLIslandStripView : UIView
 @property (nonatomic, readonly) UILabel *label;
 - (void)setText:(NSString *)text scrollUp:(BOOL)scrollUp;
@@ -122,6 +136,7 @@ static UIView *NLPillFor(UIView *view) {
 @end
 
 @implementation NLIslandStripView {
+    UIView *_content;
     UILabel *_label;
     CAGradientLayer *_fade;
     CGFloat _speed;
@@ -133,10 +148,13 @@ static UIView *NLPillFor(UIView *view) {
     if ((self = [super initWithFrame:frame])) {
         self.clipsToBounds = YES;
         self.userInteractionEnabled = NO;
+        _content = [[UIView alloc] initWithFrame:self.bounds];
+        _content.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        [self addSubview:_content];
         _label = [UILabel new];
         _label.textAlignment = NSTextAlignmentCenter;
         _label.lineBreakMode = NSLineBreakByClipping;
-        [self addSubview:_label];
+        [_content addSubview:_label];
         _fade = [CAGradientLayer layer];
         _fade.startPoint = CGPointMake(0, 0.5);
         _fade.endPoint = CGPointMake(1, 0.5);
@@ -157,29 +175,60 @@ static UIView *NLPillFor(UIView *view) {
 }
 
 - (void)setText:(NSString *)text scrollUp:(BOOL)scrollUp {
-    if ([text isEqualToString:_label.text ?: @""]) return;
-    CATransition *t = [CATransition animation];
-    t.duration = scrollUp ? 0.3 : 0.25;
-    t.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
-    if (scrollUp) {
-        t.type = kCATransitionPush;
-        t.subtype = kCATransitionFromTop;   // UIKit's flipped layers: the new line rises from below
-    } else {
+    NSString *old = _label.text ?: @"";
+    if ([text isEqualToString:old]) return;
+    if (!scrollUp || old.length == 0 || CGRectIsEmpty(_content.bounds)) {
+        CATransition *t = [CATransition animation];
         t.type = kCATransitionFade;
+        t.duration = 0.25;
+        [_content.layer addAnimation:t forKey:@"line"];
+        _label.text = text;
+        [self restartMarquee];
+        return;
     }
-    [self.layer addAnimation:t forKey:@"line"];
+
+    // Scroll up, done by hand: the old line rises a full line height and fades
+    // while the new one comes up from a full line height below. Core Animation's
+    // push transition slides snapshots of the whole layer and, in a strip this
+    // short, the two lines ran into each other halfway.
+    UILabel *leaving = [UILabel new];
+    leaving.font = _label.font;
+    leaving.textColor = _label.textColor;
+    leaving.textAlignment = _label.textAlignment;
+    leaving.lineBreakMode = _label.lineBreakMode;
+    leaving.text = old;
+    leaving.frame = _label.layer.presentationLayer ? _label.layer.presentationLayer.frame : _label.frame;
+    [_content addSubview:leaving];
+
     _label.text = text;
     [self restartMarquee];
+    CGFloat shift = _content.bounds.size.height;
+    _label.transform = CGAffineTransformMakeTranslation(0, shift);
+    _label.alpha = 0;
+    [UIView animateWithDuration:0.3 delay:0 options:UIViewAnimationOptionCurveEaseInOut animations:^{
+        leaving.transform = CGAffineTransformMakeTranslation(0, -shift);
+        leaving.alpha = 0;
+        self->_label.transform = CGAffineTransformIdentity;
+        self->_label.alpha = 1;
+    } completion:^(BOOL finished) {
+        [leaving removeFromSuperview];
+    }];
 }
 
+// The width changes all through SpringBoard's resize animations. Restarting the
+// marquee on every step would make the line jump, so wait until it settles;
+// meanwhile the label keeps its frame and the strip just clips it.
 - (void)layoutSubviews {
     [super layoutSubviews];
-    if (self.bounds.size.width != _laidOutWidth) [self restartMarquee];
+    if (self.bounds.size.width == _laidOutWidth) return;
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(restartMarquee) object:nil];
+    [self performSelector:@selector(restartMarquee) withObject:nil afterDelay:0.4];
 }
 
 - (void)restartMarquee {
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(restartMarquee) object:nil];
     [_label.layer removeAnimationForKey:@"marquee"];
-    CGRect b = self.bounds;
+    CGRect b = _content.bounds;
     _laidOutWidth = b.size.width;
     _laidOutText = _label.text;
     CGFloat textWidth = ceil([_label sizeThatFits:CGSizeMake(CGFLOAT_MAX, b.size.height)].width);
@@ -214,8 +263,76 @@ static UIView *NLPillFor(UIView *view) {
 
 @end
 
+// Pill-sized and clipped to the capsule, so nothing escapes the black. It
+// follows the pill through autoresizing.
+//
+// While SpringBoard resizes the pill a lot (expanding and collapsing, app
+// launches) the artwork and waveform grow and move on springs of their own, so
+// a line kept at fixed margins visibly drifts against them. On such a change
+// the line fades out quickly and comes back, laid out for the final size, once
+// the pill has held still for a moment. Small changes (the waveform's width,
+// the tail of a spring) are left to autoresizing: hiding for those made the
+// line blink off and on right after a collapse.
+static void NLIslandUpdate(void);
+static const NSTimeInterval kNLSettleDelay = 0.5;
+static const CGFloat kNLSmallResize = 4;   // pt either way that do not count as a resize
+
+@interface NLIslandClipView : UIView
+@property (nonatomic, weak) UIView *content;   // what steps out during a resize
+@end
+
+@implementation NLIslandClipView {
+    CGSize _settledSize;
+    BOOL _settlePending;   // stepped out, waiting for the pill to hold still
+}
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    if ((self = [super initWithFrame:frame])) {
+        self.userInteractionEnabled = NO;
+        self.clipsToBounds = YES;
+        self.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        self.layer.cornerCurve = kCACornerCurveCircular;
+    }
+    return self;
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    self.layer.cornerRadius = MIN(self.bounds.size.width, self.bounds.size.height) / 2;
+    CGSize size = self.bounds.size;
+    if (CGSizeEqualToSize(_settledSize, CGSizeZero)) {
+        _settledSize = size;
+        return;
+    }
+    if (CGSizeEqualToSize(size, _settledSize)) return;
+    CGFloat change = MAX(fabs(size.width - _settledSize.width), fabs(size.height - _settledSize.height));
+    // Only a pending return counts as waiting. The fade back in does not: the
+    // tail of a collapse keeps narrowing the pill by fractions of a point for
+    // a while, and treating those as a resize during the fade-in sent the line
+    // straight back out (a blink right after it reappeared).
+    BOOL waiting = _settlePending;
+    if (change <= kNLSmallResize && !waiting) {
+        _settledSize = size;
+        return;
+    }
+    [UIView animateWithDuration:0.1 delay:0 options:UIViewAnimationOptionBeginFromCurrentState
+                     animations:^{ self.content.alpha = 0; } completion:nil];
+    _settlePending = YES;
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(settle) object:nil];
+    [self performSelector:@selector(settle) withObject:nil afterDelay:kNLSettleDelay];
+}
+
+- (void)settle {
+    _settlePending = NO;
+    _settledSize = self.bounds.size;
+    [UIView performWithoutAnimation:^{ NLIslandUpdate(); }];   // final frames, no tween
+    [UIView animateWithDuration:0.2 delay:0 options:UIViewAnimationOptionBeginFromCurrentState
+                     animations:^{ self.content.alpha = 1; } completion:nil];
+}
+@end
+
 static NLIslandStripView *gStrip = nil;
-static UIView *gClip = nil;   // pill-sized, masked to the capsule: nothing escapes the black
+static NLIslandClipView *gClip = nil;
 
 #pragma mark - Album color
 
@@ -255,48 +372,86 @@ static UIColor *NLTextColor(void) {
     return [UIColor colorWithWhite:1 alpha:0.92];
 }
 
+static void NLIslandInvalidateHeight(void);
+
+// Where the island should end: the top safe-area inset, the line apps start
+// their content under. SpringBoard's own windows may report none, so the
+// pill's window, the key window and a 14 Pro default are tried in turn.
+//
+// The compact island ends where the camera's sensor region ends, a fixed
+// rectangle; measuring the pill instead fed back into itself (the pill had not
+// taken the last height yet) and the island kept resizing by half points.
+static void NLIslandMeasureExtra(UIView *pill) {
+    SBSystemApertureViewController *vc = gApertureVC;
+    if (!pill.window || !vc.isViewLoaded || ![vc respondsToSelector:@selector(minimumSensorRegionFrame)]) return;
+    CGRect sensor = vc.minimumSensorRegionFrame;
+    if (CGRectIsEmpty(sensor)) return;
+    CGFloat compactBottom = CGRectGetMaxY([vc.view convertRect:sensor toCoordinateSpace:vc.view.window.screen.coordinateSpace]);
+
+    CGFloat line = pill.window.safeAreaInsets.top;
+    if (line < 30) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        line = UIApplication.sharedApplication.keyWindow.safeAreaInsets.top;
+#pragma clang diagnostic pop
+    }
+    if (line < 30) line = compactBottom + 11;
+    CGFloat extra = MIN(MAX(round((line - compactBottom) * 2) / 2, 0), 30);
+    if (fabs(extra - gExtra) < 0.5) return;
+    NSLog(@"[NowLyricsIsland] island grows %.1f -> %.1f pt (line %.1f, compact bottom %.1f)", gExtra, extra, line, compactBottom);
+    gExtra = extra;
+    dispatch_async(dispatch_get_main_queue(), ^{ NLIslandInvalidateHeight(); });
+}
+
 static void NLIslandUpdate(void) {
     UIView *pill = NLPillFor(gSceneContainer);
     SBSystemApertureSceneElement *element = gElement;
     BOOL compact = [element respondsToSelector:@selector(layoutMode)] && element.layoutMode == kNLCompactLayoutMode;
     BOOL show = gSettings.on && pill && compact && gTitle.length > 0;
     if (!show) {
-        gClip.hidden = YES;
+        // Faded rather than hidden: this often runs at the start of a resize
+        // animation, and a strip vanishing in one frame reads as a flash.
+        if (gClip.superview && gClip.alpha > 0) {
+            [UIView animateWithDuration:0.2 delay:0 options:UIViewAnimationOptionBeginFromCurrentState
+                             animations:^{ gClip.alpha = 0; } completion:nil];
+        }
         return;
     }
     if (!gClip) {
-        gClip = [UIView new];
-        gClip.userInteractionEnabled = NO;
-        gClip.layer.mask = [CAShapeLayer layer];
+        gClip = [[NLIslandClipView alloc] initWithFrame:CGRectZero];
         gStrip = [[NLIslandStripView alloc] initWithFrame:CGRectZero];
+        gStrip.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;   // stays on the bottom edge
         [gClip addSubview:gStrip];
+        gClip.content = gStrip;
     }
-    if (gClip.superview != pill) [pill addSubview:gClip];
-    else if (pill.subviews.lastObject != gClip) [pill bringSubviewToFront:gClip];
+    BOOL fresh = gClip.superview != pill;
+    if (fresh) {
+        gClip.alpha = 0;
+        [pill addSubview:gClip];
+    } else if (pill.subviews.lastObject != gClip) {
+        [pill bringSubviewToFront:gClip];
+    }
 
-    // The pill is a capsule, so near its bottom the rounded ends eat into the
-    // width. Inset the strip to where the circle is at the bottom of the text,
-    // the lowest point that has to stay inside.
+    // The line's box sits on the island's bottom edge, between the artwork and
+    // the waveform; the camera above it is the only thing it shares rows with.
+    // It is as tall as the font needs.
     CGRect b = pill.bounds;
-    CGFloat h = gSettings.height;
-    CGFloat y = CGRectGetHeight(b) - h - kNLBottomGap + gSettings.offset;
-    CGFloat r = MIN(CGRectGetWidth(b), CGRectGetHeight(b)) / 2;
-    CGFloat lineHeight = [UIFont systemFontOfSize:gSettings.fontSize weight:UIFontWeightSemibold].lineHeight;
-    CGFloat textBottom = y + (h + MIN(lineHeight, h)) / 2;
-    CGFloat fromEdge = MAX(CGRectGetHeight(b) - textBottom, 0);   // distance above the pill's bottom
-    CGFloat inset = kNLSideInset;
-    if (fromEdge < r) {
-        CGFloat dy = r - fromEdge;
-        inset = MAX(inset, r - sqrt(MAX(r * r - dy * dy, 0)) + kNLCurvePadding);
+    CGFloat h = MIN(ceil([UIFont systemFontOfSize:gSettings.fontSize weight:UIFontWeightSemibold].lineHeight), CGRectGetHeight(b));
+    CGFloat y = CGRectGetHeight(b) - h - kNLBottomGap;
+    CGFloat left = gLeadingWidth + kNLContentGap;
+    CGFloat right = gTrailingWidth + kNLContentGap;
+    CGRect strip = CGRectMake(left, y, MAX(CGRectGetWidth(b) - left - right, 0), h);
+    if (fresh || [UIView inheritedAnimationDuration] <= 0) {
+        if (!CGRectEqualToRect(gClip.frame, b)) gClip.frame = b;
+        if (!CGRectEqualToRect(CGRectIntegral(gStrip.frame), CGRectIntegral(strip))) gStrip.frame = strip;
+        NLIslandMeasureExtra(pill);
     }
-    if (!CGRectEqualToRect(gClip.frame, b)) {
-        gClip.frame = b;
-        ((CAShapeLayer *)gClip.layer.mask).path = [UIBezierPath bezierPathWithRoundedRect:b cornerRadius:r].CGPath;
-    }
-    gStrip.frame = CGRectMake(inset, y, MAX(CGRectGetWidth(b) - inset * 2, 0), h);
     [gStrip applyFontSize:gSettings.fontSize color:NLTextColor() speed:gSettings.speed];
     [gStrip setText:gTitle scrollUp:gSettings.scrollUp];
-    gClip.hidden = NO;
+    if (gClip.alpha < 1) {
+        [UIView animateWithDuration:0.2 delay:0 options:UIViewAnimationOptionBeginFromCurrentState
+                         animations:^{ gClip.alpha = 1; } completion:nil];
+    }
 }
 
 static void NLIslandRefreshInfo(void) {
@@ -353,8 +508,10 @@ static void NLIslandInvalidateHeight(void) {
     NSDirectionalEdgeInsets outsets = %orig;
     if (!NLIsNowPlaying(self)) return outsets;
     gElement = self;
-    if (gSettings.on && mode == kNLCompactLayoutMode) {
-        outsets.bottom = MAX(outsets.bottom - gSettings.height, maximum.bottom);
+    if (mode == kNLCompactLayoutMode) {
+        if (outsets.leading < 0) gLeadingWidth = -outsets.leading;
+        if (outsets.trailing < 0) gTrailingWidth = -outsets.trailing;
+        if (gSettings.on) outsets.bottom = MAX(outsets.bottom - gExtra, maximum.bottom);
     }
     return outsets;
 }
@@ -381,7 +538,7 @@ static void NLIslandPrefsChanged(CFNotificationCenterRef center, void *observer,
                                  CFStringRef name, const void *object, CFDictionaryRef userInfo) {
     NLIslandSettings now = NLIslandReadSettings();
     dispatch_async(dispatch_get_main_queue(), ^{
-        BOOL heightChanged = now.on != gSettings.on || (now.on && now.height != gSettings.height);
+        BOOL heightChanged = now.on != gSettings.on;
         BOOL colorChanged = now.artworkColor != gSettings.artworkColor;
         gSettings = now;
         if (colorChanged) gArtworkHash = 0;   // fetch the artwork again

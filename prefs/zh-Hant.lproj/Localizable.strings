@@ -42,10 +42,7 @@
 "Line change" = "換行動畫";
 "Fade" = "淡入淡出";
 "Scroll up" = "向上捲動";
-"Strip height" = "歌詞列高度";
 "Font size" = "字體大小";
-"Vertical offset" = "垂直位移";
 "Scroll speed" = "捲動速度";
-"Shows the current line in a strip under the Dynamic Island while music plays. Lines too long to fit scroll." = "播放音樂時在動態島下方多一列顯示當前歌詞，太長的句子會捲動。";
 "Appearance" = "外觀";
-"Layout" = "版面";
+"Shows the current line at the bottom of the Dynamic Island while music plays; the island grows down to the status bar’s edge. Lines too long to fit scroll." = "播放音樂時在動態島底部顯示當前歌詞，動態島會往下長到剛好貼齊狀態列。太長的句子會捲動。";

@@ -42,10 +42,7 @@
 "Line change" = "行の切り替え";
 "Fade" = "フェード";
 "Scroll up" = "上にスクロール";
-"Strip height" = "歌詞欄の高さ";
 "Font size" = "文字サイズ";
-"Vertical offset" = "上下位置";
 "Scroll speed" = "スクロール速度";
-"Shows the current line in a strip under the Dynamic Island while music plays. Lines too long to fit scroll." = "音楽の再生中、Dynamic Islandの下に現在の歌詞を1行表示します。長い行はスクロールします。";
 "Appearance" = "外観";
-"Layout" = "レイアウト";
+"Shows the current line at the bottom of the Dynamic Island while music plays; the island grows down to the status bar’s edge. Lines too long to fit scroll." = "音楽の再生中、Dynamic Islandの下部に現在の歌詞を表示します。Dynamic Islandはステータスバーの下端まで伸びます。長い行はスクロールします。";

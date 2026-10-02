@@ -8,7 +8,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Shows the current line in a strip under the Dynamic Island while music plays. Lines too long to fit scroll.</string>
+			<string>Shows the current line at the bottom of the Dynamic Island while music plays; the island grows down to the status bar’s edge. Lines too long to fit scroll.</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -102,72 +102,6 @@
 			<key>cellClass</key>
 			<string>NLOffsetCell</string>
 			<key>default</key>
-			<real>30.0</real>
-			<key>defaults</key>
-			<string>app.nowlyrics</string>
-			<key>height</key>
-			<integer>92</integer>
-			<key>iconColor</key>
-			<string>#8E8E93</string>
-			<key>iconSymbol</key>
-			<string>text.line.first.and.arrowtriangle.forward</string>
-			<key>key</key>
-			<string>islandMarqueeSpeed</string>
-			<key>label</key>
-			<string>Scroll speed</string>
-			<key>max</key>
-			<real>80.0</real>
-			<key>min</key>
-			<real>10.0</real>
-			<key>step</key>
-			<real>5.0</real>
-			<key>unit</key>
-			<string>pt/s</string>
-		</dict>
-		<dict>
-			<key>cell</key>
-			<string>PSGroupCell</string>
-			<key>label</key>
-			<string>Layout</string>
-		</dict>
-		<dict>
-			<key>PostNotification</key>
-			<string>app.nowlyrics/ReloadPrefs</string>
-			<key>cell</key>
-			<string>PSSliderCell</string>
-			<key>cellClass</key>
-			<string>NLOffsetCell</string>
-			<key>default</key>
-			<real>14.0</real>
-			<key>defaults</key>
-			<string>app.nowlyrics</string>
-			<key>height</key>
-			<integer>92</integer>
-			<key>iconColor</key>
-			<string>#5856D6</string>
-			<key>iconSymbol</key>
-			<string>arrow.up.and.down</string>
-			<key>key</key>
-			<string>islandHeight</string>
-			<key>label</key>
-			<string>Strip height</string>
-			<key>max</key>
-			<real>24.0</real>
-			<key>min</key>
-			<real>8.0</real>
-			<key>step</key>
-			<real>1.0</real>
-			<key>unit</key>
-			<string>pt</string>
-		</dict>
-		<dict>
-			<key>PostNotification</key>
-			<string>app.nowlyrics/ReloadPrefs</string>
-			<key>cell</key>
-			<string>PSSliderCell</string>
-			<key>cellClass</key>
-			<string>NLOffsetCell</string>
-			<key>default</key>
 			<real>11.0</real>
 			<key>defaults</key>
 			<string>app.nowlyrics</string>
@@ -198,27 +132,27 @@
 			<key>cellClass</key>
 			<string>NLOffsetCell</string>
 			<key>default</key>
-			<real>0.0</real>
+			<real>30.0</real>
 			<key>defaults</key>
 			<string>app.nowlyrics</string>
 			<key>height</key>
 			<integer>92</integer>
 			<key>iconColor</key>
-			<string>#FF375F</string>
+			<string>#8E8E93</string>
 			<key>iconSymbol</key>
-			<string>arrow.up.arrow.down</string>
+			<string>text.line.first.and.arrowtriangle.forward</string>
 			<key>key</key>
-			<string>islandOffset</string>
+			<string>islandMarqueeSpeed</string>
 			<key>label</key>
-			<string>Vertical offset</string>
+			<string>Scroll speed</string>
 			<key>max</key>
-			<real>6.0</real>
+			<real>80.0</real>
 			<key>min</key>
-			<real>-6.0</real>
+			<real>10.0</real>
 			<key>step</key>
-			<real>0.5</real>
+			<real>5.0</real>
 			<key>unit</key>
-			<string>pt</string>
+			<string>pt/s</string>
 		</dict>
 	</array>
 	<key>title</key>

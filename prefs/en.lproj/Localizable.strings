@@ -46,10 +46,7 @@
 "Line change" = "Line change";
 "Fade" = "Fade";
 "Scroll up" = "Scroll up";
-"Strip height" = "Strip height";
 "Font size" = "Font size";
-"Vertical offset" = "Vertical offset";
 "Scroll speed" = "Scroll speed";
-"Shows the current line in a strip under the Dynamic Island while music plays. Lines too long to fit scroll." = "Shows the current line in a strip under the Dynamic Island while music plays. Lines too long to fit scroll.";
 "Appearance" = "Appearance";
-"Layout" = "Layout";
+"Shows the current line at the bottom of the Dynamic Island while music plays; the island grows down to the status bar’s edge. Lines too long to fit scroll." = "Shows the current line at the bottom of the Dynamic Island while music plays; the island grows down to the status bar’s edge. Lines too long to fit scroll.";
