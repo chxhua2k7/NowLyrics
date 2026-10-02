@@ -10,9 +10,9 @@
 //    status bar's line (the top safe-area inset), never past it. Outsets are
 //    negative outwards, and SpringBoard validates and animates the result like
 //    any element's own.
-//  - Width: the line sits between the artwork and the waveform, under the
-//    camera, whose widths are the compact outsets SpringBoard computes. That
-//    keeps it clear of artwork-spinning tweaks too.
+//  - Width: the line is centred under the camera at the camera's width, so it
+//    stays put while the artwork and waveform change size, and clear of
+//    artwork-spinning tweaks.
 //  - Strip: hung in the island's black pill (SBSystemApertureContainerView),
 //    found from the view SpringBoard hands to -_layoutSceneViewInContainerView:.
 //    That view only carries MediaRemoteUI's scene, and inside MediaRemoteUI only
@@ -30,6 +30,13 @@
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 #import <dlfcn.h>
+
+// The pill. Its content view is what SpringBoard scales (a transform against a
+// reference size), fades (contentAlpha) and clips while the island resizes,
+// with the artwork and waveform in it; addContentSubview: puts a view there.
+@interface SBSystemApertureContainerView : UIView
+- (void)addContentSubview:(UIView *)view;
+@end
 
 @interface SBSystemApertureSceneElement : NSObject
 - (NSString *)clientIdentifier;
@@ -97,13 +104,14 @@ static __weak SBSystemApertureSceneElement *gElement = nil;
 static __weak UIView *gSceneContainer = nil;   // as handed to -_layoutSceneViewInContainerView:
 
 // Geometry. gExtra is what the island is grown by: the distance from the
-// compact island's bottom to the status bar's line, measured once the pill is
-// on screen (11 pt on a 14 Pro until then). The side widths are SpringBoard's
-// own compact outsets: artwork on the leading side, waveform on the trailing.
+// compact island's bottom to the status bar's line. gSensorWidth is the
+// camera's width; the line is centred under it at that width. Both come from
+// the fixed sensor region (14 Pro values until measured). The artwork and
+// waveform widths SpringBoard reports change across expand and collapse, and
+// a line placed between them moved sideways with every change.
 static CGFloat gExtra = 11;
-static CGFloat gLeadingWidth = 34;
-static CGFloat gTrailingWidth = 30;
-static const CGFloat kNLContentGap = 4;   // between the line and the artwork or waveform
+static CGFloat gSensorWidth = 125;
+static const CGFloat kNLContentGap = 4;   // kept clear on each side of the line
 
 static NSString *gTitle = nil;
 static UIColor *gArtworkColor = nil;
@@ -263,29 +271,14 @@ static UIView *NLPillFor(UIView *view) {
 
 @end
 
-// Pill-sized and clipped to the capsule, so nothing escapes the black. It
-// follows the pill through autoresizing.
-//
-// While SpringBoard resizes the pill a lot (expanding and collapsing, app
-// launches) the artwork and waveform grow and move on springs of their own, so
-// a line kept at fixed margins visibly drifts against them. On such a change
-// the line fades out quickly and comes back, laid out for the final size, once
-// the pill has held still for a moment. Small changes (the waveform's width,
-// the tail of a spring) are left to autoresizing: hiding for those made the
-// line blink off and on right after a collapse.
-static void NLIslandUpdate(void);
-static const NSTimeInterval kNLSettleDelay = 0.5;
-static const CGFloat kNLSmallResize = 4;   // pt either way that do not count as a resize
-
+// Content-view-sized and clipped to the capsule, so nothing escapes the black.
+// It lives in the pill's content view (see NLIslandUpdate), which SpringBoard
+// scales, fades and clips together with the artwork and waveform while the
+// island resizes, so the line needs no resize handling of its own.
 @interface NLIslandClipView : UIView
-@property (nonatomic, weak) UIView *content;   // what steps out during a resize
 @end
 
-@implementation NLIslandClipView {
-    CGSize _settledSize;
-    BOOL _settlePending;   // stepped out, waiting for the pill to hold still
-}
-
+@implementation NLIslandClipView
 - (instancetype)initWithFrame:(CGRect)frame {
     if ((self = [super initWithFrame:frame])) {
         self.userInteractionEnabled = NO;
@@ -299,35 +292,6 @@ static const CGFloat kNLSmallResize = 4;   // pt either way that do not count as
 - (void)layoutSubviews {
     [super layoutSubviews];
     self.layer.cornerRadius = MIN(self.bounds.size.width, self.bounds.size.height) / 2;
-    CGSize size = self.bounds.size;
-    if (CGSizeEqualToSize(_settledSize, CGSizeZero)) {
-        _settledSize = size;
-        return;
-    }
-    if (CGSizeEqualToSize(size, _settledSize)) return;
-    CGFloat change = MAX(fabs(size.width - _settledSize.width), fabs(size.height - _settledSize.height));
-    // Only a pending return counts as waiting. The fade back in does not: the
-    // tail of a collapse keeps narrowing the pill by fractions of a point for
-    // a while, and treating those as a resize during the fade-in sent the line
-    // straight back out (a blink right after it reappeared).
-    BOOL waiting = _settlePending;
-    if (change <= kNLSmallResize && !waiting) {
-        _settledSize = size;
-        return;
-    }
-    [UIView animateWithDuration:0.1 delay:0 options:UIViewAnimationOptionBeginFromCurrentState
-                     animations:^{ self.content.alpha = 0; } completion:nil];
-    _settlePending = YES;
-    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(settle) object:nil];
-    [self performSelector:@selector(settle) withObject:nil afterDelay:kNLSettleDelay];
-}
-
-- (void)settle {
-    _settlePending = NO;
-    _settledSize = self.bounds.size;
-    [UIView performWithoutAnimation:^{ NLIslandUpdate(); }];   // final frames, no tween
-    [UIView animateWithDuration:0.2 delay:0 options:UIViewAnimationOptionBeginFromCurrentState
-                     animations:^{ self.content.alpha = 1; } completion:nil];
 }
 @end
 
@@ -386,6 +350,7 @@ static void NLIslandMeasureExtra(UIView *pill) {
     if (!pill.window || !vc.isViewLoaded || ![vc respondsToSelector:@selector(minimumSensorRegionFrame)]) return;
     CGRect sensor = vc.minimumSensorRegionFrame;
     if (CGRectIsEmpty(sensor)) return;
+    gSensorWidth = CGRectGetWidth(sensor);
     CGFloat compactBottom = CGRectGetMaxY([vc.view convertRect:sensor toCoordinateSpace:vc.view.window.screen.coordinateSpace]);
 
     CGFloat line = pill.window.safeAreaInsets.top;
@@ -403,16 +368,69 @@ static void NLIslandMeasureExtra(UIView *pill) {
     dispatch_async(dispatch_get_main_queue(), ^{ NLIslandInvalidateHeight(); });
 }
 
+// Frames, set only from the pill's layoutSubviews (hooked below) or right
+// after attaching. That pass runs inside SpringBoard's resize animations, so
+// the line moves in the same animation as the artwork and waveform even when
+// resizes come quickly one after another; frames set from anywhere else jumped
+// to the end of whatever animation was running.
+static void NLIslandLayout(UIView *pill) {
+    UIView *host = gClip.superview;
+    if (!host || NLPillFor(host) != pill) return;
+    // The line's box sits on the island's bottom edge, between the artwork and
+    // the waveform; the camera above it is the only thing it shares rows with.
+    // It is as tall as the font needs. Measured in the content view, which is
+    // the pill's size or, while scaling, its reference size.
+    CGRect b = host.bounds;
+    CGFloat h = MIN(ceil([UIFont systemFontOfSize:gSettings.fontSize weight:UIFontWeightSemibold].lineHeight), CGRectGetHeight(b));
+    CGFloat y = CGRectGetHeight(b) - h - kNLBottomGap;
+    CGFloat width = MAX(MIN(gSensorWidth, CGRectGetWidth(b)) - kNLContentGap * 2, 0);
+    CGRect strip = CGRectMake(round((CGRectGetWidth(b) - width) / 2), y, width, h);
+    if (!CGRectEqualToRect(gClip.frame, b)) gClip.frame = b;
+    if (!CGRectEqualToRect(gStrip.frame, strip)) gStrip.frame = strip;
+    NLIslandMeasureExtra(pill);
+}
+
+static BOOL NLLayerAnimating(CALayer *layer) {
+    return layer.animationKeys.count > 0;
+}
+
+// Fades the line in once the pill has finished moving. Attached while the
+// island is still growing (playback just started, a collapse), its frames are
+// the final ones inside a pill that is not there yet, which read as the line
+// drifting into place. Polls the pill's layers rather than guessing a delay.
+static BOOL gRevealPending = NO;
+static void NLIslandRevealWhenStill(UIView *pill, int attempt) {
+    if (gRevealPending && attempt == 0) return;
+    gRevealPending = YES;
+    UIView *host = gClip.superview;
+    BOOL moving = NLLayerAnimating(pill.layer) || NLLayerAnimating(host.layer) || NLLayerAnimating(pill.superview.layer);
+    if (moving && attempt < 30) {
+        __weak UIView *weakPill = pill;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.07 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            if (!gRevealPending) return;   // hidden again meanwhile (expanded, app opened)
+            UIView *p = weakPill;
+            if (p && gClip.superview && NLPillFor(gClip.superview) == p) NLIslandRevealWhenStill(p, attempt + 1);
+            else gRevealPending = NO;
+        });
+        return;
+    }
+    gRevealPending = NO;
+    [UIView performWithoutAnimation:^{ NLIslandLayout(pill); }];
+    [UIView animateWithDuration:0.2 delay:0 options:UIViewAnimationOptionBeginFromCurrentState
+                     animations:^{ gClip.alpha = 1; } completion:nil];
+}
+
 static void NLIslandUpdate(void) {
     UIView *pill = NLPillFor(gSceneContainer);
     SBSystemApertureSceneElement *element = gElement;
     BOOL compact = [element respondsToSelector:@selector(layoutMode)] && element.layoutMode == kNLCompactLayoutMode;
     BOOL show = gSettings.on && pill && compact && gTitle.length > 0;
     if (!show) {
-        // Faded rather than hidden: this often runs at the start of a resize
-        // animation, and a strip vanishing in one frame reads as a flash.
+        // Faded rather than hidden (expanding, the app taking over): a strip
+        // vanishing in one frame reads as a flash.
+        gRevealPending = NO;
         if (gClip.superview && gClip.alpha > 0) {
-            [UIView animateWithDuration:0.2 delay:0 options:UIViewAnimationOptionBeginFromCurrentState
+            [UIView animateWithDuration:0.15 delay:0 options:UIViewAnimationOptionBeginFromCurrentState
                              animations:^{ gClip.alpha = 0; } completion:nil];
         }
         return;
@@ -422,36 +440,24 @@ static void NLIslandUpdate(void) {
         gStrip = [[NLIslandStripView alloc] initWithFrame:CGRectZero];
         gStrip.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;   // stays on the bottom edge
         [gClip addSubview:gStrip];
-        gClip.content = gStrip;
     }
-    BOOL fresh = gClip.superview != pill;
+    // In the pill's content view, next to the artwork and waveform, so the line
+    // gets exactly their scaling, fading and clipping during a resize instead
+    // of chasing the pill's frame from outside.
+    BOOL fresh = !gClip.superview || NLPillFor(gClip.superview) != pill;
     if (fresh) {
         gClip.alpha = 0;
-        [pill addSubview:gClip];
-    } else if (pill.subviews.lastObject != gClip) {
-        [pill bringSubviewToFront:gClip];
-    }
-
-    // The line's box sits on the island's bottom edge, between the artwork and
-    // the waveform; the camera above it is the only thing it shares rows with.
-    // It is as tall as the font needs.
-    CGRect b = pill.bounds;
-    CGFloat h = MIN(ceil([UIFont systemFontOfSize:gSettings.fontSize weight:UIFontWeightSemibold].lineHeight), CGRectGetHeight(b));
-    CGFloat y = CGRectGetHeight(b) - h - kNLBottomGap;
-    CGFloat left = gLeadingWidth + kNLContentGap;
-    CGFloat right = gTrailingWidth + kNLContentGap;
-    CGRect strip = CGRectMake(left, y, MAX(CGRectGetWidth(b) - left - right, 0), h);
-    if (fresh || [UIView inheritedAnimationDuration] <= 0) {
-        if (!CGRectEqualToRect(gClip.frame, b)) gClip.frame = b;
-        if (!CGRectEqualToRect(CGRectIntegral(gStrip.frame), CGRectIntegral(strip))) gStrip.frame = strip;
-        NLIslandMeasureExtra(pill);
+        if ([pill respondsToSelector:@selector(addContentSubview:)]) [(SBSystemApertureContainerView *)pill addContentSubview:gClip];
+        else [pill addSubview:gClip];
+        [UIView performWithoutAnimation:^{ NLIslandLayout(pill); }];
+    } else {
+        UIView *host = gClip.superview;
+        if (host.subviews.lastObject != gClip) [host bringSubviewToFront:gClip];
+        [pill setNeedsLayout];   // frames are only ever set in the pill's own layout pass
     }
     [gStrip applyFontSize:gSettings.fontSize color:NLTextColor() speed:gSettings.speed];
     [gStrip setText:gTitle scrollUp:gSettings.scrollUp];
-    if (gClip.alpha < 1) {
-        [UIView animateWithDuration:0.2 delay:0 options:UIViewAnimationOptionBeginFromCurrentState
-                         animations:^{ gClip.alpha = 1; } completion:nil];
-    }
+    if (gClip.alpha < 1) NLIslandRevealWhenStill(pill, 0);
 }
 
 static void NLIslandRefreshInfo(void) {
@@ -509,8 +515,6 @@ static void NLIslandInvalidateHeight(void) {
     if (!NLIsNowPlaying(self)) return outsets;
     gElement = self;
     if (mode == kNLCompactLayoutMode) {
-        if (outsets.leading < 0) gLeadingWidth = -outsets.leading;
-        if (outsets.trailing < 0) gTrailingWidth = -outsets.trailing;
         if (gSettings.on) outsets.bottom = MAX(outsets.bottom - gExtra, maximum.bottom);
     }
     return outsets;
@@ -525,6 +529,13 @@ static void NLIslandInvalidateHeight(void) {
     NLIslandUpdate();
 }
 
+%end
+
+%hook SBSystemApertureContainerView
+- (void)layoutSubviews {
+    %orig;
+    if (gClip.superview && NLPillFor(gClip.superview) == self) NLIslandLayout(self);
+}
 %end
 
 %hook SBMediaController
