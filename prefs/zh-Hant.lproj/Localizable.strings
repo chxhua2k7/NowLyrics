@@ -46,3 +46,4 @@
 "Scroll speed" = "捲動速度";
 "Appearance" = "外觀";
 "Shows the current line at the bottom of the Dynamic Island while music plays; the island grows down to the status bar’s edge. Lines too long to fit scroll." = "播放音樂時在動態島底部顯示當前歌詞，動態島會往下長到剛好貼齊狀態列。太長的句子會捲動。";
+"Hide explicit badge" = "隱藏「E」標記";

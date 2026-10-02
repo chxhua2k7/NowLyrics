@@ -46,3 +46,4 @@
 "Scroll speed" = "スクロール速度";
 "Appearance" = "外観";
 "Shows the current line at the bottom of the Dynamic Island while music plays; the island grows down to the status bar’s edge. Lines too long to fit scroll." = "音楽の再生中、Dynamic Islandの下部に現在の歌詞を表示します。Dynamic Islandはステータスバーの下端まで伸びます。長い行はスクロールします。";
+"Hide explicit badge" = "「E」マークを隠す";

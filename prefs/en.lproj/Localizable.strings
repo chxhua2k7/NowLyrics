@@ -50,3 +50,4 @@
 "Scroll speed" = "Scroll speed";
 "Appearance" = "Appearance";
 "Shows the current line at the bottom of the Dynamic Island while music plays; the island grows down to the status bar’s edge. Lines too long to fit scroll." = "Shows the current line at the bottom of the Dynamic Island while music plays; the island grows down to the status bar’s edge. Lines too long to fit scroll.";
+"Hide explicit badge" = "Hide explicit badge";

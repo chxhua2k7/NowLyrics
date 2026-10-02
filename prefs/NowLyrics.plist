@@ -166,6 +166,24 @@
 			<real>-3.0</real>
 		</dict>
 		<dict>
+			<key>PostNotification</key>
+			<string>app.nowlyrics/ReloadPrefs</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>app.nowlyrics</string>
+			<key>iconColor</key>
+			<string>#8E8E93</string>
+			<key>iconSymbol</key>
+			<string>e.square</string>
+			<key>key</key>
+			<string>hideExplicit</string>
+			<key>label</key>
+			<string>Hide explicit badge</string>
+		</dict>
+		<dict>
 			<key>cell</key>
 			<string>PSLinkCell</string>
 			<key>detail</key>

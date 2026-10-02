@@ -76,6 +76,7 @@ static BOOL NLListContains(NSString *const list[], NSString *bundleID) {
 @property (nonatomic, readwrite) BOOL killOnChange;
 @property (nonatomic, readwrite) BOOL diagnostics;
 @property (nonatomic, readwrite) BOOL spotifyConnect;
+@property (nonatomic, readwrite) BOOL hideExplicit;
 @property (nonatomic, readwrite) NSTimeInterval offset;
 @property (nonatomic, readwrite) NSTimeInterval cacheClearedAt;
 @property (nonatomic, readwrite, copy) NSString *sourceSignature;
@@ -199,6 +200,7 @@ NLSettings *NLSettingsReload(void) {
     s.killOnChange = NLBool(prefs, @"killOnChange", NO);
     s.diagnostics = NLBool(prefs, @"diagnostics", NO);
     s.spotifyConnect = NLBool(prefs, @"spotifyConnect", YES);
+    s.hideExplicit = NLBool(prefs, @"hideExplicit", NO);
     s.offset = NLNum(prefs[@"offset"], 0);
     s.cacheClearedAt = NLNum(prefs[@"cacheClearedAt"], 0);
     s.musixmatchToken = NLExtractToken(prefs[@"musixmatchToken"]);

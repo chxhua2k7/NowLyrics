@@ -59,6 +59,7 @@ typedef NS_ENUM(NSInteger, NLSource) {
 @property (nonatomic, readonly) BOOL killOnChange;
 @property (nonatomic, readonly) BOOL diagnostics;
 @property (nonatomic, readonly) BOOL spotifyConnect;   // split "Track • Artist" + "Playing on X" reported during Spotify Connect
+@property (nonatomic, readonly) BOOL hideExplicit;     // clear the explicit flag, so no "E" badge next to the line
 @property (nonatomic, readonly) NSTimeInterval offset;        // positive means lyrics appear earlier
 @property (nonatomic, readonly) NSTimeInterval cacheClearedAt; // when "Clear lyrics cache" was last tapped, 0 if never
 // Everything that invalidates lyrics already fetched, folded into one comparable string.

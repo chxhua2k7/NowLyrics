@@ -30,6 +30,7 @@
 @property (nonatomic, assign) double elapsedTime;
 @property (nonatomic, assign) float playbackRate;
 @property (nonatomic, readonly) double calculatedElapsedTime;
+@property (nonatomic, assign, getter=isExplicitItem) BOOL explicitItem;
 - (void)setElapsedTime:(double)elapsedTime playbackRate:(float)playbackRate;
 @end
 
@@ -61,6 +62,7 @@ static void NLPublishInfo(NSString *title, NSString *artist) {
     info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = @(MAX(NLEnginePosition(), 0));   // otherwise the scrubber jumps back
     if (title) info[MPMediaItemPropertyTitle] = title;
     if (artist) info[MPMediaItemPropertyArtist] = artist;
+    if (NLSettingsCurrent().hideExplicit) info[MPMediaItemPropertyIsExplicit] = @NO;   // also when switched on mid-track
     gPushedTitle = title;
     gPushedArtist = artist;
 
@@ -215,6 +217,9 @@ static void NLPublishItem(NSString *title, NSString *artist) {
 
     NSString *wantTitle = title ?: NLItemGet(item, &kNLRealTitleKey);
     NSString *wantArtist = artist ?: NLItemGet(item, &kNLRealArtistKey);
+    if (NLSettingsCurrent().hideExplicit && [item respondsToSelector:@selector(isExplicitItem)] && item.isExplicitItem) {
+        item.explicitItem = NO;
+    }
     BOOL writeTitle = NLItemNeedsWrite(item, wantTitle, item.title, &kNLPushedTitleKey);
     BOOL writeArtist = NLItemNeedsWrite(item, wantArtist, item.trackArtistName, &kNLPushedArtistKey);
     if (!writeTitle && !writeArtist) return;
@@ -279,6 +284,14 @@ void NLPublishRestore(void) {
             snapshot = [clean copy];
         }
     }
+    // The system draws an "E" after the title for explicit tracks, and the
+    // title is a lyric line now. Cleared before the system sees it, for the
+    // same reason as above.
+    if (NLSettingsCurrent().hideExplicit && [snapshot[MPMediaItemPropertyIsExplicit] boolValue]) {
+        NSMutableDictionary *clean = [snapshot mutableCopy];
+        clean[MPMediaItemPropertyIsExplicit] = @NO;
+        snapshot = [clean copy];
+    }
     %orig(snapshot);
 
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -325,6 +338,12 @@ void NLPublishRestore(void) {
 %end
 
 %hook MPNowPlayingContentItem
+
+// Music's explicit flag, the "E" after the title. Cleared on the way in when
+// the setting is on; MediaRemote reads it straight off the item.
+- (void)setExplicitItem:(BOOL)explicitItem {
+    %orig(explicitItem && !NLSettingsCurrent().hideExplicit);
+}
 
 - (void)setTrackArtistName:(NSString *)name {
     %orig;
