@@ -35,3 +35,17 @@
 "Restart SpringBoard to apply?" = "要重启 SpringBoard 来应用吗？";
 "Cancel" = "取消";
 "Respring" = "重启";
+"Lyrics in the island" = "歌词上岛";
+"Lyrics color" = "歌词颜色";
+"White" = "白色";
+"Album color" = "专辑颜色";
+"Line change" = "换行动画";
+"Fade" = "淡入淡出";
+"Scroll up" = "向上滚动";
+"Strip height" = "歌词栏高度";
+"Font size" = "字体大小";
+"Vertical offset" = "垂直位移";
+"Scroll speed" = "滚动速度";
+"Shows the current line in a strip under the Dynamic Island while music plays. Lines too long to fit scroll." = "播放音乐时在灵动岛下方多一栏显示当前歌词，太长的句子会滚动。";
+"Appearance" = "外观";
+"Layout" = "布局";

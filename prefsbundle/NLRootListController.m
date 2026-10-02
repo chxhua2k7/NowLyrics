@@ -14,6 +14,10 @@
 //    spawned). Needed after install or update so NowLyricsIsland is loaded.
 //  - The version shown in the About group (NL_VERSION, PACKAGE_VERSION from
 //    the Makefile).
+//  - NLIslandListController, the "Lyrics in the island" page, loaded from
+//    Island.plist inside this bundle (outside the folder PreferenceLoader scans
+//    for entries) and localized by the Island.strings the Makefile copies from
+//    prefs/<lang>.lproj/Localizable.strings at stage time.
 //
 //  Importing <libprefs/prefs.h> links libprefs through Theos' module map; the
 //  rootless rpath Theos adds finds it in /var/jb/usr/lib, the same way
@@ -41,6 +45,9 @@
 @end
 
 @interface NLRootListController : PLLocalizedListController
+@end
+
+@interface NLIslandListController : PSListController
 @end
 
 #pragma mark - Icons
@@ -130,7 +137,17 @@ static void NLApplyIcon(PSSpecifier *specifier) {
 
 - (NSMutableArray *)specifiers {
     NSMutableArray *specifiers = [super specifiers];
-    for (PSSpecifier *specifier in specifiers) NLApplyIcon(specifier);
+    for (PSSpecifier *specifier in specifiers) {
+        NLApplyIcon(specifier);
+        // libprefs' PLCustomListController turns every PSLinkCell without a bundle
+        // path into another page of the host class; a link that names its
+        // `detail` gets that class back.
+        NSString *detail = [specifier propertyForKey:@"detail"];
+        Class detailClass = [detail isKindOfClass:NSString.class] ? NSClassFromString(detail) : Nil;
+        if (detailClass && specifier.detailControllerClass != detailClass) {
+            [specifier setValue:detailClass forKey:@"detailControllerClass"];
+        }
+    }
     return specifiers;
 }
 
@@ -155,6 +172,21 @@ static void NLApplyIcon(PSSpecifier *specifier) {
 // The About group's Version row (`get = nlVersion:` in the plist).
 - (NSString *)nlVersion:(PSSpecifier *)specifier {
     return @NL_VERSION;
+}
+
+@end
+
+#pragma mark - Lyrics in the island
+
+@implementation NLIslandListController
+
+- (NSMutableArray *)specifiers {
+    if (!_specifiers) {
+        NSMutableArray *specifiers = [[self loadSpecifiersFromPlistName:@"Island" target:self] mutableCopy];
+        for (PSSpecifier *specifier in specifiers) NLApplyIcon(specifier);
+        _specifiers = specifiers;
+    }
+    return _specifiers;
 }
 
 @end

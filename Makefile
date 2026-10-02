@@ -45,6 +45,8 @@ NowLyricsIsland_FRAMEWORKS += UIKit
 include $(THEOS_MAKE_PATH)/tweak.mk
 
 # 設定頁:prefs/ 裡是 NowLyrics.plist(entry + items)和各語言的 <lang>.lproj/Localizable.strings;
+# 「歌詞上島」子頁面的 Island.plist 放在 bundle/(不在 PreferenceLoader 掃描的資料夾裡),
+# 它用的 Island.strings 在 stage 時從同一份 Localizable.strings 複製進 bundle;
 # PreferenceLoader 會遞迴掃描 Preferences/ 底下所有 .plist,plist 所在的資料夾就是它的
 # 來源 bundle,PLLocalizedListController 從那裡讀 .strings。
 #
@@ -68,3 +70,7 @@ internal-stage::
 	$(ECHO_NOTHING)mkdir -p "$(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences/NowLyrics"$(ECHO_END)
 	$(ECHO_NOTHING)cp -R prefs/ "$(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences/NowLyrics/"$(ECHO_END)
 	$(ECHO_NOTHING)sed "s/__VERSION__/$(PACKAGE_VERSION)/g" bundle/Info.plist > "$(THEOS_STAGING_DIR)/Library/PreferenceBundles/NowLyricsPrefs.bundle/Info.plist"$(ECHO_END)
+	$(ECHO_NOTHING)for lproj in prefs/*.lproj; do \
+		mkdir -p "$(THEOS_STAGING_DIR)/Library/PreferenceBundles/NowLyricsPrefs.bundle/$$(basename $$lproj)"; \
+		cp "$$lproj/Localizable.strings" "$(THEOS_STAGING_DIR)/Library/PreferenceBundles/NowLyricsPrefs.bundle/$$(basename $$lproj)/Island.strings"; \
+	done$(ECHO_END)

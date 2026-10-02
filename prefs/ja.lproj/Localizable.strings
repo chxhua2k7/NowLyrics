@@ -35,3 +35,17 @@
 "Restart SpringBoard to apply?" = "SpringBoardを再起動して適用しますか？";
 "Cancel" = "キャンセル";
 "Respring" = "再起動";
+"Lyrics in the island" = "Islandに歌詞";
+"Lyrics color" = "歌詞の色";
+"White" = "白";
+"Album color" = "アルバムの色";
+"Line change" = "行の切り替え";
+"Fade" = "フェード";
+"Scroll up" = "上にスクロール";
+"Strip height" = "歌詞欄の高さ";
+"Font size" = "文字サイズ";
+"Vertical offset" = "上下位置";
+"Scroll speed" = "スクロール速度";
+"Shows the current line in a strip under the Dynamic Island while music plays. Lines too long to fit scroll." = "音楽の再生中、Dynamic Islandの下に現在の歌詞を1行表示します。長い行はスクロールします。";
+"Appearance" = "外観";
+"Layout" = "レイアウト";

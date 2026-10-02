@@ -35,3 +35,17 @@
 "Restart SpringBoard to apply?" = "要重啟 SpringBoard 來套用嗎？";
 "Cancel" = "取消";
 "Respring" = "重啟";
+"Lyrics in the island" = "歌詞上島";
+"Lyrics color" = "歌詞顏色";
+"White" = "白色";
+"Album color" = "專輯顏色";
+"Line change" = "換行動畫";
+"Fade" = "淡入淡出";
+"Scroll up" = "向上捲動";
+"Strip height" = "歌詞列高度";
+"Font size" = "字體大小";
+"Vertical offset" = "垂直位移";
+"Scroll speed" = "捲動速度";
+"Shows the current line in a strip under the Dynamic Island while music plays. Lines too long to fit scroll." = "播放音樂時在動態島下方多一列顯示當前歌詞，太長的句子會捲動。";
+"Appearance" = "外觀";
+"Layout" = "版面";

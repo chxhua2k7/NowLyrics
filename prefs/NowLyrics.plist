@@ -167,6 +167,18 @@
 		</dict>
 		<dict>
 			<key>cell</key>
+			<string>PSLinkCell</string>
+			<key>detail</key>
+			<string>NLIslandListController</string>
+			<key>iconColor</key>
+			<string>#AF52DE</string>
+			<key>iconSymbol</key>
+			<string>capsule.fill</string>
+			<key>label</key>
+			<string>Lyrics in the island</string>
+		</dict>
+		<dict>
+			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
 			<string>The preferred source is tried first. Musixmatch needs the token from its app (Settings → Get help → Copy debug info) or an API key. NetEase lyrics are Simplified Chinese.</string>

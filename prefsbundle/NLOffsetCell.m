@@ -1,9 +1,10 @@
 //
 //  NLOffsetCell.m
-//  The one piece of the settings page that needs code: the offset row, a
-//  slider that applies as you drag plus a field the value can be typed into.
-//  Everything else on the page is stock Preferences cells driven by
-//  prefs/NowLyrics.plist.
+//  The slider rows: a slider that applies as you drag plus a field the value
+//  can be typed into. Used for the lyrics offset and the Dynamic Island sizes;
+//  the specifier's min, max, step and unit (plist keys) set the range and how
+//  the value reads. Everything else on the page is stock Preferences cells
+//  driven by prefs/NowLyrics.plist.
 //
 //  This bundle is also where AltList gets loaded from. Its framework used to
 //  be this bundle's executable (a symlink); now that the bundle has code of its
@@ -22,13 +23,9 @@ static void NLLoadAltList(void) {
     dlopen(ROOT_PATH("/Library/Frameworks/AltList.framework/AltList"), RTLD_NOW);
 }
 
-static const double kNLOffsetLimit = 3.0;   // seconds either way, same as the engine tolerates comfortably
-static const double kNLSliderStep = 0.1;    // dragging snaps to this; typing can be finer
-
-static double NLClamp(double v) {
-    if (isnan(v)) return 0;
-    return MIN(MAX(v, -kNLOffsetLimit), kNLOffsetLimit);
-}
+// Defaults are the lyrics offset row's: seconds, ±3, tenths.
+static const double kNLDefaultLimit = 3.0;
+static const double kNLDefaultStep = 0.1;
 
 #pragma mark - Control
 
@@ -36,8 +33,13 @@ static double NLClamp(double v) {
 // UIControlEventValueChanged whenever the committed value changes, whether
 // that came from the slider or from the field.
 @interface NLOffsetControl : UIControl <UITextFieldDelegate>
-@property (nonatomic, assign) double value;   // seconds, positive means lyrics appear earlier
+@property (nonatomic, assign) double value;   // for the offset: seconds, positive means lyrics appear earlier
 @property (nonatomic, assign) BOOL stacked;   // value pill on the first line, slider full width below
+@property (nonatomic, assign) double minimum;
+@property (nonatomic, assign) double maximum;
+@property (nonatomic, assign) double step;    // dragging snaps to this; typing can be finer
+@property (nonatomic, copy) NSString *unit;   // "s" also accepts "300ms" when typing
+- (void)setMinimum:(double)minimum maximum:(double)maximum step:(double)step unit:(NSString *)unit;
 @end
 
 @implementation NLOffsetControl {
@@ -48,9 +50,13 @@ static double NLClamp(double v) {
 
 - (instancetype)initWithFrame:(CGRect)frame {
     if ((self = [super initWithFrame:frame])) {
+        _minimum = -kNLDefaultLimit;
+        _maximum = kNLDefaultLimit;
+        _step = kNLDefaultStep;
+        _unit = @"s";
         _slider = [[UISlider alloc] init];
-        _slider.minimumValue = -kNLOffsetLimit;
-        _slider.maximumValue = kNLOffsetLimit;
+        _slider.minimumValue = (float)_minimum;
+        _slider.maximumValue = (float)_maximum;
         [_slider addTarget:self action:@selector(sliderMoved:) forControlEvents:UIControlEventValueChanged];
         [_slider addTarget:self action:@selector(sliderReleased:)
           forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
@@ -88,14 +94,36 @@ static double NLClamp(double v) {
     }
 }
 
+- (void)setMinimum:(double)minimum maximum:(double)maximum step:(double)step unit:(NSString *)unit {
+    if (maximum > minimum) { _minimum = minimum; _maximum = maximum; }
+    if (step > 0) _step = step;
+    if (unit.length) _unit = [unit copy];
+    _slider.minimumValue = (float)_minimum;
+    _slider.maximumValue = (float)_maximum;
+    self.value = _value;
+}
+
+- (double)clamp:(double)v {
+    if (isnan(v)) return MIN(MAX(0, _minimum), _maximum);
+    return MIN(MAX(v, _minimum), _maximum);
+}
+
 - (void)setValue:(double)value {
-    _value = NLClamp(value);
+    _value = [self clamp:value];
     _slider.value = (float)_value;
     if (!_field.isEditing) [self showValue];
 }
 
+// Seconds keep the sign and two decimals ("+0.25 s"); other units show only the
+// decimals the step needs, signed when the range goes below zero ("-1.5 pt").
 - (void)showValue {
-    _field.text = _value == 0 ? @"0.00 s" : [NSString stringWithFormat:@"%+.2f s", _value];
+    if ([_unit isEqualToString:@"s"]) {
+        _field.text = _value == 0 ? @"0.00 s" : [NSString stringWithFormat:@"%+.2f s", _value];
+        return;
+    }
+    int decimals = _step >= 1 ? 0 : (_step >= 0.1 ? 1 : 2);
+    NSString *format = (_minimum < 0 && _value != 0) ? @"%+.*f %@" : @"%.*f %@";
+    _field.text = [NSString stringWithFormat:format, decimals, _value, _unit];
 }
 
 // Applies live, so the line on the lock screen can be watched moving while the
@@ -103,9 +131,9 @@ static double NLClamp(double v) {
 // process with the tweak loaded re-read the file, so while dragging they are
 // coalesced to a few per second; letting go commits at once.
 - (void)sliderMoved:(UISlider *)slider {
-    double snapped = round(slider.value / kNLSliderStep) * kNLSliderStep;
-    if (fabs(snapped - _value) < kNLSliderStep / 2) return;
-    _value = NLClamp(snapped);
+    double snapped = round(slider.value / _step) * _step;
+    if (fabs(snapped - _value) < _step / 2) return;
+    _value = [self clamp:snapped];
     [self showValue];
     if (_commitPending) return;
     _commitPending = YES;
@@ -136,8 +164,8 @@ static double NLClamp(double v) {
     return YES;
 }
 
-// Accepts "0.3", "-0.25", "+1", "0,3" and "300ms". Anything else puts the old
-// value back.
+// Accepts "0.3", "-0.25", "+1", "0,3", and for seconds "300ms". Anything else
+// puts the old value back.
 - (void)textFieldDidEndEditing:(UITextField *)field {
     NSString *text = [[field.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]
                       stringByReplacingOccurrencesOfString:@"," withString:@"."];
@@ -145,8 +173,8 @@ static double NLClamp(double v) {
     double typed = 0;
     if (text.length && [scanner scanDouble:&typed]) {
         NSString *rest = [[text substringFromIndex:scanner.scanLocation] lowercaseString];
-        if ([rest containsString:@"ms"]) typed /= 1000.0;
-        typed = NLClamp(round(typed * 100) / 100);   // hundredths are plenty
+        if ([_unit isEqualToString:@"s"] && [rest containsString:@"ms"]) typed /= 1000.0;
+        typed = [self clamp:round(typed * 100) / 100];   // hundredths are plenty
         if (typed != _value) {
             _value = typed;
             _slider.value = (float)_value;
@@ -180,6 +208,7 @@ static double NLClamp(double v) {
         self.selectionStyle = UITableViewCellSelectionStyleNone;
         if (!self.control) self.control = [self newControl];   // in case the base class did not ask
         if (self.control.superview != self.contentView) [self.contentView addSubview:self.control];
+        [self applyRangeFromSpecifier:specifier];
         [self.control addTarget:self action:@selector(controlChanged:) forControlEvents:UIControlEventValueChanged];
     }
     return self;
@@ -187,6 +216,24 @@ static double NLClamp(double v) {
 
 - (UIControl *)newControl {
     return [[NLOffsetControl alloc] initWithFrame:CGRectZero];
+}
+
+static double NLProp(PSSpecifier *specifier, NSString *key, double fallback) {
+    id v = [specifier propertyForKey:key];
+    return [v respondsToSelector:@selector(doubleValue)] ? [v doubleValue] : fallback;
+}
+
+- (void)applyRangeFromSpecifier:(PSSpecifier *)specifier {
+    NSString *unit = [specifier propertyForKey:@"unit"];
+    [(NLOffsetControl *)self.control setMinimum:NLProp(specifier, @"min", -kNLDefaultLimit)
+                                        maximum:NLProp(specifier, @"max", kNLDefaultLimit)
+                                           step:NLProp(specifier, @"step", kNLDefaultStep)
+                                           unit:[unit isKindOfClass:NSString.class] ? unit : @"s"];
+}
+
+- (void)refreshCellContentsWithSpecifier:(PSSpecifier *)specifier {
+    [super refreshCellContentsWithSpecifier:specifier];
+    [self applyRangeFromSpecifier:specifier];
 }
 
 - (void)layoutSubviews {
@@ -223,7 +270,9 @@ static double NLClamp(double v) {
 
 - (void)setValue:(id)value {
     [super setValue:value];
-    double v = [value respondsToSelector:@selector(doubleValue)] ? [value doubleValue] : 0;
+    id fallback = [self.specifier propertyForKey:@"default"];
+    double v = [value respondsToSelector:@selector(doubleValue)] ? [value doubleValue]
+             : ([fallback respondsToSelector:@selector(doubleValue)] ? [fallback doubleValue] : 0);
     ((NLOffsetControl *)self.control).value = v;
     _lastSent = @(((NLOffsetControl *)self.control).value);
 }
