@@ -38,7 +38,8 @@ static const double kNLDefaultStep = 0.1;
 @property (nonatomic, assign) double minimum;
 @property (nonatomic, assign) double maximum;
 @property (nonatomic, assign) double step;    // dragging snaps to this; typing can be finer
-@property (nonatomic, copy) NSString *unit;   // "s" also accepts "300ms" when typing
+@property (nonatomic, copy) NSString *unit;   // "s" also accepts "300ms" when typing; "" shows a bare number
+@property (nonatomic, assign) double displayScale;   // shown and typed as value / displayScale (e.g. a speed as "1.0×")
 - (void)setMinimum:(double)minimum maximum:(double)maximum step:(double)step unit:(NSString *)unit;
 @end
 
@@ -54,6 +55,7 @@ static const double kNLDefaultStep = 0.1;
         _maximum = kNLDefaultLimit;
         _step = kNLDefaultStep;
         _unit = @"s";
+        _displayScale = 1;
         _slider = [[UISlider alloc] init];
         _slider.minimumValue = (float)_minimum;
         _slider.maximumValue = (float)_maximum;
@@ -97,7 +99,7 @@ static const double kNLDefaultStep = 0.1;
 - (void)setMinimum:(double)minimum maximum:(double)maximum step:(double)step unit:(NSString *)unit {
     if (maximum > minimum) { _minimum = minimum; _maximum = maximum; }
     if (step > 0) _step = step;
-    if (unit.length) _unit = [unit copy];
+    if (unit) _unit = [unit copy];
     _slider.minimumValue = (float)_minimum;
     _slider.maximumValue = (float)_maximum;
     self.value = _value;
@@ -121,9 +123,14 @@ static const double kNLDefaultStep = 0.1;
         _field.text = _value == 0 ? @"0.00 s" : [NSString stringWithFormat:@"%+.2f s", _value];
         return;
     }
-    int decimals = _step >= 1 ? 0 : (_step >= 0.1 ? 1 : 2);
-    NSString *format = (_minimum < 0 && _value != 0) ? @"%+.*f %@" : @"%.*f %@";
-    _field.text = [NSString stringWithFormat:format, decimals, _value, _unit];
+    double shown = _value / _displayScale;
+    double step = _step / _displayScale;
+    int decimals = step >= 1 ? 0 : (step >= 0.1 ? 1 : 2);
+    NSString *sign = (_minimum < 0 && _value != 0) ? @"+" : @"";
+    NSString *number = [NSString stringWithFormat:[sign stringByAppendingString:@"%.*f"], decimals, shown];
+    if (_unit.length == 0) _field.text = number;
+    else if ([_unit isEqualToString:@"×"]) _field.text = [number stringByAppendingString:_unit];
+    else _field.text = [NSString stringWithFormat:@"%@ %@", number, _unit];
 }
 
 // Applies live, so the line on the lock screen can be watched moving while the
@@ -155,7 +162,7 @@ static const double kNLDefaultStep = 0.1;
 #pragma mark Typing
 
 - (void)textFieldDidBeginEditing:(UITextField *)field {
-    field.text = [NSString stringWithFormat:@"%g", _value];   // plain number, easier to edit
+    field.text = [NSString stringWithFormat:@"%g", _value / _displayScale];   // plain number, easier to edit
     [field selectAll:nil];
 }
 
@@ -174,6 +181,7 @@ static const double kNLDefaultStep = 0.1;
     if (text.length && [scanner scanDouble:&typed]) {
         NSString *rest = [[text substringFromIndex:scanner.scanLocation] lowercaseString];
         if ([_unit isEqualToString:@"s"] && [rest containsString:@"ms"]) typed /= 1000.0;
+        typed *= _displayScale;
         typed = [self clamp:round(typed * 100) / 100];   // hundredths are plenty
         if (typed != _value) {
             _value = typed;
@@ -225,6 +233,8 @@ static double NLProp(PSSpecifier *specifier, NSString *key, double fallback) {
 
 - (void)applyRangeFromSpecifier:(PSSpecifier *)specifier {
     NSString *unit = [specifier propertyForKey:@"unit"];
+    double scale = NLProp(specifier, @"displayScale", 1);
+    ((NLOffsetControl *)self.control).displayScale = scale > 0 ? scale : 1;
     [(NLOffsetControl *)self.control setMinimum:NLProp(specifier, @"min", -kNLDefaultLimit)
                                         maximum:NLProp(specifier, @"max", kNLDefaultLimit)
                                            step:NLProp(specifier, @"step", kNLDefaultStep)
