@@ -5,8 +5,8 @@
 
 #import "NowLyrics.h"
 
-NSString *const kNLPrefsDomain = @"app.nowlyrics";
-NSString *const kNLReloadNotification = @"app.nowlyrics/ReloadPrefs";
+NSString *const kNLPrefsDomain = NL_PREFS_DOMAIN;
+NSString *const kNLReloadNotification = NL_RELOAD_NOTIFICATION;
 #ifndef NL_VERSION
 #error NL_VERSION comes from PACKAGE_VERSION in the Makefile
 #endif

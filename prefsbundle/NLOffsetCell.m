@@ -35,18 +35,18 @@ static const double kNLDefaultStep = 0.1;
 @interface NLOffsetControl : UIControl <UITextFieldDelegate>
 @property (nonatomic, assign) double value;   // for the offset: seconds, positive means lyrics appear earlier
 @property (nonatomic, assign) BOOL stacked;   // value pill on the first line, slider full width below
-@property (nonatomic, assign) double minimum;
-@property (nonatomic, assign) double maximum;
-@property (nonatomic, assign) double step;    // dragging snaps to this; typing can be finer
-@property (nonatomic, copy) NSString *unit;   // "s" also accepts "300ms" when typing; "" shows a bare number
-@property (nonatomic, assign) double displayScale;   // shown and typed as value / displayScale (e.g. a speed as "1.0×")
-- (void)setMinimum:(double)minimum maximum:(double)maximum step:(double)step unit:(NSString *)unit;
+// step: dragging snaps to it, typing can be finer. unit: "s" (the default) also
+// accepts "300ms" when typing, "" shows a bare number. scale: the value is shown
+// and typed divided by it (a speed as "1.0×"). nil/0 keep the current setting.
+- (void)setMinimum:(double)minimum maximum:(double)maximum step:(double)step unit:(NSString *)unit scale:(double)scale;
 @end
 
 @implementation NLOffsetControl {
     UISlider *_slider;
     UITextField *_field;
     BOOL _commitPending;
+    double _minimum, _maximum, _step, _displayScale;
+    NSString *_unit;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -96,10 +96,11 @@ static const double kNLDefaultStep = 0.1;
     }
 }
 
-- (void)setMinimum:(double)minimum maximum:(double)maximum step:(double)step unit:(NSString *)unit {
+- (void)setMinimum:(double)minimum maximum:(double)maximum step:(double)step unit:(NSString *)unit scale:(double)scale {
     if (maximum > minimum) { _minimum = minimum; _maximum = maximum; }
     if (step > 0) _step = step;
     if (unit) _unit = [unit copy];
+    if (scale > 0) _displayScale = scale;
     _slider.minimumValue = (float)_minimum;
     _slider.maximumValue = (float)_maximum;
     self.value = _value;
@@ -233,12 +234,11 @@ static double NLProp(PSSpecifier *specifier, NSString *key, double fallback) {
 
 - (void)applyRangeFromSpecifier:(PSSpecifier *)specifier {
     NSString *unit = [specifier propertyForKey:@"unit"];
-    double scale = NLProp(specifier, @"displayScale", 1);
-    ((NLOffsetControl *)self.control).displayScale = scale > 0 ? scale : 1;
     [(NLOffsetControl *)self.control setMinimum:NLProp(specifier, @"min", -kNLDefaultLimit)
                                         maximum:NLProp(specifier, @"max", kNLDefaultLimit)
                                            step:NLProp(specifier, @"step", kNLDefaultStep)
-                                           unit:[unit isKindOfClass:NSString.class] ? unit : @"s"];
+                                           unit:[unit isKindOfClass:NSString.class] ? unit : nil
+                                          scale:NLProp(specifier, @"displayScale", 1)];
 }
 
 - (void)refreshCellContentsWithSpecifier:(PSSpecifier *)specifier {
@@ -280,9 +280,8 @@ static double NLProp(PSSpecifier *specifier, NSString *key, double fallback) {
 
 - (void)setValue:(id)value {
     [super setValue:value];
-    id fallback = [self.specifier propertyForKey:@"default"];
     double v = [value respondsToSelector:@selector(doubleValue)] ? [value doubleValue]
-             : ([fallback respondsToSelector:@selector(doubleValue)] ? [fallback doubleValue] : 0);
+                                                                  : NLProp(self.specifier, @"default", 0);
     ((NLOffsetControl *)self.control).value = v;
     _lastSent = @(((NLOffsetControl *)self.control).value);
 }

@@ -272,26 +272,27 @@ void NLPublishRestore(void) {
     NSDictionary *snapshot = [nowPlayingInfo copy];
     MPNowPlayingInfoCenter *center = self;
 
-    // Spotify Connect reports "Title • Artist" / "Playing on X". Rewrite the pair
-    // before the system sees it, otherwise the raw text shows for a moment at
-    // every track change until our first push lands.
-    if (NLSettingsCurrent().spotifyConnect) {
-        NSString *realT = nil, *realA = nil;
-        if (NLSplitConnectInfo(snapshot[MPMediaItemPropertyTitle], snapshot[MPMediaItemPropertyArtist], &realT, &realA)) {
-            NSMutableDictionary *clean = [snapshot mutableCopy];
-            clean[MPMediaItemPropertyTitle] = realT;
-            clean[MPMediaItemPropertyArtist] = realA;
-            snapshot = [clean copy];
-        }
+    // Both rewrites below happen before the system sees the dictionary;
+    // otherwise the raw values show for a moment at every track change until
+    // our first push lands. One copy covers both.
+    NLSettings *settings = NLSettingsCurrent();
+    NSMutableDictionary *clean = nil;
+
+    // Spotify Connect reports "Title • Artist" / "Playing on X": the real pair.
+    NSString *realT = nil, *realA = nil;
+    if (settings.spotifyConnect &&
+        NLSplitConnectInfo(snapshot[MPMediaItemPropertyTitle], snapshot[MPMediaItemPropertyArtist], &realT, &realA)) {
+        clean = [snapshot mutableCopy];
+        clean[MPMediaItemPropertyTitle] = realT;
+        clean[MPMediaItemPropertyArtist] = realA;
     }
     // The system draws an "E" after the title for explicit tracks, and the
-    // title is a lyric line now. Cleared before the system sees it, for the
-    // same reason as above.
-    if (NLSettingsCurrent().hideExplicit && [snapshot[MPMediaItemPropertyIsExplicit] boolValue]) {
-        NSMutableDictionary *clean = [snapshot mutableCopy];
+    // title is a lyric line now.
+    if (settings.hideExplicit && [snapshot[MPMediaItemPropertyIsExplicit] boolValue]) {
+        if (!clean) clean = [snapshot mutableCopy];
         clean[MPMediaItemPropertyIsExplicit] = @NO;
-        snapshot = [clean copy];
     }
+    if (clean) snapshot = [clean copy];
     %orig(snapshot);
 
     dispatch_async(dispatch_get_main_queue(), ^{

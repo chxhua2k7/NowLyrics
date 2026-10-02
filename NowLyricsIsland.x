@@ -30,6 +30,7 @@
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 #import <dlfcn.h>
+#import "NLShared.h"
 
 // Built with -DNLI_FILELOG (for devices without a log reader, such as the
 // vphone VMs), notable events go to /var/mobile/Library/Logs/NowLyricsIsland.log.
@@ -74,15 +75,7 @@ static void NLIFileLog(NSString *format, ...) {
 - (void)preferredEdgeOutsetsDidInvalidateForLayoutSpecifier:(id)specifier;
 @end
 
-static NSString *const kNLPrefsDomain = @"app.nowlyrics";
-static NSString *const kNLReloadNotification = @"app.nowlyrics/ReloadPrefs";
 static const NSInteger kNLCompactLayoutMode = 2;   // SpringBoard's numbering
-// Between the line's box (exactly its font's line height, so the text's
-// bottom is the box's bottom) and the island's bottom edge. The text's bottom
-// stays put at every font size and a bigger font only grows upwards; rounding
-// the box up had split the extra between top and bottom. The value was tuned
-// by eye on the phone.
-static const CGFloat kNLBottomGap = 0;
 
 #pragma mark - Settings
 
@@ -96,15 +89,16 @@ typedef struct {
     BOOL debugNoStrip;   // NLI_FILELOG builds only: never attach the strip
 } NLIslandSettings;
 
-static NLIslandSettings gSettings = { NO, 11, NO, NO, 30, NO, NO };
+static NLIslandSettings gSettings;   // read in %ctor
 
-static CGFloat NLNum(NSDictionary *prefs, NSString *key, CGFloat fallback, CGFloat lo, CGFloat hi) {
+// Ranges and defaults match bundle/Island.plist.
+static CGFloat NLIslandNum(NSDictionary *prefs, NSString *key, CGFloat fallback, CGFloat lo, CGFloat hi) {
     id v = prefs[key];
     CGFloat n = [v respondsToSelector:@selector(doubleValue)] ? [v doubleValue] : fallback;
     return isnan(n) ? fallback : MIN(MAX(n, lo), hi);
 }
 
-static BOOL NLBool(NSDictionary *prefs, NSString *key, BOOL fallback) {
+static BOOL NLIslandBool(NSDictionary *prefs, NSString *key, BOOL fallback) {
     id v = prefs[key];
     return [v respondsToSelector:@selector(boolValue)] ? [v boolValue] : fallback;
 }
@@ -114,20 +108,18 @@ static NLIslandSettings NLIslandReadSettings(void) {
     NSDictionary *prefs = nil;
     for (NSString *root in @[@"/var/jb/var/mobile", @"/var/mobile"]) {
         prefs = [NSDictionary dictionaryWithContentsOfFile:
-                 [NSString stringWithFormat:@"%@/Library/Preferences/%@.plist", root, kNLPrefsDomain]];
+                 [NSString stringWithFormat:@"%@/Library/Preferences/%@.plist", root, NL_PREFS_DOMAIN]];
         if (prefs.count) break;
     }
-    NLIslandSettings s;
-    s.on = NLBool(prefs, @"enabled", YES) && NLBool(prefs, @"islandLyrics", NO);
-    s.fontSize = NLNum(prefs, @"islandFontSize", 11, 9, 15);
+    NLIslandSettings s = {0};
+    s.on = NLIslandBool(prefs, @"enabled", YES) && NLIslandBool(prefs, @"islandLyrics", NO);
+    s.fontSize = NLIslandNum(prefs, @"islandFontSize", 11, 9, 15);
     s.artworkColor = [prefs[@"islandColor"] isEqual:@"artwork"];
     s.scrollUp = [prefs[@"islandTransition"] isEqual:@"up"];
-    s.speed = NLNum(prefs, @"islandMarqueeSpeed", 30, 9, 81);   // shown as 0.3×–2.7×
-    s.debugNoGrow = NO;
-    s.debugNoStrip = NO;
+    s.speed = NLIslandNum(prefs, @"islandMarqueeSpeed", 30, 9, 81);   // shown as 0.3×–2.7×
 #ifdef NLI_FILELOG
-    s.debugNoGrow = NLBool(prefs, @"islandDebugNoGrow", NO);
-    s.debugNoStrip = NLBool(prefs, @"islandDebugNoStrip", NO);
+    s.debugNoGrow = NLIslandBool(prefs, @"islandDebugNoGrow", NO);
+    s.debugNoStrip = NLIslandBool(prefs, @"islandDebugNoStrip", NO);
 #endif
     return s;
 }
@@ -137,6 +129,7 @@ static NLIslandSettings NLIslandReadSettings(void) {
 static __weak SBSystemApertureViewController *gApertureVC = nil;
 static __weak SBSystemApertureSceneElement *gElement = nil;
 static __weak UIView *gSceneContainer = nil;   // as handed to -_layoutSceneViewInContainerView:
+static __weak UIView *gAttachedPill = nil;     // the pill the strip is attached to
 
 // Geometry. gExtra is what the island is grown by: the distance from the
 // compact island's bottom to the status bar's line. gSensorWidth is the
@@ -144,14 +137,16 @@ static __weak UIView *gSceneContainer = nil;   // as handed to -_layoutSceneView
 // the fixed sensor region (14 Pro values until measured). The artwork and
 // waveform widths SpringBoard reports change across expand and collapse, and
 // a line placed between them moved sideways with every change.
-static CGFloat gExtra = 11;
+static const CGFloat kNLDefaultExtra = 11;     // 14 Pro: compact bottom 48 pt, status bar line 59 pt
+static CGFloat gExtra = kNLDefaultExtra;
 static CGFloat gSensorWidth = 125;
+static __weak UIWindow *gMeasuredWindow = nil;  // the window gExtra was measured in
 static const CGFloat kNLContentGap = 4;   // kept clear on each side of the line
 
 static NSString *gTitle = nil;
 static BOOL gExplicit = NO;   // the track is flagged explicit (and NowLyrics was not told to hide that)
 static UIColor *gArtworkColor = nil;
-static NSUInteger gArtworkHash = 0;
+static NSUInteger gArtworkHash = 0;            // the artwork gArtworkColor is (being) taken from
 
 static BOOL NLIsNowPlaying(id element) {
     NSString *client = [element respondsToSelector:@selector(clientIdentifier)] ? [element clientIdentifier] : nil;
@@ -166,7 +161,12 @@ static BOOL NLIsNowPlaying(id element) {
 // takes extra subviews and still scales with the island. iOS 16 keeps
 // -addContentSubview:, which adds there instead of replacing.
 static UIView *NLElementWrapperView(UIView *sceneContainer, UIView *pill) {
-    if (![NSProcessInfo.processInfo isOperatingSystemAtLeastVersion:(NSOperatingSystemVersion){17, 0, 0}]) return nil;
+    static BOOL modern;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        modern = [NSProcessInfo.processInfo isOperatingSystemAtLeastVersion:(NSOperatingSystemVersion){17, 0, 0}];
+    });
+    if (!modern) return nil;
     for (UIView *v = sceneContainer.superview; v && v != pill; v = v.superview) {
         if ([NSStringFromClass(v.superview.class) hasSuffix:@"RotatingContentView"]) return v;
     }
@@ -175,7 +175,8 @@ static UIView *NLElementWrapperView(UIView *sceneContainer, UIView *pill) {
 
 // The black pill on screen.
 static UIView *NLPillFor(UIView *view) {
-    Class pill = objc_getClass("SBSystemApertureContainerView");
+    static Class pill;
+    if (!pill) pill = objc_getClass("SBSystemApertureContainerView");
     for (UIView *v = view; v; v = v.superview) {
         if (pill && [v isKindOfClass:pill]) return v;
     }
@@ -189,7 +190,6 @@ static UIView *NLPillFor(UIView *view) {
 // the artwork. Lines too wide for the strip scroll back and forth at the set
 // speed, with the edges faded so the text does not end in a hard cut.
 @interface NLIslandStripView : UIView
-@property (nonatomic, readonly) UILabel *label;
 - (void)setText:(NSString *)text explicit:(BOOL)explicit scrollUp:(BOOL)scrollUp;
 - (void)applyFontSize:(CGFloat)size color:(UIColor *)color speed:(CGFloat)speed;
 @end
@@ -223,8 +223,6 @@ static UIView *NLPillFor(UIView *view) {
     return self;
 }
 
-- (UILabel *)label { return _label; }
-
 - (void)applyFontSize:(CGFloat)size color:(UIColor *)color speed:(CGFloat)speed {
     UIFont *font = [UIFont systemFontOfSize:size weight:UIFontWeightSemibold];
     BOOL changed = ![font isEqual:_label.font] || speed != _speed;
@@ -240,14 +238,22 @@ static UIView *NLPillFor(UIView *view) {
 // expanded island and the lock screen show it: the e.square.fill symbol at the
 // text's size and a little dimmer than the text.
 - (NSAttributedString *)lineWithText:(NSString *)text explicit:(BOOL)explicit {
-    UIFont *font = _label.font ?: [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
-    UIColor *color = _label.textColor ?: UIColor.whiteColor;
+    UIFont *font = _label.font;
+    UIColor *color = _label.textColor;
     NSMutableAttributedString *line = [[NSMutableAttributedString alloc] initWithString:text ?: @""
         attributes:@{NSFontAttributeName: font, NSForegroundColorAttributeName: color}];
     if (!explicit || text.length == 0) return line;
-    UIImageSymbolConfiguration *config = [UIImageSymbolConfiguration configurationWithFont:font scale:UIImageSymbolScaleSmall];
-    UIImage *badge = [[UIImage systemImageNamed:@"e.square.fill" withConfiguration:config]
-                      imageWithTintColor:[color colorWithAlphaComponent:0.7] renderingMode:UIImageRenderingModeAlwaysOriginal];
+    // Drawn once per font and color, not per line.
+    static UIImage *badge;
+    static UIFont *badgeFont;
+    static UIColor *badgeColor;
+    if (!badge || ![badgeFont isEqual:font] || ![badgeColor isEqual:color]) {
+        UIImageSymbolConfiguration *config = [UIImageSymbolConfiguration configurationWithFont:font scale:UIImageSymbolScaleSmall];
+        badge = [[UIImage systemImageNamed:@"e.square.fill" withConfiguration:config]
+                 imageWithTintColor:[color colorWithAlphaComponent:0.7] renderingMode:UIImageRenderingModeAlwaysOriginal];
+        badgeFont = font;
+        badgeColor = color;
+    }
     if (!badge) return line;
     NSTextAttachment *attachment = [NSTextAttachment new];
     attachment.image = badge;
@@ -261,8 +267,8 @@ static UIView *NLPillFor(UIView *view) {
 - (void)setText:(NSString *)text explicit:(BOOL)explicit scrollUp:(BOOL)scrollUp {
     NSString *old = _text ?: @"";
     text = text ?: @"";
-    if ([text isEqualToString:old] && explicit == _explicit) return;
-    BOOL sameLine = [text isEqualToString:old];   // only the badge changed: no line change animation
+    BOOL sameLine = [text isEqualToString:old];
+    if (sameLine && explicit == _explicit) return;   // sameLine below: only the badge changed, no line change animation
     NSAttributedString *leavingLine = _label.attributedText;
     _text = [text copy];
     _explicit = explicit;
@@ -361,9 +367,10 @@ static UIView *NLPillFor(UIView *view) {
 @end
 
 // Content-view-sized and clipped to the capsule, so nothing escapes the black.
-// It lives in the pill's content view (see NLIslandUpdate), which SpringBoard
-// scales, fades and clips together with the artwork and waveform while the
-// island resizes, so the line needs no resize handling of its own.
+// It lives in the pill's content view (iOS 16) or the element's own view inside
+// it (iOS 17+, see NLElementWrapperView), which SpringBoard scales, fades and
+// clips together with the artwork and waveform while the island resizes, so
+// the line needs no resize handling of its own.
 @interface NLIslandClipView : UIView
 @end
 
@@ -422,7 +429,19 @@ static UIColor *NLColorFromArtwork(UIImage *image) {
 
 static UIColor *NLTextColor(void) {
     if (gSettings.artworkColor && gArtworkColor) return gArtworkColor;
-    return [UIColor colorWithWhite:1 alpha:0.92];
+    static UIColor *white;
+    if (!white) white = [UIColor colorWithWhite:1 alpha:0.92];
+    return white;
+}
+
+// The line's box height, the font's exact line height, for the current size.
+static CGFloat NLIslandLineHeight(void) {
+    static CGFloat size = -1, height = 0;
+    if (gSettings.fontSize != size) {
+        size = gSettings.fontSize;
+        height = [UIFont systemFontOfSize:size weight:UIFontWeightSemibold].lineHeight;
+    }
+    return height;
 }
 
 static void NLIslandInvalidateHeight(void);
@@ -434,7 +453,11 @@ static void NLIslandInvalidateHeight(void);
 // The compact island ends where the camera's sensor region ends, a fixed
 // rectangle; measuring the pill instead fed back into itself (the pill had not
 // taken the last height yet) and the island kept resizing by half points.
+//
+// Measured once per window: the sensor region and the line only change with
+// the screen. A measurement that had to fall back to the default is retried.
 static void NLIslandMeasureExtra(UIView *pill) {
+    if (pill.window == gMeasuredWindow) return;
     SBSystemApertureViewController *vc = gApertureVC;
     if (!pill.window || !vc.isViewLoaded || ![vc respondsToSelector:@selector(minimumSensorRegionFrame)]) return;
     CGRect sensor = vc.minimumSensorRegionFrame;
@@ -449,7 +472,8 @@ static void NLIslandMeasureExtra(UIView *pill) {
         line = UIApplication.sharedApplication.keyWindow.safeAreaInsets.top;
 #pragma clang diagnostic pop
     }
-    if (line < 30) line = compactBottom + 11;
+    if (line < 30) line = compactBottom + kNLDefaultExtra;
+    else gMeasuredWindow = pill.window;
     CGFloat extra = MIN(MAX(round((line - compactBottom) * 2) / 2, 0), 30);
     if (fabs(extra - gExtra) < 0.5) return;
     NLI_LOG(@"island grows %.1f -> %.1f pt (line %.1f, compact bottom %.1f)", gExtra, extra, line, compactBottom);
@@ -462,9 +486,11 @@ static void NLIslandMeasureExtra(UIView *pill) {
 // the line moves in the same animation as the artwork and waveform even when
 // resizes come quickly one after another; frames set from anywhere else jumped
 // to the end of whatever animation was running.
+static CGFloat gLaidOutFontSize = 0;   // font size of the last layout, to know when one is due
+
 static void NLIslandLayout(UIView *pill) {
     UIView *host = gClip.superview;
-    if (!host || NLPillFor(host) != pill) return;
+    if (!host || pill != gAttachedPill) return;
 #ifdef NLI_FILELOG
     {
         static NSString *last = nil;
@@ -489,17 +515,18 @@ static void NLIslandLayout(UIView *pill) {
         if (![state isEqualToString:last]) { last = state; NLI_LOG(@"%@", state); }
     }
 #endif
-    // The line's box sits on the island's bottom edge, between the artwork and
-    // the waveform; the camera above it is the only thing it shares rows with.
-    // It is as tall as the font needs. Measured in the content view, which is
+    // The line's box sits on the island's bottom edge, under the camera. It is
+    // exactly the font's line height, so the text's bottom is the island's and
+    // a bigger font only grows upwards. Measured in the content view, which is
     // the pill's size or, while scaling, its reference size.
     CGRect b = host.bounds;
-    CGFloat h = MIN([UIFont systemFontOfSize:gSettings.fontSize weight:UIFontWeightSemibold].lineHeight, CGRectGetHeight(b));
-    CGFloat y = CGRectGetHeight(b) - h - kNLBottomGap;
+    CGFloat h = MIN(NLIslandLineHeight(), CGRectGetHeight(b));
+    CGFloat y = CGRectGetHeight(b) - h;
     CGFloat width = MAX(MIN(gSensorWidth, CGRectGetWidth(b)) - kNLContentGap * 2, 0);
     CGRect strip = CGRectMake(round((CGRectGetWidth(b) - width) / 2), y, width, h);
     if (!CGRectEqualToRect(gClip.frame, b)) gClip.frame = b;
     if (!CGRectEqualToRect(gStrip.frame, strip)) gStrip.frame = strip;
+    gLaidOutFontSize = gSettings.fontSize;
     NLIslandMeasureExtra(pill);
 }
 
@@ -522,7 +549,7 @@ static void NLIslandRevealWhenStill(UIView *pill, int attempt) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.07 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             if (!gRevealPending) return;   // hidden again meanwhile (expanded, app opened)
             UIView *p = weakPill;
-            if (p && gClip.superview && NLPillFor(gClip.superview) == p) NLIslandRevealWhenStill(p, attempt + 1);
+            if (p && gClip.superview && p == gAttachedPill) NLIslandRevealWhenStill(p, attempt + 1);
             else gRevealPending = NO;
         });
         return;
@@ -566,9 +593,12 @@ static void NLIslandUpdate(void) {
     // In the pill's content view, next to the artwork and waveform, so the line
     // gets exactly their scaling, fading and clipping during a resize instead
     // of chasing the pill's frame from outside.
+    // The full walk, not just gAttachedPill: SpringBoard can replace the
+    // element's view and leave the strip in one that is no longer in the pill.
     BOOL fresh = !gClip.superview || NLPillFor(gClip.superview) != pill;
     if (fresh) {
         gClip.alpha = 0;
+        gAttachedPill = pill;
         UIView *wrapper = NLElementWrapperView(gSceneContainer, pill);
         if (wrapper) [wrapper addSubview:gClip];
         else if ([pill respondsToSelector:@selector(addContentSubview:)]) [(SBSystemApertureContainerView *)pill addContentSubview:gClip];
@@ -577,7 +607,9 @@ static void NLIslandUpdate(void) {
     } else {
         UIView *host = gClip.superview;
         if (host.subviews.lastObject != gClip) [host bringSubviewToFront:gClip];
-        [pill setNeedsLayout];   // frames are only ever set in the pill's own layout pass
+        // Frames are only ever set in the pill's own layout pass; only a new font
+        // size changes them outside one.
+        if (gSettings.fontSize != gLaidOutFontSize) [pill setNeedsLayout];
     }
     [gStrip applyFontSize:gSettings.fontSize color:NLTextColor() speed:gSettings.speed];
     [gStrip setText:gTitle explicit:gExplicit scrollUp:gSettings.scrollUp];
@@ -592,27 +624,37 @@ static void NLIslandRefreshInfo(void) {
         if (mr) getInfo = (void (*)(dispatch_queue_t, void (^)(CFDictionaryRef)))dlsym(mr, "MRMediaRemoteGetNowPlayingInfo");
     });
     if (!getInfo || !gSettings.on) return;
+    // One request at a time (each answer carries the artwork across XPC); a
+    // change that arrives meanwhile asks once more when the answer is in.
+    static BOOL inFlight = NO, again = NO;
+    if (inFlight) { again = YES; return; }
+    inFlight = YES;
     getInfo(dispatch_get_main_queue(), ^(CFDictionaryRef ref) {
         NSDictionary *info = (__bridge NSDictionary *)ref;
         id title = info[@"kMRMediaRemoteNowPlayingInfoTitle"];
         gTitle = [title isKindOfClass:NSString.class] ? title : nil;
         // Cleared by the players already when "Hide explicit badge" is on.
-        gExplicit = [info[@"kMRMediaRemoteNowPlayingInfoIsExplicitTrack"] respondsToSelector:@selector(boolValue)]
-                 && [info[@"kMRMediaRemoteNowPlayingInfoIsExplicitTrack"] boolValue];
+        gExplicit = NLIslandBool(info, @"kMRMediaRemoteNowPlayingInfoIsExplicitTrack", NO);
 
         NSData *artwork = info[@"kMRMediaRemoteNowPlayingInfoArtworkData"];
         if (gSettings.artworkColor && [artwork isKindOfClass:NSData.class] && artwork.hash != gArtworkHash) {
             NSUInteger hash = artwork.hash;
+            gArtworkHash = hash;   // claimed now, so the burst at a track change decodes it once
             dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
                 UIColor *color = NLColorFromArtwork([UIImage imageWithData:artwork]);
                 dispatch_async(dispatch_get_main_queue(), ^{
-                    gArtworkHash = hash;
+                    if (gArtworkHash != hash) return;   // the track changed meanwhile
                     gArtworkColor = color;
                     NLIslandUpdate();
                 });
             });
         }
         NLIslandUpdate();
+        inFlight = NO;
+        if (again) {
+            again = NO;
+            NLIslandRefreshInfo();
+        }
     });
 }
 
@@ -650,8 +692,8 @@ static void NLIslandInvalidateHeight(void) {
 #endif
     if (!NLIsNowPlaying(self)) return outsets;
     gElement = self;
-    if (mode == kNLCompactLayoutMode) {
-        if (gSettings.on && !gSettings.debugNoGrow) outsets.bottom = MAX(outsets.bottom - gExtra, maximum.bottom);
+    if (mode == kNLCompactLayoutMode && gSettings.on && !gSettings.debugNoGrow) {
+        outsets.bottom = MAX(outsets.bottom - gExtra, maximum.bottom);
     }
     return outsets;
 }
@@ -684,7 +726,7 @@ static void NLIslandInvalidateHeight(void) {
 %hook SBSystemApertureContainerView
 - (void)layoutSubviews {
     %orig;
-    if (gClip.superview && NLPillFor(gClip.superview) == self) NLIslandLayout(self);
+    if (self == gAttachedPill) NLIslandLayout(self);
 }
 %end
 
@@ -726,6 +768,7 @@ static NSString *NLIInsets(NSDirectionalEdgeInsets i) {
 %hook SBMediaController
 - (void)_mediaRemoteNowPlayingInfoDidChange:(id)notification {
     %orig;
+    if (!gSettings.on) return;
     dispatch_async(dispatch_get_main_queue(), ^{ NLIslandRefreshInfo(); });
 }
 %end
@@ -753,7 +796,7 @@ static void NLIslandPrefsChanged(CFNotificationCenterRef center, void *observer,
             %init(NLIDebug);
         }
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, NLIslandPrefsChanged,
-                                        (__bridge CFStringRef)kNLReloadNotification, NULL,
+                                        (__bridge CFStringRef)NL_RELOAD_NOTIFICATION, NULL,
                                         CFNotificationSuspensionBehaviorCoalesce);
         %init;
     }

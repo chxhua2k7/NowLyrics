@@ -347,8 +347,9 @@ void NLMarkChorus(NSArray<NLLyricLine *> *lines) {
     uint16_t *run = calloc(w * w, sizeof(uint16_t));
     if (!run) return;
     for (NSInteger i = n - 1; i >= 0; i--) {
+        if (norm[i].length == 0) continue;   // row stays zero
         for (NSInteger j = n - 1; j >= 0; j--) {
-            if (i == j || norm[i].length == 0 || ![norm[i] isEqualToString:norm[j]]) continue;
+            if (i == j || ![norm[i] isEqualToString:norm[j]]) continue;
             run[i * w + j] = run[(i + 1) * w + (j + 1)] + 1;
         }
     }

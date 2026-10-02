@@ -14,6 +14,7 @@
 //
 
 #import <Foundation/Foundation.h>
+#import "NLShared.h"
 
 #if DEBUG
 #define NLLog(fmt, ...) NSLog(@"[NowLyrics] " fmt, ##__VA_ARGS__)
