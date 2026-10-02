@@ -40,8 +40,9 @@ make package FINALPACKAGE=1   # release; plain `make package` = debug with NSLog
   pointer authentication.
 - Version lives only in the Makefile's `PACKAGE_VERSION` (package, `NL_VERSION`
   define, `bundle/Info.plist` filled at stage time).
-- Runtime deps: PreferenceLoader, AltList. Install with `sudo dpkg -i`; no
-  respring, relaunch the player / `killall Preferences`.
+- Runtime deps: PreferenceLoader, AltList. Install with `sudo dpkg -i`, then
+  respring once (Apply on the settings page) so SpringBoard loads
+  NowLyricsIsland; the lyrics themselves only need the player relaunched.
 
 ## Layout
 

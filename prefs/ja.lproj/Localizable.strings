@@ -32,3 +32,12 @@
 "Apps that are not running clear theirs when next opened." = "起動していないアプリは、次回起動時に消去されます。";
 "Apply" = "適用";
 "OK" = "OK";
+"Dynamic Island" = "Dynamic Island";
+"Bounce on chorus" = "サビでバウンド";
+"Bounce style" = "バウンドの向き";
+"Up" = "上";
+"Side to side" = "左右";
+"Gives the Dynamic Island a small bounce when a chorus begins, while the phone is unlocked and the island is showing something." = "サビが始まるとDynamic Islandが小さくバウンドします。ロック解除中で、Dynamic Islandに何か表示されているときだけ動作します。";
+"Restart SpringBoard to apply?" = "SpringBoardを再起動して適用しますか？";
+"Cancel" = "キャンセル";
+"Respring" = "再起動";

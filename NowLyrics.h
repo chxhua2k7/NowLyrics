@@ -73,7 +73,7 @@ extern "C" {
 
 extern NSString *const kNLPrefsDomain;
 extern NSString *const kNLReloadNotification;
-extern NSString *const kNLApplyNotification;   // settings page's Apply button: enabled players quit so they relaunch fresh
+extern NSString *const kNLChorusNotification;  // a chorus just began; NowLyricsIsland in SpringBoard bounces the Dynamic Island
 extern NSString *const kNLUserAgent;
 extern const NSTimeInterval kNLDurationTolerance;   // max track-length mismatch when matching
 

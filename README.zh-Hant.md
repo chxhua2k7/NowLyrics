@@ -32,7 +32,7 @@ make package FINALPACKAGE=1   # 正式版;單純 `make package` 是帶 NSLog 的
 - Mac 上的 Theos + Xcode,rootless,`ARCHS = arm64 arm64e`。arm64e slice 是 Apple Music 能用的關鍵,
   只有 Xcode 的工具鏈編出來的能過指標驗證。
 - 版本號只在 Makefile 的 `PACKAGE_VERSION`(套件版本、`NL_VERSION` 定義、stage 時填入 `bundle/Info.plist`)。
-- 執行期相依:PreferenceLoader、AltList。`sudo dpkg -i` 安裝;不用 respring,播放器重開、`killall Preferences` 即可。
+- 執行期相依:PreferenceLoader、AltList。`sudo dpkg -i` 安裝後 respring 一次(設定頁的「套用」),SpringBoard 才會載入 NowLyricsIsland;歌詞本身只要播放器重開。
 
 ## 結構
 

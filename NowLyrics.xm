@@ -376,13 +376,6 @@ static void NLInstallHooks(void) {
 
 #pragma mark - Preference changes
 
-// The Apply button on the settings page: quit so the player comes back with a
-// clean slate, the same thing "Quit app on change" does automatically.
-static void NLApplyRequested(CFNotificationCenterRef center, void *observer,
-                             CFStringRef name, const void *object, CFDictionaryRef userInfo) {
-    if (NLSettingsReload().enabled) exit(0);
-}
-
 static void NLPrefsChanged(CFNotificationCenterRef center, void *observer,
                            CFStringRef name, const void *object, CFDictionaryRef userInfo) {
     NLSettings *old = NLSettingsCurrent();
@@ -432,12 +425,6 @@ static void NLPrefsChanged(CFNotificationCenterRef center, void *observer,
                                         NULL,
                                         NLPrefsChanged,
                                         (__bridge CFStringRef)kNLReloadNotification,
-                                        NULL,
-                                        CFNotificationSuspensionBehaviorCoalesce);
-        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
-                                        NULL,
-                                        NLApplyRequested,
-                                        (__bridge CFStringRef)kNLApplyNotification,
                                         NULL,
                                         CFNotificationSuspensionBehaviorCoalesce);
 

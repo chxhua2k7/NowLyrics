@@ -9,6 +9,9 @@
 //    `iconColor` and gets the 29 pt white-glyph-on-coloured-tile that Settings
 //    uses, so the page ships no PNGs and the glyphs come from the system.
 //  - The action behind the "Clear lyrics cache" button.
+//  - "Apply" in the navigation bar: after a confirmation, restarts SpringBoard
+//    through FrontBoardServices' SBSRelaunchAction (Cephei's way, nothing is
+//    spawned). Needed after install or update so NowLyricsIsland is loaded.
 //  - The version shown in the About group (NL_VERSION, PACKAGE_VERSION from
 //    the Makefile).
 //
@@ -21,6 +24,9 @@
 #import <Preferences/PSListController.h>
 #import <Preferences/PSSpecifier.h>
 #import <libprefs/prefs.h>
+#import <dlfcn.h>
+#import <objc/message.h>
+#import <objc/runtime.h>
 
 @interface PSListController (NLPreferences)
 - (void)setPreferenceValue:(id)value specifier:(PSSpecifier *)specifier;
@@ -92,9 +98,6 @@ static void NLApplyIcon(PSSpecifier *specifier) {
 
 @implementation NLRootListController
 
-// "Apply" in the navigation bar: the players that have NowLyrics enabled quit
-// and relaunch with the current settings. Everything applies live anyway; this
-// is for the times a fresh start is wanted without "Quit app on change" on.
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:[self nlLocalized:@"Apply"]
@@ -104,9 +107,25 @@ static void NLApplyIcon(PSSpecifier *specifier) {
 }
 
 - (void)nlApply:(id)sender {
-    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
-                                         CFSTR("app.nowlyrics/Apply"), NULL, NULL, true);
-    [[[UINotificationFeedbackGenerator alloc] init] notificationOccurred:UINotificationFeedbackTypeSuccess];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:[self nlLocalized:@"Apply"]
+                                                                   message:[self nlLocalized:@"Restart SpringBoard to apply?"]
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:[self nlLocalized:@"Cancel"] style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:[self nlLocalized:@"Respring"] style:UIAlertActionStyleDestructive
+                                            handler:^(UIAlertAction *action) { [self nlRespring]; }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)nlRespring {
+    dlopen("/System/Library/PrivateFrameworks/FrontBoardServices.framework/FrontBoardServices", RTLD_NOW);
+    dlopen("/System/Library/PrivateFrameworks/SpringBoardServices.framework/SpringBoardServices", RTLD_NOW);
+    Class actionClass = objc_getClass("SBSRelaunchAction");
+    Class serviceClass = objc_getClass("FBSSystemService");
+    if (!actionClass || !serviceClass) return;
+    // SBSRelaunchActionOptionsRestartRenderServer = 1 << 0
+    id action = ((id (*)(id, SEL, id, NSUInteger, id))objc_msgSend)(actionClass, @selector(actionWithReason:options:targetURL:), @"NowLyrics", 1, nil);
+    id service = ((id (*)(id, SEL))objc_msgSend)(serviceClass, @selector(sharedService));
+    ((void (*)(id, SEL, id, id))objc_msgSend)(service, @selector(sendActions:withResult:), [NSSet setWithObject:action], nil);
 }
 
 - (NSMutableArray *)specifiers {

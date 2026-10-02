@@ -34,6 +34,14 @@ NowLyrics_FILES += NowLyrics.xm NLSettings.m NLLyrics.m NLSources.m NLEngine.m
 NowLyrics_CFLAGS += -fobjc-arc -Wall -DNL_VERSION=\"$(PACKAGE_VERSION)\"
 NowLyrics_FRAMEWORKS += MediaPlayer QuartzCore
 
+# SpringBoard only: bounces the Dynamic Island at each chorus start that
+# NowLyrics.dylib announces. Separate so nothing else of the tweak runs there.
+TWEAK_NAME += NowLyricsIsland
+
+NowLyricsIsland_FILES += NowLyricsIsland.x
+NowLyricsIsland_CFLAGS += -fobjc-arc -Wall
+NowLyricsIsland_FRAMEWORKS += UIKit
+
 include $(THEOS_MAKE_PATH)/tweak.mk
 
 # 設定頁:prefs/ 裡是 NowLyrics.plist(entry + items)和各語言的 <lang>.lproj/Localizable.strings;
