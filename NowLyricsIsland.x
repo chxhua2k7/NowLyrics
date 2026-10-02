@@ -114,6 +114,7 @@ static CGFloat gSensorWidth = 125;
 static const CGFloat kNLContentGap = 4;   // kept clear on each side of the line
 
 static NSString *gTitle = nil;
+static BOOL gExplicit = NO;   // the track is flagged explicit (and NowLyrics was not told to hide that)
 static UIColor *gArtworkColor = nil;
 static NSUInteger gArtworkHash = 0;
 
@@ -139,7 +140,7 @@ static UIView *NLPillFor(UIView *view) {
 // speed, with the edges faded so the text does not end in a hard cut.
 @interface NLIslandStripView : UIView
 @property (nonatomic, readonly) UILabel *label;
-- (void)setText:(NSString *)text scrollUp:(BOOL)scrollUp;
+- (void)setText:(NSString *)text explicit:(BOOL)explicit scrollUp:(BOOL)scrollUp;
 - (void)applyFontSize:(CGFloat)size color:(UIColor *)color speed:(CGFloat)speed;
 @end
 
@@ -149,7 +150,8 @@ static UIView *NLPillFor(UIView *view) {
     CAGradientLayer *_fade;
     CGFloat _speed;
     CGFloat _laidOutWidth;
-    NSString *_laidOutText;
+    NSString *_text;
+    BOOL _explicit;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -176,21 +178,50 @@ static UIView *NLPillFor(UIView *view) {
 - (void)applyFontSize:(CGFloat)size color:(UIColor *)color speed:(CGFloat)speed {
     UIFont *font = [UIFont systemFontOfSize:size weight:UIFontWeightSemibold];
     BOOL changed = ![font isEqual:_label.font] || speed != _speed;
+    BOOL recolor = ![color isEqual:_label.textColor];
     _label.font = font;
     _label.textColor = color;
     _speed = speed;
+    if (changed || recolor) _label.attributedText = [self lineWithText:_text explicit:_explicit];
     if (changed) [self restartMarquee];
 }
 
-- (void)setText:(NSString *)text scrollUp:(BOOL)scrollUp {
-    NSString *old = _label.text ?: @"";
-    if ([text isEqualToString:old]) return;
-    if (!scrollUp || old.length == 0 || CGRectIsEmpty(_content.bounds)) {
+// The line, with the system's "E" after it for explicit tracks, as the
+// expanded island and the lock screen show it: the e.square.fill symbol at the
+// text's size and a little dimmer than the text.
+- (NSAttributedString *)lineWithText:(NSString *)text explicit:(BOOL)explicit {
+    UIFont *font = _label.font ?: [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
+    UIColor *color = _label.textColor ?: UIColor.whiteColor;
+    NSMutableAttributedString *line = [[NSMutableAttributedString alloc] initWithString:text ?: @""
+        attributes:@{NSFontAttributeName: font, NSForegroundColorAttributeName: color}];
+    if (!explicit || text.length == 0) return line;
+    UIImageSymbolConfiguration *config = [UIImageSymbolConfiguration configurationWithFont:font scale:UIImageSymbolScaleSmall];
+    UIImage *badge = [[UIImage systemImageNamed:@"e.square.fill" withConfiguration:config]
+                      imageWithTintColor:[color colorWithAlphaComponent:0.7] renderingMode:UIImageRenderingModeAlwaysOriginal];
+    if (!badge) return line;
+    NSTextAttachment *attachment = [NSTextAttachment new];
+    attachment.image = badge;
+    CGFloat side = round(font.capHeight + 2);
+    attachment.bounds = CGRectMake(0, round((font.capHeight - side) / 2), side * badge.size.width / MAX(badge.size.height, 1), side);
+    [line appendAttributedString:[[NSAttributedString alloc] initWithString:@" " attributes:@{NSFontAttributeName: font}]];
+    [line appendAttributedString:[NSAttributedString attributedStringWithAttachment:attachment]];
+    return line;
+}
+
+- (void)setText:(NSString *)text explicit:(BOOL)explicit scrollUp:(BOOL)scrollUp {
+    NSString *old = _text ?: @"";
+    text = text ?: @"";
+    if ([text isEqualToString:old] && explicit == _explicit) return;
+    BOOL sameLine = [text isEqualToString:old];   // only the badge changed: no line change animation
+    NSAttributedString *leavingLine = _label.attributedText;
+    _text = [text copy];
+    _explicit = explicit;
+    if (sameLine || !scrollUp || old.length == 0 || CGRectIsEmpty(_content.bounds)) {
         CATransition *t = [CATransition animation];
         t.type = kCATransitionFade;
         t.duration = 0.25;
         [_content.layer addAnimation:t forKey:@"line"];
-        _label.text = text;
+        _label.attributedText = [self lineWithText:text explicit:explicit];
         [self restartMarquee];
         return;
     }
@@ -200,15 +231,13 @@ static UIView *NLPillFor(UIView *view) {
     // push transition slides snapshots of the whole layer and, in a strip this
     // short, the two lines ran into each other halfway.
     UILabel *leaving = [UILabel new];
-    leaving.font = _label.font;
-    leaving.textColor = _label.textColor;
     leaving.textAlignment = _label.textAlignment;
     leaving.lineBreakMode = _label.lineBreakMode;
-    leaving.text = old;
+    leaving.attributedText = leavingLine;
     leaving.frame = _label.layer.presentationLayer ? _label.layer.presentationLayer.frame : _label.frame;
     [_content addSubview:leaving];
 
-    _label.text = text;
+    _label.attributedText = [self lineWithText:text explicit:explicit];
     [self restartMarquee];
     CGFloat shift = _content.bounds.size.height;
     _label.transform = CGAffineTransformMakeTranslation(0, shift);
@@ -238,7 +267,6 @@ static UIView *NLPillFor(UIView *view) {
     [_label.layer removeAnimationForKey:@"marquee"];
     CGRect b = _content.bounds;
     _laidOutWidth = b.size.width;
-    _laidOutText = _label.text;
     CGFloat textWidth = ceil([_label sizeThatFits:CGSizeMake(CGFLOAT_MAX, b.size.height)].width);
     CGFloat overflow = textWidth - b.size.width;
     if (overflow <= 1 || b.size.width <= 0) {
@@ -456,7 +484,7 @@ static void NLIslandUpdate(void) {
         [pill setNeedsLayout];   // frames are only ever set in the pill's own layout pass
     }
     [gStrip applyFontSize:gSettings.fontSize color:NLTextColor() speed:gSettings.speed];
-    [gStrip setText:gTitle scrollUp:gSettings.scrollUp];
+    [gStrip setText:gTitle explicit:gExplicit scrollUp:gSettings.scrollUp];
     if (gClip.alpha < 1) NLIslandRevealWhenStill(pill, 0);
 }
 
@@ -472,6 +500,9 @@ static void NLIslandRefreshInfo(void) {
         NSDictionary *info = (__bridge NSDictionary *)ref;
         id title = info[@"kMRMediaRemoteNowPlayingInfoTitle"];
         gTitle = [title isKindOfClass:NSString.class] ? title : nil;
+        // Cleared by the players already when "Hide explicit badge" is on.
+        gExplicit = [info[@"kMRMediaRemoteNowPlayingInfoIsExplicitTrack"] respondsToSelector:@selector(boolValue)]
+                 && [info[@"kMRMediaRemoteNowPlayingInfoIsExplicitTrack"] boolValue];
 
         NSData *artwork = info[@"kMRMediaRemoteNowPlayingInfoArtworkData"];
         if (gSettings.artworkColor && [artwork isKindOfClass:NSData.class] && artwork.hash != gArtworkHash) {

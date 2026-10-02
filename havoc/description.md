@@ -2,6 +2,8 @@ While a song plays, NowLyrics puts the line being sung **in place of the track t
 
 ## Features
 
+- **Lyrics in the island** — optional: a strip with the current line at the bottom of the compact Dynamic Island, which grows down to the status bar's edge. White or album color, fade or scroll-up line changes, adjustable size; long lines scroll.
+- **Hide explicit badge** — drops the "E" that would follow the lyric line on explicit tracks.
 - **Artist field** — keep the credit (`Track — Artist`), show the next lyric line, or leave it alone.
 - **Offset slider** — −3 s to +3 s, applied as you drag; or type an exact value such as `0.25` or `-300ms`.
 - **Your own lyrics** — drop an `.lrc` into the app's `Library/NowLyrics/manual/` folder and it wins over every online source.
@@ -34,6 +36,7 @@ Cannot be installed alongside **AMLyrics** — both rewrite the same Apple Music
 
 - Lyrics are line-synced (LRC); word-by-word lyrics are not available from these sources.
 - Inside Apple Music the lyric line also appears in Music's own now-playing views.
+- Lyrics in the island needs an iPhone with the Dynamic Island and has been verified on iOS 16.5.1.
 
 Only the track title, artist, album and duration are sent to the lyrics services; your Musixmatch token is stored on the device and sent only to Musixmatch. No accounts, no analytics.
 
@@ -45,6 +48,6 @@ NowLyrics 把正在唱的那句歌詞放到曲名的位置：鎖定畫面、控�
 
 歌詞來源：LRCLIB 與網易雲音樂免設定即用（網易雲為簡體）；Musixmatch 曲庫最大，需貼上自己的 token 或 API key。可設定優先來源，其他來源自動補位。
 
-偏移拉桿 ±3 秒，邊拖邊套用；演出者欄位可顯示原曲名與演出者、下一句歌詞或維持原樣；把自己的 `.lrc` 放進 App 的 `Library/NowLyrics/manual/` 即優先採用。
+「歌詞上島」可在縮小的動態島底部多一列顯示當前歌詞（白色或專輯顏色、淡入或向上捲動，長句自動捲動）；也能隱藏 explicit 歌曲的「E」標記。偏移拉桿 ±3 秒，邊拖邊套用；演出者欄位可顯示原曲名與演出者、下一句歌詞或維持原樣；把自己的 `.lrc` 放進 App 的 `Library/NowLyrics/manual/` 即優先採用。
 
 iOS 15.0 – 26.0.1，僅支援 rootless 越獄（Dopamine、palera1n），不能與 AMLyrics 同時安裝。只會把曲名、演出者、專輯與長度送給歌詞服務，不需帳號、沒有追蹤。

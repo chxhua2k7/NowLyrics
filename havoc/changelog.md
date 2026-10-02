@@ -1,3 +1,9 @@
+## 1.1.0
+
+- **Lyrics in the island**: the line being sung in a strip at the bottom of the compact Dynamic Island, which grows down to the status bar's edge; white or album color, fade or scroll-up line changes, adjustable font size, long lines scroll. Off by default, on its own settings page
+- **Hide explicit badge**: an option to drop the "E" that follows the title (now the lyric line) on explicit tracks
+- **Apply** on the settings page now restarts SpringBoard after asking
+
 ## 1.0.0
 
 Initial release.
