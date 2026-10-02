@@ -36,7 +36,7 @@ Cannot be installed alongside **AMLyrics** — both rewrite the same Apple Music
 
 - Lyrics are line-synced (LRC); word-by-word lyrics are not available from these sources.
 - Inside Apple Music the lyric line also appears in Music's own now-playing views.
-- Lyrics in the island needs an iPhone with the Dynamic Island and has been verified on iOS 16.5.1.
+- Lyrics in the island needs an iPhone with the Dynamic Island; verified on iOS 16.5.1, 18.6.2 and 26.1.
 
 Only the track title, artist, album and duration are sent to the lyrics services; your Musixmatch token is stored on the device and sent only to Musixmatch. No accounts, no analytics.
 

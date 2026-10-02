@@ -57,13 +57,14 @@ make package FINALPACKAGE=1   # 正式版;單純 `make package` 是帶 NSLog 的
 ## 測試
 
 iPhone 14 Pro / iOS 16.5.1 測全部;vphone-cli VM(iOS 26.1、18.6.2)只測注入和 Spotify 路徑
-(VM 的設定 App 掛不出設定頁)。歌詞上島只在 14 Pro 上驗證過,動畫是用螢幕錄影逐格檢查的。
+(VM 的設定 App 掛不出設定頁)。歌詞上島在 14 Pro(16.5.1)與 18.6.2、26.1 的 VM 上驗證過,動畫是用螢幕錄影逐格檢查的。
+iOS 17 以上改掛在元件自己的 view:那裡容器的內容 view 規定只能有一個子 view,`addContentSubview:` 會把元件換掉。
 
 ## 限制
 
 逐行不逐字。網易雲是簡體。Musixmatch 要 App 的 token(非官方)或 API key(帶時間軸的端點通常要付費)。
-比對靠字串;Apple Music 依賴私有 API。歌詞上島需要有動態島的 iPhone,依賴只在 16.5.1 確認過的
-SpringBoard 內部實作,其他版本可能需要調整。
+比對靠字串;Apple Music 依賴私有 API。歌詞上島需要有動態島的 iPhone,依賴在 16.5.1、18.6.2、26.1
+確認過的 SpringBoard 內部實作,其他版本可能需要調整。
 
 ## 授權
 

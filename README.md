@@ -71,8 +71,10 @@ make package FINALPACKAGE=1   # release; plain `make package` = debug with NSLog
 
 iPhone 14 Pro / iOS 16.5.1 for everything; vphone-cli VMs (iOS 26.1, 18.6.2)
 for injection and the Spotify path only (their Settings never shows the page).
-The island strip is verified on the 14 Pro only; its animation work was checked
-frame by frame on screen recordings.
+The island strip is verified on the 14 Pro (16.5.1) and in the 18.6.2 and 26.1
+VMs; its animation work was checked frame by frame on screen recordings. On
+iOS 17+ it hangs in the element's own view: there the container's content views
+assert a single subview, so `addContentSubview:` would replace the element.
 
 ## Limitations
 
@@ -80,7 +82,7 @@ Per line, not per syllable. NetEase is Simplified Chinese. Musixmatch needs the
 app's token (unofficial) or an API key whose timed endpoint is usually paid.
 Matching is by strings; Apple Music relies on private API. Lyrics in the island
 needs a Dynamic Island iPhone and rests on SpringBoard internals checked on
-16.5.1 only; other versions may need adjusting.
+16.5.1, 18.6.2 and 26.1; other versions may need adjusting.
 
 ## License
 
