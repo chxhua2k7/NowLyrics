@@ -31,6 +31,30 @@
 #import <objc/runtime.h>
 #import <dlfcn.h>
 
+// Built with -DNLI_FILELOG (for devices without a log reader, such as the
+// vphone VMs), notable events go to /var/mobile/Library/Logs/NowLyricsIsland.log.
+#ifdef NLI_FILELOG
+static void NLIFileLog(NSString *format, ...) NS_FORMAT_FUNCTION(1, 2);
+static void NLIFileLog(NSString *format, ...) {
+    va_list args;
+    va_start(args, format);
+    NSString *line = [[NSString alloc] initWithFormat:format arguments:args];
+    va_end(args);
+    NSString *path = @"/var/mobile/Library/Logs/NowLyricsIsland.log";
+    NSFileHandle *h = [NSFileHandle fileHandleForWritingAtPath:path];
+    if (!h) {
+        [[NSFileManager defaultManager] createFileAtPath:path contents:nil attributes:nil];
+        h = [NSFileHandle fileHandleForWritingAtPath:path];
+    }
+    [h seekToEndOfFile];
+    [h writeData:[[NSString stringWithFormat:@"%@ %@\n", [NSDate date], line] dataUsingEncoding:NSUTF8StringEncoding]];
+    [h closeFile];
+}
+#define NLI_LOG(...) NLIFileLog(__VA_ARGS__)
+#else
+#define NLI_LOG(...) do {} while (0)
+#endif
+
 // The pill. Its content view is what SpringBoard scales (a transform against a
 // reference size), fades (contentAlpha) and clips while the island resizes,
 // with the artwork and waveform in it; addContentSubview: puts a view there.
@@ -51,11 +75,12 @@
 static NSString *const kNLPrefsDomain = @"app.nowlyrics";
 static NSString *const kNLReloadNotification = @"app.nowlyrics/ReloadPrefs";
 static const NSInteger kNLCompactLayoutMode = 2;   // SpringBoard's numbering
-// The added band is only ~11 pt and a line's box (its font's line height) is
-// taller, so the box hangs 1 pt past the island's bottom: that point is line
-// spacing, never ink, and the capsule clip takes it. The text then sits in the
-// middle of the band instead of on the camera's edge.
-static const CGFloat kNLBottomGap = -1;
+// Between the line's box (exactly its font's line height, so the text's
+// bottom is the box's bottom) and the island's bottom edge. The text's bottom
+// stays put at every font size and a bigger font only grows upwards; rounding
+// the box up had split the extra between top and bottom. The value was tuned
+// by eye on the phone.
+static const CGFloat kNLBottomGap = 0;
 
 #pragma mark - Settings
 
@@ -65,9 +90,11 @@ typedef struct {
     BOOL artworkColor;
     BOOL scrollUp;       // line change pushes up instead of fading
     CGFloat speed;       // marquee, pt/s
+    BOOL debugNoGrow;    // NLI_FILELOG builds only: skip the outsets change
+    BOOL debugNoStrip;   // NLI_FILELOG builds only: never attach the strip
 } NLIslandSettings;
 
-static NLIslandSettings gSettings = { NO, 11, NO, NO, 30 };
+static NLIslandSettings gSettings = { NO, 11, NO, NO, 30, NO, NO };
 
 static CGFloat NLNum(NSDictionary *prefs, NSString *key, CGFloat fallback, CGFloat lo, CGFloat hi) {
     id v = prefs[key];
@@ -93,7 +120,13 @@ static NLIslandSettings NLIslandReadSettings(void) {
     s.fontSize = NLNum(prefs, @"islandFontSize", 11, 9, 15);
     s.artworkColor = [prefs[@"islandColor"] isEqual:@"artwork"];
     s.scrollUp = [prefs[@"islandTransition"] isEqual:@"up"];
-    s.speed = NLNum(prefs, @"islandMarqueeSpeed", 30, 10, 80);
+    s.speed = NLNum(prefs, @"islandMarqueeSpeed", 30, 9, 81);   // shown as 0.3×–2.7×
+    s.debugNoGrow = NO;
+    s.debugNoStrip = NO;
+#ifdef NLI_FILELOG
+    s.debugNoGrow = NLBool(prefs, @"islandDebugNoGrow", NO);
+    s.debugNoStrip = NLBool(prefs, @"islandDebugNoStrip", NO);
+#endif
     return s;
 }
 
@@ -121,6 +154,21 @@ static NSUInteger gArtworkHash = 0;
 static BOOL NLIsNowPlaying(id element) {
     NSString *client = [element respondsToSelector:@selector(clientIdentifier)] ? [element clientIdentifier] : nil;
     return [client isEqualToString:@"com.apple.MediaRemoteUI"];
+}
+
+// iOS 17 and later: the element's own view, the one wrapper inside
+// _SBSystemApertureContainerViewRotatingContentView (itself inside the view that
+// scales). Those container content views must hold exactly one subview:
+// -contentView asserts it (sbsa_onlyObjectOrNilAssert), so -addContentSubview:
+// swaps the element out and a sibling there crashes SpringBoard. The wrapper
+// takes extra subviews and still scales with the island. iOS 16 keeps
+// -addContentSubview:, which adds there instead of replacing.
+static UIView *NLElementWrapperView(UIView *sceneContainer, UIView *pill) {
+    if (![NSProcessInfo.processInfo isOperatingSystemAtLeastVersion:(NSOperatingSystemVersion){17, 0, 0}]) return nil;
+    for (UIView *v = sceneContainer.superview; v && v != pill; v = v.superview) {
+        if ([NSStringFromClass(v.superview.class) hasSuffix:@"RotatingContentView"]) return v;
+    }
+    return nil;
 }
 
 // The black pill on screen.
@@ -226,10 +274,12 @@ static UIView *NLPillFor(UIView *view) {
         return;
     }
 
-    // Scroll up, done by hand: the old line rises a full line height and fades
-    // while the new one comes up from a full line height below. Core Animation's
-    // push transition slides snapshots of the whole layer and, in a strip this
-    // short, the two lines ran into each other halfway.
+    // Scroll up, done by hand (Core Animation's push slides snapshots of the
+    // whole layer and, in a strip this short, ran the two lines into each
+    // other). The old line drifts up half a line while fading out quickly; the
+    // new one rises from half a line below on a soft spring, starting a beat
+    // later, so the change reads as one line giving way to the next rather than
+    // two blocks being pushed.
     UILabel *leaving = [UILabel new];
     leaving.textAlignment = _label.textAlignment;
     leaving.lineBreakMode = _label.lineBreakMode;
@@ -239,17 +289,26 @@ static UIView *NLPillFor(UIView *view) {
 
     _label.attributedText = [self lineWithText:text explicit:explicit];
     [self restartMarquee];
-    CGFloat shift = _content.bounds.size.height;
+    CGFloat shift = round(_content.bounds.size.height * 0.55);
     _label.transform = CGAffineTransformMakeTranslation(0, shift);
     _label.alpha = 0;
-    [UIView animateWithDuration:0.3 delay:0 options:UIViewAnimationOptionCurveEaseInOut animations:^{
+    // The old line is gone (alpha 0.15 s) before the new one is more than
+    // faintly there, so the two never read as overlapping.
+    [UIView animateWithDuration:0.22 delay:0 options:UIViewAnimationOptionCurveEaseIn animations:^{
         leaving.transform = CGAffineTransformMakeTranslation(0, -shift);
-        leaving.alpha = 0;
-        self->_label.transform = CGAffineTransformIdentity;
-        self->_label.alpha = 1;
     } completion:^(BOOL finished) {
         [leaving removeFromSuperview];
     }];
+    [UIView animateWithDuration:0.15 delay:0 options:UIViewAnimationOptionCurveEaseOut animations:^{
+        leaving.alpha = 0;
+    } completion:nil];
+    [UIView animateWithDuration:0.5 delay:0.08 usingSpringWithDamping:0.82 initialSpringVelocity:0.4
+                        options:UIViewAnimationOptionAllowUserInteraction animations:^{
+        self->_label.transform = CGAffineTransformIdentity;
+    } completion:nil];
+    [UIView animateWithDuration:0.28 delay:0.08 options:UIViewAnimationOptionCurveEaseOut animations:^{
+        self->_label.alpha = 1;
+    } completion:nil];
 }
 
 // The width changes all through SpringBoard's resize animations. Restarting the
@@ -404,12 +463,36 @@ static void NLIslandMeasureExtra(UIView *pill) {
 static void NLIslandLayout(UIView *pill) {
     UIView *host = gClip.superview;
     if (!host || NLPillFor(host) != pill) return;
+#ifdef NLI_FILELOG
+    {
+        static NSString *last = nil;
+        NSMutableArray *chain = [NSMutableArray array];
+        for (UIView *v = host; v && chain.count < 6; v = v.superview) {
+            [chain addObject:[NSString stringWithFormat:@"%@%@ a%.2f%@", NSStringFromClass(v.class),
+                              NSStringFromCGRect(v.frame), v.alpha, v.hidden ? @" H" : @""]];
+        }
+        NSMutableArray *subList = [NSMutableArray array];
+        for (UIView *sv in host.subviews) {
+            [subList addObject:[NSString stringWithFormat:@"%@%@ a%.2f%@ layerHidden%d", NSStringFromClass(sv.class),
+                                NSStringFromCGRect(sv.frame), sv.alpha, sv.hidden ? @" H" : @"", sv.layer.hidden]];
+            for (UIView *inner in sv.subviews) {
+                [subList addObject:[NSString stringWithFormat:@"  >%@%@ a%.2f%@", NSStringFromClass(inner.class),
+                                    NSStringFromCGRect(inner.frame), inner.alpha, inner.hidden ? @" H" : @""]];
+            }
+        }
+        NSString *subs = [subList componentsJoinedByString:@" | "];
+        NSString *state = [NSString stringWithFormat:@"layout chain=%@ subviews=[%@] contentAlpha=%@",
+                           [chain componentsJoinedByString:@" < "], subs,
+                           [pill respondsToSelector:@selector(contentAlpha)] ? [pill valueForKey:@"contentAlpha"] : @"?"];
+        if (![state isEqualToString:last]) { last = state; NLI_LOG(@"%@", state); }
+    }
+#endif
     // The line's box sits on the island's bottom edge, between the artwork and
     // the waveform; the camera above it is the only thing it shares rows with.
     // It is as tall as the font needs. Measured in the content view, which is
     // the pill's size or, while scaling, its reference size.
     CGRect b = host.bounds;
-    CGFloat h = MIN(ceil([UIFont systemFontOfSize:gSettings.fontSize weight:UIFontWeightSemibold].lineHeight), CGRectGetHeight(b));
+    CGFloat h = MIN([UIFont systemFontOfSize:gSettings.fontSize weight:UIFontWeightSemibold].lineHeight, CGRectGetHeight(b));
     CGFloat y = CGRectGetHeight(b) - h - kNLBottomGap;
     CGFloat width = MAX(MIN(gSensorWidth, CGRectGetWidth(b)) - kNLContentGap * 2, 0);
     CGRect strip = CGRectMake(round((CGRectGetWidth(b) - width) / 2), y, width, h);
@@ -452,7 +535,16 @@ static void NLIslandUpdate(void) {
     UIView *pill = NLPillFor(gSceneContainer);
     SBSystemApertureSceneElement *element = gElement;
     BOOL compact = [element respondsToSelector:@selector(layoutMode)] && element.layoutMode == kNLCompactLayoutMode;
-    BOOL show = gSettings.on && pill && compact && gTitle.length > 0;
+    BOOL show = gSettings.on && pill && compact && gTitle.length > 0 && !gSettings.debugNoStrip;
+#ifdef NLI_FILELOG
+    {
+        static NSString *last = nil;
+        NSString *state = [NSString stringWithFormat:@"update on=%d pill=%@ mode=%ld title=%@ show=%d",
+                           gSettings.on, pill ? NSStringFromClass(pill.class) : @"nil",
+                           [element respondsToSelector:@selector(layoutMode)] ? (long)element.layoutMode : -1L, gTitle, show];
+        if (![state isEqualToString:last]) { last = state; NLI_LOG(@"%@", state); }
+    }
+#endif
     if (!show) {
         // Faded rather than hidden (expanding, the app taking over): a strip
         // vanishing in one frame reads as a flash.
@@ -475,7 +567,9 @@ static void NLIslandUpdate(void) {
     BOOL fresh = !gClip.superview || NLPillFor(gClip.superview) != pill;
     if (fresh) {
         gClip.alpha = 0;
-        if ([pill respondsToSelector:@selector(addContentSubview:)]) [(SBSystemApertureContainerView *)pill addContentSubview:gClip];
+        UIView *wrapper = NLElementWrapperView(gSceneContainer, pill);
+        if (wrapper) [wrapper addSubview:gClip];
+        else if ([pill respondsToSelector:@selector(addContentSubview:)]) [(SBSystemApertureContainerView *)pill addContentSubview:gClip];
         else [pill addSubview:gClip];
         [UIView performWithoutAnimation:^{ NLIslandLayout(pill); }];
     } else {
@@ -543,10 +637,19 @@ static void NLIslandInvalidateHeight(void) {
 
 - (NSDirectionalEdgeInsets)preferredEdgeOutsetsForLayoutMode:(NSInteger)mode suggestedOutsets:(NSDirectionalEdgeInsets)suggested maximumOutsets:(NSDirectionalEdgeInsets)maximum {
     NSDirectionalEdgeInsets outsets = %orig;
+#ifdef NLI_FILELOG
+    {
+        static NSMutableSet *seen = nil;
+        if (!seen) seen = [NSMutableSet set];
+        NSString *client = [self respondsToSelector:@selector(clientIdentifier)] ? [self clientIdentifier] : @"?";
+        NSString *key = [NSString stringWithFormat:@"%@|%@|%ld", NSStringFromClass([self class]), client, (long)mode];
+        if (![seen containsObject:key]) { [seen addObject:key]; NLI_LOG(@"outsets element %@", key); }
+    }
+#endif
     if (!NLIsNowPlaying(self)) return outsets;
     gElement = self;
     if (mode == kNLCompactLayoutMode) {
-        if (gSettings.on) outsets.bottom = MAX(outsets.bottom - gExtra, maximum.bottom);
+        if (gSettings.on && !gSettings.debugNoGrow) outsets.bottom = MAX(outsets.bottom - gExtra, maximum.bottom);
     }
     return outsets;
 }
@@ -554,6 +657,20 @@ static void NLIslandInvalidateHeight(void) {
 - (void)_layoutSceneViewInContainerView:(UIView *)container {
     %orig;
     if (!NLIsNowPlaying(self)) return;
+    // iOS 18 also lays the scene out in containers outside the pill (mirrors,
+    // snapshots); adopting those hid the line every other layout.
+    if (!NLPillFor(container)) return;
+#ifdef NLI_FILELOG
+    {
+        static NSString *last = nil;
+        NSMutableArray *chain = [NSMutableArray array];
+        for (UIView *v = container; v && chain.count < 6; v = v.superview) {
+            [chain addObject:[NSString stringWithFormat:@"%@%@[%lu]", NSStringFromClass(v.class), NSStringFromCGRect(v.frame), (unsigned long)v.subviews.count]];
+        }
+        NSString *state = [@"scene container chain=" stringByAppendingString:[chain componentsJoinedByString:@" < "]];
+        if (![state isEqualToString:last]) { last = state; NLI_LOG(@"%@", state); }
+    }
+#endif
     gElement = self;
     gSceneContainer = container;
     if (gSettings.on && !gTitle) NLIslandRefreshInfo();
@@ -568,6 +685,37 @@ static void NLIslandInvalidateHeight(void) {
     if (gClip.superview && NLPillFor(gClip.superview) == self) NLIslandLayout(self);
 }
 %end
+
+#ifdef NLI_FILELOG
+@interface SBSAElementContextMutator : NSObject
+@end
+
+static NSString *NLIInsets(NSDirectionalEdgeInsets i) {
+    return [NSString stringWithFormat:@"{t %.1f l %.1f b %.1f r %.1f}", i.top, i.leading, i.bottom, i.trailing];
+}
+
+%hook SBSystemApertureViewController
+- (NSDirectionalEdgeInsets)preferredEdgeOutsetsForLayoutMode:(NSInteger)mode suggestedOutsets:(NSDirectionalEdgeInsets)suggested maximumOutsets:(NSDirectionalEdgeInsets)maximum forTargetWithOverrider:(id)overrider isDefaultValue:(BOOL *)isDefault {
+    NSDirectionalEdgeInsets r = %orig;
+    static NSMutableSet *seen = nil;
+    if (!seen) seen = [NSMutableSet set];
+    id target = [overrider respondsToSelector:@selector(layoutSpecifyingOverridingTarget)] ? [overrider performSelector:@selector(layoutSpecifyingOverridingTarget)] : nil;
+    NSString *key = [NSString stringWithFormat:@"%ld|%@|%@", (long)mode, NSStringFromClass([overrider class]), NSStringFromClass([target class])];
+    if (![seen containsObject:key]) { [seen addObject:key]; NLI_LOG(@"VC outsets mode=%@ -> %@", key, NLIInsets(r)); }
+    return r;
+}
+%end
+
+%hook SBSAElementContextMutator
+- (void)setPreferredEdgeOutsets:(NSDirectionalEdgeInsets)outsets {
+    %orig;
+    static NSMutableSet *seen = nil;
+    if (!seen) seen = [NSMutableSet set];
+    NSString *key = NLIInsets(outsets);
+    if (![seen containsObject:key] && seen.count < 40) { [seen addObject:key]; NLI_LOG(@"SBSA setPreferredEdgeOutsets %@ on %@", key, self); }
+}
+%end
+#endif
 
 %hook SBMediaController
 - (void)_mediaRemoteNowPlayingInfoDidChange:(id)notification {
@@ -594,6 +742,7 @@ static void NLIslandPrefsChanged(CFNotificationCenterRef center, void *observer,
     @autoreleasepool {
         if (!objc_getClass("SBSystemApertureSceneElement")) return;   // no Dynamic Island support in this iOS
         gSettings = NLIslandReadSettings();
+        NLI_LOG(@"loaded on=%d fontSize=%.1f", gSettings.on, gSettings.fontSize);
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, NLIslandPrefsChanged,
                                         (__bridge CFStringRef)kNLReloadNotification, NULL,
                                         CFNotificationSuspensionBehaviorCoalesce);
