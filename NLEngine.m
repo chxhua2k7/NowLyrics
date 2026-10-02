@@ -12,7 +12,6 @@
 static const NSTimeInterval kNLMargin = 0.15;        // how early a line may switch
 static const NSTimeInterval kNLMaxFlipDelay = 8.0;   // cap on timer sleep
 static const NSUInteger kNLMemoryCacheLimit = 64;    // parsed tracks kept in memory; the disk has the rest
-static const NSTimeInterval kNLCueWindow = 1.5;      // how late a chorus start may still be announced
 
 // Lyrics cache. Touched from both the fetch queue and the main queue.
 static NSMutableDictionary<NSString *, NSArray<NLLyricLine *> *> *gCache = nil;
@@ -32,7 +31,6 @@ static NSTimeInterval gAnchorElapsed = 0;   // virtual clock anchor
 static CFTimeInterval gAnchorHost = 0;
 static double gRate = 0;
 static uint64_t gFlipGeneration = 0;        // invalidates superseded timers
-static __weak NLLyricLine *gLastCue = nil;  // the chorus start last announced
 
 void NLEngineStart(void) {
     gCache = [NSMutableDictionary dictionary];
@@ -151,15 +149,13 @@ typedef NS_ENUM(NSInteger, NLShow) {
 };
 
 // Works out what the title and artist fields should say right now; nil means
-// "whatever the player set". The lookup position, the line being sung and the
-// start of the next one come back too, so the caller can schedule the flip.
+// "whatever the player set". The lookup position and the start of the next
+// line come back too, so the caller can schedule the flip.
 static NLShow NLCompose(NLSettings *s, NSString **outTitle, NSString **outArtist,
-                        NSTimeInterval *outLookup, NSTimeInterval *outNextStart,
-                        NLLyricLine **outLine) {
+                        NSTimeInterval *outLookup, NSTimeInterval *outNextStart) {
     *outTitle = nil;
     *outArtist = nil;
     *outNextStart = -1;
-    *outLine = nil;
 
     // The offset only changes which line is shown. Adding it to the reported
     // elapsed time would skew the lock screen progress bar.
@@ -180,7 +176,6 @@ static NLShow NLCompose(NLSettings *s, NSString **outTitle, NSString **outArtist
     NSString *nextText = nil;
     NLLyricLine *current = NLLineAt(lines, *outLookup, outNextStart, &nextText);
     NSString *line = current.text;
-    *outLine = current;
 
     // Intros and instrumental breaks are empty lines; show the track title there.
     NSString *display = line.length ? line : gTrackTitle;
@@ -218,19 +213,6 @@ static NLShow NLCompose(NLSettings *s, NSString **outTitle, NSString **outArtist
     return NLShowLyrics;
 }
 
-// The moment a chorus begins, tell SpringBoard so the Dynamic Island can bounce;
-// whether it does is NowLyricsIsland's call. Pauses, seeks and redraws land on
-// the same line again, so each start is announced once, and only while it is
-// actually being sung, not when playback is dropped into the middle of it.
-static void NLCueChorus(NLLyricLine *line, NSTimeInterval lookup) {
-    if (!line.chorusStart || line == gLastCue) return;
-    if (lookup - line.start > kNLCueWindow) return;
-    gLastCue = line;
-    NLLog(@"chorus cue @ %.1f", line.start);
-    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
-                                         (__bridge CFStringRef)kNLChorusNotification, NULL, NULL, true);
-}
-
 void NLEnginePushUpdate(void) {
     NLSettings *s = NLSettingsCurrent();
     if (!s.enabled) {
@@ -240,14 +222,12 @@ void NLEnginePushUpdate(void) {
 
     NSString *title = nil, *artist = nil;
     NSTimeInterval lookup = 0, nextStart = -1;
-    NLLyricLine *current = nil;
-    NLShow show = NLCompose(s, &title, &artist, &lookup, &nextStart, &current);
+    NLShow show = NLCompose(s, &title, &artist, &lookup, &nextStart);
     if (show == NLShowNothing) return;
 
     NLPublish(title, artist);
 
     if (show == NLShowLyrics && gRate > 0) {
-        NLCueChorus(current, lookup);
         NSTimeInterval delay = (nextStart > lookup) ? (nextStart - lookup) / gRate : 1.0;
         NLScheduleFlip(MIN(delay, kNLMaxFlipDelay));
     }

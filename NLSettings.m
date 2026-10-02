@@ -7,7 +7,6 @@
 
 NSString *const kNLPrefsDomain = @"app.nowlyrics";
 NSString *const kNLReloadNotification = @"app.nowlyrics/ReloadPrefs";
-NSString *const kNLChorusNotification = @"app.nowlyrics/Chorus";
 #ifndef NL_VERSION
 #error NL_VERSION comes from PACKAGE_VERSION in the Makefile
 #endif

@@ -34,8 +34,8 @@ NowLyrics_FILES += NowLyrics.xm NLSettings.m NLLyrics.m NLSources.m NLEngine.m
 NowLyrics_CFLAGS += -fobjc-arc -Wall -DNL_VERSION=\"$(PACKAGE_VERSION)\"
 NowLyrics_FRAMEWORKS += MediaPlayer QuartzCore
 
-# SpringBoard only: bounces the Dynamic Island at each chorus start that
-# NowLyrics.dylib announces. Separate so nothing else of the tweak runs there.
+# SpringBoard only: the current lyric line under the compact Dynamic Island.
+# Separate so nothing else of the tweak runs there.
 TWEAK_NAME += NowLyricsIsland
 
 NowLyricsIsland_FILES += NowLyricsIsland.x

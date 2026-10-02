@@ -32,12 +32,6 @@
 "Apps that are not running clear theirs when next opened." = "没在运行的 App 会在下次打开时清除。";
 "Apply" = "应用";
 "OK" = "好";
-"Dynamic Island" = "灵动岛";
-"Bounce on chorus" = "副歌时弹跳";
-"Bounce style" = "弹跳方式";
-"Up" = "向上";
-"Side to side" = "左右";
-"Gives the Dynamic Island a small bounce when a chorus begins, while the phone is unlocked and the island is showing something." = "副歌开始时让灵动岛轻轻弹一下。只在手机已解锁、灵动岛有显示内容时才会弹。";
 "Restart SpringBoard to apply?" = "要重启 SpringBoard 来应用吗？";
 "Cancel" = "取消";
 "Respring" = "重启";

@@ -169,62 +169,6 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Gives the Dynamic Island a small bounce when a chorus begins, while the phone is unlocked and the island is showing something.</string>
-			<key>label</key>
-			<string>Dynamic Island</string>
-		</dict>
-		<dict>
-			<key>PostNotification</key>
-			<string>app.nowlyrics/ReloadPrefs</string>
-			<key>cell</key>
-			<string>PSSwitchCell</string>
-			<key>default</key>
-			<false/>
-			<key>defaults</key>
-			<string>app.nowlyrics</string>
-			<key>iconColor</key>
-			<string>#AF52DE</string>
-			<key>iconSymbol</key>
-			<string>capsule.fill</string>
-			<key>key</key>
-			<string>chorusBounce</string>
-			<key>label</key>
-			<string>Bounce on chorus</string>
-		</dict>
-		<dict>
-			<key>PostNotification</key>
-			<string>app.nowlyrics/ReloadPrefs</string>
-			<key>cell</key>
-			<string>PSLinkListCell</string>
-			<key>default</key>
-			<string>up</string>
-			<key>defaults</key>
-			<string>app.nowlyrics</string>
-			<key>detail</key>
-			<string>PSListItemsController</string>
-			<key>iconColor</key>
-			<string>#5856D6</string>
-			<key>iconSymbol</key>
-			<string>arrow.up.and.down.and.arrow.left.and.right</string>
-			<key>key</key>
-			<string>chorusBounceStyle</string>
-			<key>label</key>
-			<string>Bounce style</string>
-			<key>validTitles</key>
-			<array>
-				<string>Up</string>
-				<string>Side to side</string>
-			</array>
-			<key>validValues</key>
-			<array>
-				<string>up</string>
-				<string>side</string>
-			</array>
-		</dict>
-		<dict>
-			<key>cell</key>
-			<string>PSGroupCell</string>
-			<key>footerText</key>
 			<string>The preferred source is tried first. Musixmatch needs the token from its app (Settings → Get help → Copy debug info) or an API key. NetEase lyrics are Simplified Chinese.</string>
 			<key>label</key>
 			<string>Lyrics Sources</string>
