@@ -3,6 +3,7 @@
 - **Island preview** on the island settings page; tap or hold it like the real island
 - Long lines stay at the end instead of scrolling back while still being sung
 - Fixed the previous line flashing up at a line change
+- More NetEase credits filtered (lines such as "歌手 Artist：…" no longer stop the filter)
 
 ## 1.1.0
 

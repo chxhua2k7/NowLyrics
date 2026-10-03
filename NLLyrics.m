@@ -207,16 +207,17 @@ static BOOL NLIsMetadataLine(NSString *text) {
 
 // The credits block NetEase puts before the first sung line also has entries
 // the list above cannot know: "木箱鼓 Cajon：X", "母带工程师 Mastering Engineer：X",
-// "杜比全景声混音室 Dolby Atmos Studio：X". Recognised by shape (a short label,
-// a colon, a value) plus a production word in the label, so a duet's "男：…"
-// or "周杰倫：…" is never taken for one. Only used before the first sung line.
+// "杜比全景声混音室 Dolby Atmos Studio：X". Recognised by shape (a label, often
+// in two languages, a colon, a value) plus a production word in the label, so
+// a duet's "男：…" or "周杰倫：…" is never taken for one. Only used before the
+// first sung line.
 static BOOL NLIsCreditLine(NSString *text) {
     NSRange colon = [text rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@":："]];
     if (colon.location == NSNotFound) return NO;
     NSCharacterSet *space = [NSCharacterSet whitespaceCharacterSet];
     NSString *label = [[text substringToIndex:colon.location] stringByTrimmingCharactersInSet:space].lowercaseString;
     NSString *value = [[text substringFromIndex:NSMaxRange(colon)] stringByTrimmingCharactersInSet:space];
-    if (label.length == 0 || label.length > 30 || value.length == 0 || value.length > 80) return NO;
+    if (label.length == 0 || label.length > 60 || value.length == 0 || value.length > 80) return NO;
 
     static NSArray<NSString *> *roles, *words;
     static NSSet<NSString *> *whole;
@@ -228,11 +229,13 @@ static BOOL NLIsCreditLine(NSString *text) {
                   @"吉他", @"贝斯", @"貝斯", @"鼓", @"键盘", @"鍵盤", @"钢琴", @"鋼琴", @"提琴", @"弦乐", @"弦樂",
                   @"管乐", @"管樂", @"打击乐", @"打擊樂", @"合成器", @"采样", @"採樣", @"演奏", @"乐手", @"樂手",
                   @"乐队", @"樂隊", @"工作室", @"录音室", @"錄音室", @"混音室", @"助理", @"总监", @"總監",
-                  @"设计", @"設計", @"摄影", @"攝影", @"视觉", @"視覺", @"宣传", @"宣傳", @"营销", @"營銷"];
+                  @"设计", @"設計", @"摄影", @"攝影", @"视觉", @"視覺", @"宣传", @"宣傳", @"营销", @"營銷",
+                  @"歌手", @"演唱", @"主唱", @"原唱", @"翻唱", @"出品人", @"经纪", @"經紀", @"公司"];
         words = @[@"produc", @"engineer", @"mix", @"master", @"record", @"vocal", @"guitar", @"bass", @"drum",
                   @"keyboard", @"piano", @"string", @"arrang", @"compos", @"lyric", @"studio", @"edit", @"program",
                   @"synth", @"percussion", @"director", @"supervis", @"coordinat", @"assistant", @"design",
-                  @"publish", @"cajon", @"violin", @"cello", @"sax", @"trumpet", @"horn", @"dolby", @"atmos"];
+                  @"publish", @"cajon", @"violin", @"cello", @"sax", @"trumpet", @"horn", @"dolby", @"atmos",
+                  @"artist", @"singer", @"perform", @"featur", @"executive", @"manag", @"company", @"label"];
         whole = [NSSet setWithArray:@[@"词", @"詞", @"曲", @"op", @"sp", @"isrc"]];
     });
     if ([whole containsObject:label]) return YES;
