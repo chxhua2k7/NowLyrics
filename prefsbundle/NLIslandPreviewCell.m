@@ -37,7 +37,7 @@ static const CGFloat kNLPressScale = 1.06;
 static const NSTimeInterval kNLExpandDelay = 0.45;
 static const NSTimeInterval kNLAutoCollapse = 6;
 static const NSUInteger kNLBars = 6;
-static const NSUInteger kNLRecentLines = 6;   // not repeated until this many others came by
+static const NSUInteger kNLRecentLines = 20;   // not repeated until this many others came by
 
 @interface NLIslandPreviewCell : PSTableCell <UIGestureRecognizerDelegate>
 @end
