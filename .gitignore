@@ -5,3 +5,6 @@ packages/
 
 # macOS
 .DS_Store
+
+# irecovery shell history
+.irecovery
