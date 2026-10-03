@@ -8,7 +8,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Shows the current line at the bottom of the Dynamic Island while music plays; the island grows down to the status bar’s edge. Lines too long to fit scroll.</string>
+			<string>Shows the current line at the bottom of the Dynamic Island while music plays; the island grows down to the status bar’s edge. Lines too long to fit scroll. With NowLyrics’ main switch off, the strip shows the track title instead.</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -33,6 +33,8 @@
 			<string>PSGroupCell</string>
 			<key>label</key>
 			<string>Appearance</string>
+			<key>showIf</key>
+			<string>islandLyrics</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -53,6 +55,8 @@
 			<string>islandColor</string>
 			<key>label</key>
 			<string>Lyrics color</string>
+			<key>showIf</key>
+			<string>islandLyrics</string>
 			<key>validTitles</key>
 			<array>
 				<string>White</string>
@@ -83,6 +87,8 @@
 			<string>islandTransition</string>
 			<key>label</key>
 			<string>Line change</string>
+			<key>showIf</key>
+			<string>islandLyrics</string>
 			<key>validTitles</key>
 			<array>
 				<string>Fade</string>
@@ -119,6 +125,8 @@
 			<real>15.0</real>
 			<key>min</key>
 			<real>9.0</real>
+			<key>showIf</key>
+			<string>islandLyrics</string>
 			<key>step</key>
 			<real>0.5</real>
 			<key>unit</key>
@@ -151,6 +159,8 @@
 			<real>81.0</real>
 			<key>min</key>
 			<real>9.0</real>
+			<key>showIf</key>
+			<string>islandLyrics</string>
 			<key>step</key>
 			<real>3.0</real>
 			<key>unit</key>

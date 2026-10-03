@@ -18,9 +18,11 @@
 //    That view only carries MediaRemoteUI's scene, and inside MediaRemoteUI only
 //    the leading and trailing views reach the screen in compact layout (and get
 //    transformed by artwork-spinning tweaks), so the strip lives here.
-//  - Text: the now-playing title, which NowLyrics already sets to the current
-//    line, from MRMediaRemoteGetNowPlayingInfo; SBMediaController keeps no info
-//    dictionary on 16.5.1. The artwork in the same answer gives the album color.
+//  - Text: the now-playing title, which NowLyrics sets to the current line when
+//    its main switch is on (otherwise it is the track title, so the strip can
+//    show just that), from MRMediaRemoteGetNowPlayingInfo; SBMediaController
+//    keeps no info dictionary on 16.5.1. The artwork in the same answer gives
+//    the album color.
 //
 //  Settings are the NowLyrics preference file, re-read on its reload
 //  notification, so every change on the settings page applies at once.
@@ -112,7 +114,9 @@ static NLIslandSettings NLIslandReadSettings(void) {
         if (prefs.count) break;
     }
     NLIslandSettings s = {0};
-    s.on = NLIslandBool(prefs, @"enabled", YES) && NLIslandBool(prefs, @"islandLyrics", NO);
+    // Independent of the main switch: with lyrics off, the now-playing title is
+    // the real track title, and the strip shows that instead of a line.
+    s.on = NLIslandBool(prefs, @"islandLyrics", NO);
     s.fontSize = NLIslandNum(prefs, @"islandFontSize", 11, 9, 15);
     s.artworkColor = [prefs[@"islandColor"] isEqual:@"artwork"];
     s.scrollUp = [prefs[@"islandTransition"] isEqual:@"up"];

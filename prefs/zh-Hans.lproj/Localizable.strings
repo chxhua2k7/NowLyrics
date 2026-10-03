@@ -45,5 +45,5 @@
 "Font size" = "字体大小";
 "Scroll speed" = "滚动速度";
 "Appearance" = "外观";
-"Shows the current line at the bottom of the Dynamic Island while music plays; the island grows down to the status bar’s edge. Lines too long to fit scroll." = "播放音乐时在灵动岛底部显示当前歌词，灵动岛会向下延伸到刚好贴齐状态栏。太长的句子会滚动。";
 "Hide explicit badge" = "隐藏「E」标记";
+"Shows the current line at the bottom of the Dynamic Island while music plays; the island grows down to the status bar’s edge. Lines too long to fit scroll. With NowLyrics’ main switch off, the strip shows the track title instead." = "播放音乐时在灵动岛底部显示当前歌词，灵动岛会向下延伸到刚好贴齐状态栏。太长的句子会滚动。关闭 NowLyrics 主页的「启用」时，这里改为显示歌名。";

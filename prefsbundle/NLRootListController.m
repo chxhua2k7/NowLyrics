@@ -14,6 +14,8 @@
 //    spawned). Needed after install or update so NowLyricsIsland is loaded.
 //  - The version shown in the About group (NL_VERSION, PACKAGE_VERSION from
 //    the Makefile).
+//  - Rows that follow a switch: a plist entry with `showIf` = <key> is shown
+//    only while that switch is on (NLUpdateShownSpecifiers).
 //  - NLIslandListController, the "Lyrics in the island" page, loaded from
 //    Island.plist inside this bundle (outside the folder PreferenceLoader scans
 //    for entries) and localized by the Island.strings the Makefile copies from
@@ -101,9 +103,63 @@ static void NLApplyIcon(PSSpecifier *specifier) {
     [specifier setProperty:NLTileIcon(symbol, color) forKey:PSIconImageKey];
 }
 
+#pragma mark - Rows that follow a switch
+
+// A row whose plist entry names `showIf` = <key> is shown only while the switch
+// with that key is on; flipping the switch inserts or removes those rows,
+// animated. Both pages keep the full list and show the wanted subset.
+static PSSpecifier *NLSwitchFor(NSArray<PSSpecifier *> *all, NSString *key) {
+    for (PSSpecifier *s in all) {
+        if ([[s propertyForKey:@"key"] isEqual:key]) return s;
+    }
+    return nil;
+}
+
+static BOOL NLSpecifierWanted(PSListController *controller, NSArray<PSSpecifier *> *all, PSSpecifier *specifier) {
+    NSString *key = [specifier propertyForKey:@"showIf"];
+    if (![key isKindOfClass:NSString.class]) return YES;
+    PSSpecifier *control = NLSwitchFor(all, key);
+    if (!control) return YES;
+    id value = [controller readPreferenceValue:control];
+    if (![value respondsToSelector:@selector(boolValue)]) value = [control propertyForKey:@"default"];
+    return [value boolValue];
+}
+
+static NSMutableArray *NLWantedSpecifiers(PSListController *controller, NSArray<PSSpecifier *> *all) {
+    NSMutableArray *wanted = [NSMutableArray array];
+    for (PSSpecifier *s in all) {
+        if (NLSpecifierWanted(controller, all, s)) [wanted addObject:s];
+    }
+    return wanted;
+}
+
+// After a switch changed: bring the shown rows in line with the full list.
+static void NLUpdateShownSpecifiers(PSListController *controller, NSArray<PSSpecifier *> *all, PSSpecifier *changed) {
+    NSString *key = [changed propertyForKey:@"key"];
+    BOOL controlsRows = NO;
+    for (PSSpecifier *s in all) {
+        if ([[s propertyForKey:@"showIf"] isEqual:key]) { controlsRows = YES; break; }
+    }
+    if (!controlsRows) return;
+    PSSpecifier *previous = nil;
+    for (PSSpecifier *s in all) {
+        BOOL want = NLSpecifierWanted(controller, all, s);
+        BOOL shown = [controller indexOfSpecifier:s] != NSNotFound;
+        if (want && !shown) {
+            if (previous) [controller insertSpecifier:s afterSpecifier:previous animated:YES];
+            else [controller insertSpecifier:s atIndex:0 animated:YES];
+        } else if (!want && shown) {
+            [controller removeSpecifier:s animated:YES];
+        }
+        if (want) previous = s;
+    }
+}
+
 #pragma mark - Controller
 
-@implementation NLRootListController
+@implementation NLRootListController {
+    NSArray<PSSpecifier *> *_allSpecifiers;   // every row from the plist, shown or not
+}
 
 - (void)viewDidLoad {
     [super viewDidLoad];
@@ -136,6 +192,7 @@ static void NLApplyIcon(PSSpecifier *specifier) {
 }
 
 - (NSMutableArray *)specifiers {
+    if (_specifiers && _allSpecifiers) return _specifiers;
     NSMutableArray *specifiers = [super specifiers];
     for (PSSpecifier *specifier in specifiers) {
         NLApplyIcon(specifier);
@@ -148,7 +205,19 @@ static void NLApplyIcon(PSSpecifier *specifier) {
             [specifier setValue:detailClass forKey:@"detailControllerClass"];
         }
     }
-    return specifiers;
+    _allSpecifiers = [specifiers copy];
+    _specifiers = NLWantedSpecifiers(self, _allSpecifiers);
+    return _specifiers;
+}
+
+- (void)reloadSpecifiers {
+    _allSpecifiers = nil;
+    [super reloadSpecifiers];
+}
+
+- (void)setPreferenceValue:(id)value specifier:(PSSpecifier *)specifier {
+    [super setPreferenceValue:value specifier:specifier];
+    NLUpdateShownSpecifiers(self, _allSpecifiers, specifier);
 }
 
 - (NSString *)nlLocalized:(NSString *)key {
@@ -178,15 +247,23 @@ static void NLApplyIcon(PSSpecifier *specifier) {
 
 #pragma mark - Lyrics in the island
 
-@implementation NLIslandListController
+@implementation NLIslandListController {
+    NSArray<PSSpecifier *> *_allSpecifiers;
+}
 
 - (NSMutableArray *)specifiers {
     if (!_specifiers) {
-        NSMutableArray *specifiers = [[self loadSpecifiersFromPlistName:@"Island" target:self] mutableCopy];
+        NSArray *specifiers = [self loadSpecifiersFromPlistName:@"Island" target:self];
         for (PSSpecifier *specifier in specifiers) NLApplyIcon(specifier);
-        _specifiers = specifiers;
+        _allSpecifiers = [specifiers copy];
+        _specifiers = NLWantedSpecifiers(self, _allSpecifiers);
     }
     return _specifiers;
+}
+
+- (void)setPreferenceValue:(id)value specifier:(PSSpecifier *)specifier {
+    [super setPreferenceValue:value specifier:specifier];
+    NLUpdateShownSpecifiers(self, _allSpecifiers, specifier);
 }
 
 @end

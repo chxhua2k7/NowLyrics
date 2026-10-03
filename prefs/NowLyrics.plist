@@ -50,6 +50,8 @@
 			<string>Applies immediately. Only players that publish now-playing info will show anything.</string>
 			<key>label</key>
 			<string>Apps</string>
+			<key>showIf</key>
+			<string>enabled</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -96,6 +98,8 @@
 			</array>
 			<key>showIdentifiersAsSubtitle</key>
 			<true/>
+			<key>showIf</key>
+			<string>enabled</string>
 			<key>useSearchBar</key>
 			<true/>
 		</dict>
@@ -106,6 +110,8 @@
 			<string>A positive offset shows lyrics earlier. Drag the slider, or tap the value to type one, e.g. 0.25 or -300ms.</string>
 			<key>label</key>
 			<string>Display</string>
+			<key>showIf</key>
+			<string>enabled</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -126,6 +132,8 @@
 			<string>artistField</string>
 			<key>label</key>
 			<string>Artist field</string>
+			<key>showIf</key>
+			<string>enabled</string>
 			<key>validTitles</key>
 			<array>
 				<string>Track and artist</string>
@@ -164,6 +172,8 @@
 			<real>3.0</real>
 			<key>min</key>
 			<real>-3.0</real>
+			<key>showIf</key>
+			<string>enabled</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -182,6 +192,12 @@
 			<string>hideExplicit</string>
 			<key>label</key>
 			<string>Hide explicit badge</string>
+			<key>showIf</key>
+			<string>enabled</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -202,6 +218,8 @@
 			<string>The preferred source is tried first. Musixmatch needs the token from its app (Settings → Get help → Copy debug info) or an API key. NetEase lyrics are Simplified Chinese.</string>
 			<key>label</key>
 			<string>Lyrics Sources</string>
+			<key>showIf</key>
+			<string>enabled</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -222,6 +240,8 @@
 			<string>preferredSource</string>
 			<key>label</key>
 			<string>Preferred</string>
+			<key>showIf</key>
+			<string>enabled</string>
 			<key>validTitles</key>
 			<array>
 				<string>Default order</string>
@@ -254,6 +274,8 @@
 			<string>useMusixmatch</string>
 			<key>label</key>
 			<string>Musixmatch</string>
+			<key>showIf</key>
+			<string>enabled</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -272,6 +294,8 @@
 			<string>useLRCLIB</string>
 			<key>label</key>
 			<string>LRCLIB</string>
+			<key>showIf</key>
+			<string>enabled</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -290,6 +314,8 @@
 			<string>useNetease</string>
 			<key>label</key>
 			<string>NetEase Music</string>
+			<key>showIf</key>
+			<string>enabled</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -314,6 +340,8 @@
 			<string>User Token</string>
 			<key>placeholder</key>
 			<string>paste debug info</string>
+			<key>showIf</key>
+			<string>enabled</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -338,6 +366,8 @@
 			<string>API Key</string>
 			<key>placeholder</key>
 			<string>your own key</string>
+			<key>showIf</key>
+			<string>enabled</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -346,6 +376,8 @@
 			<string>Diagnostics shows which source answered in the artist field. Quit app on change kills the app on every settings change. Fix Spotify Connect titles turns “Title • Artist / Playing on a device” back into the real title and artist.</string>
 			<key>label</key>
 			<string>Advanced</string>
+			<key>showIf</key>
+			<string>enabled</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -364,6 +396,8 @@
 			<string>diagnostics</string>
 			<key>label</key>
 			<string>Diagnostics</string>
+			<key>showIf</key>
+			<string>enabled</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -382,6 +416,8 @@
 			<string>killOnChange</string>
 			<key>label</key>
 			<string>Quit app on change</string>
+			<key>showIf</key>
+			<string>enabled</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -402,6 +438,8 @@
 			<string>spotifyConnect</string>
 			<key>label</key>
 			<string>Fix Spotify Connect titles</string>
+			<key>showIf</key>
+			<string>enabled</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -420,6 +458,8 @@
 			<string>cacheClearedAt</string>
 			<key>label</key>
 			<string>Clear lyrics cache</string>
+			<key>showIf</key>
+			<string>enabled</string>
 		</dict>
 		<dict>
 			<key>cell</key>
