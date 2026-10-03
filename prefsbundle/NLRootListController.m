@@ -16,7 +16,8 @@
 //    the Makefile).
 //  - Rows that follow a switch: a plist entry with `showIf` = <key> is shown
 //    only while that switch is on (NLUpdateShownSpecifiers).
-//  - NLIslandListController, the "Lyrics in the island" page, loaded from
+//  - NLIslandListController, the "Lyrics in the island" page (with a live
+//    preview at the top, NLIslandPreviewCell.m), loaded from
 //    Island.plist inside this bundle (outside the folder PreferenceLoader scans
 //    for entries) and localized by the Island.strings the Makefile copies from
 //    prefs/<lang>.lproj/Localizable.strings at stage time.
@@ -51,6 +52,8 @@
 
 @interface NLIslandListController : PSListController
 @end
+
+extern NSString *const NLIslandPreviewChangedNotification;   // NLIslandPreviewCell.m
 
 #pragma mark - Icons
 
@@ -273,6 +276,20 @@ static void NLUpdateShownSpecifiers(PSListController *controller, NSArray<PSSpec
 - (void)setPreferenceValue:(id)value specifier:(PSSpecifier *)specifier {
     [super setPreferenceValue:value specifier:specifier];
     NLUpdateShownSpecifiers(self, _allSpecifiers, specifier);
+    [[NSNotificationCenter defaultCenter] postNotificationName:NLIslandPreviewChangedNotification object:self];
+}
+
+// For the preview row (NLIslandPreviewCell): each setting's current value, or
+// its plist default when it was never changed.
+- (NSDictionary *)nlIslandPreviewValues {
+    NSMutableDictionary *values = [NSMutableDictionary dictionary];
+    for (PSSpecifier *specifier in _allSpecifiers) {
+        NSString *key = [specifier propertyForKey:@"key"];
+        if (![key isKindOfClass:NSString.class]) continue;
+        id value = [self readPreferenceValue:specifier] ?: [specifier propertyForKey:@"default"];
+        if (value) values[key] = value;
+    }
+    return values;
 }
 
 @end

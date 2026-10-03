@@ -37,6 +37,18 @@
 			<string>islandLyrics</string>
 		</dict>
 		<dict>
+			<key>cell</key>
+			<string>PSDefaultCell</string>
+			<key>cellClass</key>
+			<string>NLIslandPreviewCell</string>
+			<key>height</key>
+			<integer>116</integer>
+			<key>id</key>
+			<string>islandPreview</string>
+			<key>showIf</key>
+			<string>islandLyrics</string>
+		</dict>
+		<dict>
 			<key>PostNotification</key>
 			<string>app.nowlyrics/ReloadPrefs</string>
 			<key>cell</key>

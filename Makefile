@@ -38,9 +38,9 @@ NowLyrics_FRAMEWORKS += MediaPlayer QuartzCore
 # Separate so nothing else of the tweak runs there.
 TWEAK_NAME += NowLyricsIsland
 
-NowLyricsIsland_FILES += NowLyricsIsland.x
+NowLyricsIsland_FILES += NowLyricsIsland.x NLIslandStrip.m
 NowLyricsIsland_CFLAGS += -fobjc-arc -Wall
-NowLyricsIsland_FRAMEWORKS += UIKit ImageIO
+NowLyricsIsland_FRAMEWORKS += UIKit ImageIO QuartzCore
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 
@@ -57,9 +57,10 @@ include $(THEOS_MAKE_PATH)/tweak.mk
 # libprefs 由 <libprefs/prefs.h> 的 module map 自動連結(@rpath,Theos 的 rootless rpath 指到 /var/jb/usr/lib)。
 BUNDLE_NAME += NowLyricsPrefs
 
-NowLyricsPrefs_FILES += prefsbundle/NLOffsetCell.m prefsbundle/NLRootListController.m prefsbundle/NLEditTextCell.m
+NowLyricsPrefs_FILES += prefsbundle/NLOffsetCell.m prefsbundle/NLRootListController.m prefsbundle/NLEditTextCell.m \
+                         prefsbundle/NLIslandPreviewCell.m prefsbundle/NLPreviewLines.m NLIslandStrip.m
 NowLyricsPrefs_CFLAGS += -fobjc-arc -Wall -DNL_VERSION=\"$(PACKAGE_VERSION)\"
-NowLyricsPrefs_FRAMEWORKS += UIKit
+NowLyricsPrefs_FRAMEWORKS += UIKit ImageIO QuartzCore
 NowLyricsPrefs_PRIVATE_FRAMEWORKS += Preferences
 NowLyricsPrefs_INSTALL_PATH = /Library/PreferenceBundles
 NowLyricsPrefs_RESOURCE_DIRS = bundle
