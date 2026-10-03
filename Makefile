@@ -1,6 +1,6 @@
 # 版本號只寫在這裡:也是 tweak 和設定 bundle 的 NL_VERSION(User-Agent、「關於」的版本列),
 # bundle/Info.plist 的 __VERSION__ 則在 stage 時填入。control 的 Version 由 Theos 用這個值覆蓋。
-export PACKAGE_VERSION := 1.1.0
+export PACKAGE_VERSION := 1.1.1
 
 TARGET := iphone:clang:16.5:15.0
 

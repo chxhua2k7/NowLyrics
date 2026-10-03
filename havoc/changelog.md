@@ -1,11 +1,16 @@
+## 1.1.1
+
+- **Island preview** on the island settings page; tap or hold it like the real island
+- Long lines stay at the end instead of scrolling back while still being sung
+- Fixed the previous line flashing up at a line change
+
 ## 1.1.0
 
-- **Lyrics in the island**: the line being sung in a strip at the bottom of the compact Dynamic Island, which grows down to the status bar's edge; white or album color, fade or scroll-up line changes, adjustable font size, long lines scroll. Off by default, on its own settings page
-- **Hide explicit badge**: an option to drop the "E" that follows the title (now the lyric line) on explicit tracks
-- **Apply** on the settings page now restarts SpringBoard after asking
-- Switching NowLyrics off puts the real title back at once, and changing lyrics sources looks the playing track up again straight away
-- NetEase credits such as "母带工程师 Mastering Engineer：…" before the first line are no longer shown as lyrics
-- Less work while playing: no more republishing after the last line, the cache is only scanned after "Clear lyrics cache", and Apple Music no longer re-reads its own updates
+- **Lyrics in the island** — the current line at the bottom of the compact Dynamic Island (optional)
+- **Hide explicit badge** option
+- Settings: Apply restarts SpringBoard; options show only when their switch is on
+- Switching off restores the real title at once
+- Fixed NetEase credits showing as lyrics; less battery use
 
 ## 1.0.0
 
