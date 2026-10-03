@@ -4,6 +4,7 @@
 - **Hide explicit badge**: an option to drop the "E" that follows the title (now the lyric line) on explicit tracks
 - **Apply** on the settings page now restarts SpringBoard after asking
 - Switching NowLyrics off puts the real title back at once, and changing lyrics sources looks the playing track up again straight away
+- NetEase credits such as "母带工程师 Mastering Engineer：…" before the first line are no longer shown as lyrics
 - Less work while playing: no more republishing after the last line, the cache is only scanned after "Clear lyrics cache", and Apple Music no longer re-reads its own updates
 
 ## 1.0.0

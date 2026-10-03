@@ -205,6 +205,49 @@ static BOOL NLIsMetadataLine(NSString *text) {
     return NO;
 }
 
+// The credits block NetEase puts before the first sung line also has entries
+// the list above cannot know: "木箱鼓 Cajon：X", "母带工程师 Mastering Engineer：X",
+// "杜比全景声混音室 Dolby Atmos Studio：X". Recognised by shape (a short label,
+// a colon, a value) plus a production word in the label, so a duet's "男：…"
+// or "周杰倫：…" is never taken for one. Only used before the first sung line.
+static BOOL NLIsCreditLine(NSString *text) {
+    NSRange colon = [text rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@":："]];
+    if (colon.location == NSNotFound) return NO;
+    NSCharacterSet *space = [NSCharacterSet whitespaceCharacterSet];
+    NSString *label = [[text substringToIndex:colon.location] stringByTrimmingCharactersInSet:space].lowercaseString;
+    NSString *value = [[text substringFromIndex:NSMaxRange(colon)] stringByTrimmingCharactersInSet:space];
+    if (label.length == 0 || label.length > 30 || value.length == 0 || value.length > 80) return NO;
+
+    static NSArray<NSString *> *roles, *words;
+    static NSSet<NSString *> *whole;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        roles = @[@"作词", @"作詞", @"作曲", @"编曲", @"編曲", @"制作", @"製作", @"监制", @"監製", @"统筹", @"統籌",
+                  @"企划", @"企劃", @"出品", @"发行", @"發行", @"版权", @"版權", @"录音", @"錄音", @"混音", @"母带", @"母帶",
+                  @"工程师", @"工程師", @"编辑", @"編輯", @"人声", @"人聲", @"和声", @"和聲", @"和音", @"配唱",
+                  @"吉他", @"贝斯", @"貝斯", @"鼓", @"键盘", @"鍵盤", @"钢琴", @"鋼琴", @"提琴", @"弦乐", @"弦樂",
+                  @"管乐", @"管樂", @"打击乐", @"打擊樂", @"合成器", @"采样", @"採樣", @"演奏", @"乐手", @"樂手",
+                  @"乐队", @"樂隊", @"工作室", @"录音室", @"錄音室", @"混音室", @"助理", @"总监", @"總監",
+                  @"设计", @"設計", @"摄影", @"攝影", @"视觉", @"視覺", @"宣传", @"宣傳", @"营销", @"營銷"];
+        words = @[@"produc", @"engineer", @"mix", @"master", @"record", @"vocal", @"guitar", @"bass", @"drum",
+                  @"keyboard", @"piano", @"string", @"arrang", @"compos", @"lyric", @"studio", @"edit", @"program",
+                  @"synth", @"percussion", @"director", @"supervis", @"coordinat", @"assistant", @"design",
+                  @"publish", @"cajon", @"violin", @"cello", @"sax", @"trumpet", @"horn", @"dolby", @"atmos"];
+        whole = [NSSet setWithArray:@[@"词", @"詞", @"曲", @"op", @"sp", @"isrc"]];
+    });
+    if ([whole containsObject:label]) return YES;
+    for (NSString *role in roles) {
+        if ([label containsString:role]) return YES;
+    }
+    for (NSString *word in [label componentsSeparatedByCharactersInSet:[NSCharacterSet letterCharacterSet].invertedSet]) {
+        if ([whole containsObject:word]) return YES;
+        for (NSString *stem in words) {
+            if ([word hasPrefix:stem]) return YES;
+        }
+    }
+    return NO;
+}
+
 NSArray<NLLyricLine *> *NLParseLRC(NSString *lrc) {
     if (lrc.length == 0) return nil;
 
@@ -260,6 +303,15 @@ NSArray<NLLyricLine *> *NLParseLRC(NSString *lrc) {
         if (a.start > b.start) return NSOrderedDescending;
         return NSOrderedSame;
     }];
+
+    // The rest of the credits block, up to the first sung line.
+    for (NSUInteger i = 0; i < out.count; ) {
+        NSString *text = out[i].text;
+        if (text.length == 0) { i++; continue; }
+        if (!NLIsCreditLine(text)) break;
+        [out removeObjectAtIndex:i];
+    }
+    if (out.count == 0) return nil;
 
     // A blank timestamped line announces a gap, and the engine shows the track
     // title there. Musixmatch uses one as an end marker; NetEase also sprinkles
