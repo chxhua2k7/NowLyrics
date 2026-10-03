@@ -9,7 +9,7 @@
 #import "NowLyrics.h"
 #import <sys/sysctl.h>
 
-const NSTimeInterval kNLDurationTolerance = 8.0;
+static const NSTimeInterval kNLDurationTolerance = 8.0;   // max track-length mismatch when matching
 static const NSUInteger kNLDiskCacheLimit = 300;   // cached tracks per app; the oldest go first
 static const NSTimeInterval kNLNeteaseTolerance = 10.0;   // its search is looser, so is the check
 
@@ -108,6 +108,7 @@ static NSData *NLGet(NLFetch *f, NSString *urlString, NSDictionary<NSString *, N
     }
     f.lastStatus = status;
     f.lastFailed = failed;
+    if (failed) f.transient = YES;
     return result;
 }
 
@@ -116,12 +117,18 @@ static id NLGetJSON(NLFetch *f, NSString *urlString, NSDictionary *headers) {
     return data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
 }
 
-static void NLNoteTransient(NLFetch *f) {
-    if (f.lastFailed) f.transient = YES;
-}
-
 static NSString *NLNoAnswer(NLFetch *f) {
     return f.lastFailed ? @"no response" : [NSString stringWithFormat:@"HTTP %ld", (long)f.lastStatus];
+}
+
+// What a request that did not return the expected JSON shape comes down to.
+static NSString *NLBadReply(NLFetch *f) {
+    return f.lastFailed ? @"no response" : @"bad reply";
+}
+
+// Musixmatch wraps every answer as {"message": {"header": {"status_code": N}, "body": ...}}.
+static NSInteger NLMxmStatus(id message) {
+    return (NSInteger)NLNum(NLValue(NLValue(message, @"header"), @"status_code"), 0);
 }
 
 #pragma mark - Musixmatch via app user token
@@ -163,14 +170,13 @@ static NSArray<NLLyricLine *> *NLFetchMusixmatchToken(NLFetch *f, NSString **not
 
     id json = NLGetJSON(f, url, nil);
     if (!json) {
-        NLNoteTransient(f);
         *note = NLNoAnswer(f);
         return nil;
     }
     id message = NLValue(json, @"message");
     if (!message) return nil;
 
-    NSInteger status = (NSInteger)NLNum(NLValue(NLValue(message, @"header"), @"status_code"), 0);
+    NSInteger status = NLMxmStatus(message);
     if (status == 401) {
         *note = @"token rejected (401)";
         NLLog(@"Musixmatch token rejected (401), re-copy the debug info");
@@ -183,7 +189,7 @@ static NSArray<NLLyricLine *> *NLFetchMusixmatchToken(NLFetch *f, NSString **not
     if (subtitleList.count == 0) {
         // track.lyrics.get may still hold plain, untimed lyrics, which are of no use here.
         NLLog(@"Musixmatch has no timed subtitle (status %ld)",
-              (long)NLNum(NLValue(NLValue(subtitleMessage, @"header"), @"status_code"), 0));
+              (long)NLMxmStatus(subtitleMessage));
         *note = @"no timed subtitle";
         return nil;
     }
@@ -238,13 +244,12 @@ static NSString *NLFetchMusixmatchKey(NLFetch *f, NSString **note) {
 
     id json = NLGetJSON(f, url, nil);
     if (!json) {
-        NLNoteTransient(f);
         *note = [@"key " stringByAppendingString:NLNoAnswer(f)];
         return nil;
     }
 
     id message = NLValue(json, @"message");
-    NSInteger status = (NSInteger)NLNum(NLValue(NLValue(message, @"header"), @"status_code"), 0);
+    NSInteger status = NLMxmStatus(message);
     if (status != 200) {
         // 401 bad key, 402 quota exceeded, 403 plan excludes this endpoint, 404 no match
         NLLog(@"Musixmatch status_code=%ld", (long)status);
@@ -266,7 +271,6 @@ static NSString *NLFetchLRCLIB(NLFetch *f, NSString **note) {
 
     NSString *synced = NLString(NLGetJSON(f, getURL, nil), @"syncedLyrics");
     if (synced.length) return synced;
-    NLNoteTransient(f);
 
     // Fall back to search, keeping the closest duration that has a timed transcript.
     NSString *searchURL = [NSString stringWithFormat:
@@ -275,8 +279,7 @@ static NSString *NLFetchLRCLIB(NLFetch *f, NSString **note) {
 
     id json = NLGetJSON(f, searchURL, nil);
     if (![json isKindOfClass:[NSArray class]]) {
-        NLNoteTransient(f);
-        *note = f.lastFailed ? @"no response" : @"bad reply";
+        *note = NLBadReply(f);
         return nil;
     }
 
@@ -322,8 +325,7 @@ static NSArray<NLLyricLine *> *NLFetchNetease(NLFetch *f, NSString **note) {
 
     id json = NLGetJSON(f, searchURL, NLNeteaseHeaders());
     if (![json isKindOfClass:[NSDictionary class]]) {
-        NLNoteTransient(f);
-        *note = f.lastFailed ? @"no response" : @"bad reply";
+        *note = NLBadReply(f);
         return nil;
     }
     NSArray *songs = NLArray(NLValue(json, @"result"), @"songs");
@@ -350,8 +352,7 @@ static NSArray<NLLyricLine *> *NLFetchNetease(NLFetch *f, NSString **note) {
         @"https://music.163.com/api/song/lyric?id=%lld&lv=1&kv=1&tv=0", bestID];
     json = NLGetJSON(f, lyricURL, NLNeteaseHeaders());
     if (![json isKindOfClass:[NSDictionary class]]) {
-        NLNoteTransient(f);
-        *note = f.lastFailed ? @"no response" : @"bad reply";
+        *note = NLBadReply(f);
         return nil;
     }
 
@@ -387,36 +388,37 @@ static NSString *NLJoinNotes(NSString *a, NSString *b) {
 static NSArray<NLLyricLine *> *NLFetchSource(NLFetch *f, NLSource source, NSString *cachePath, NSString **outSource) {
     NLSettings *s = f.settings;
     NSArray<NLLyricLine *> *lines = nil;
-    NSString *note = nil;
+    NSString *label = nil, *note = nil;
 
     switch (source) {
         case NLSourceMusixmatch: {
             if (!s.useMusixmatch) return nil;
             NSString *tokenNote = nil, *keyNote = nil;
             lines = NLFetchMusixmatchToken(f, &tokenNote);
-            if (NLHasContent(lines)) { *outSource = @"Musixmatch token"; break; }
-            lines = NLParseLRC(NLFetchMusixmatchKey(f, &keyNote));
-            if (NLHasContent(lines)) { *outSource = @"Musixmatch key"; break; }
-            note = NLJoinNotes(tokenNote, keyNote);
+            label = @"Musixmatch token";
+            if (!NLHasContent(lines)) {
+                lines = NLParseLRC(NLFetchMusixmatchKey(f, &keyNote));
+                label = @"Musixmatch key";
+                note = NLJoinNotes(tokenNote, keyNote);
+            }
             break;
         }
-        case NLSourceLRCLIB: {
+        case NLSourceLRCLIB:
             if (!s.useLRCLIB) return nil;
             lines = NLParseLRC(NLFetchLRCLIB(f, &note));
-            if (NLHasContent(lines)) { *outSource = @"LRCLIB"; break; }
+            label = @"LRCLIB";
             break;
-        }
-        case NLSourceNetease: {
+        case NLSourceNetease:
             if (!s.useNetease) return nil;
             lines = NLFetchNetease(f, &note);
-            if (NLHasContent(lines)) { *outSource = @"NetEase"; break; }
+            label = @"NetEase";
             break;
-        }
         default:
             return nil;
     }
 
     if (NLHasContent(lines)) {
+        *outSource = label;
         [NLLinesToLRC(lines) writeToFile:cachePath atomically:YES encoding:NSUTF8StringEncoding error:nil];
         NLPruneCache(kNLDiskCacheLimit);
         return lines;
@@ -446,12 +448,6 @@ NSArray<NLLyricLine *> *NLResolveLyrics(NLSettings *settings, NSString *key,
     if (manual.count) { *source = @"manual file"; return manual; }
 
     NSString *path = NLCachePath(key);
-    NSFileManager *fm = [NSFileManager defaultManager];
-    if (![fm fileExistsAtPath:path] && duration > 0) {
-        // Caches from before 2.19 were named with the duration as well; adopt one.
-        NSString *legacy = NLCachePath(NLLegacyTrackKey(title, artist, duration));
-        if ([fm fileExistsAtPath:legacy]) [fm moveItemAtPath:legacy toPath:path error:nil];
-    }
     NSString *disk = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
     if (disk.length) {
         NSArray<NLLyricLine *> *cached = NLParseLRC(disk);

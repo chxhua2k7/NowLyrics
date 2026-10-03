@@ -7,6 +7,7 @@
 
 #import "NowLyrics.h"
 #import <QuartzCore/QuartzCore.h>
+#import <objc/runtime.h>
 #import <pthread.h>
 
 static const NSTimeInterval kNLMargin = 0.15;        // how early a line may switch
@@ -26,11 +27,13 @@ static dispatch_queue_t gFetchQueue = nil;
 static NSString *gTrackKey = nil;
 static NSString *gTrackTitle = nil;
 static NSString *gTrackArtist = nil;
+static NSString *gTrackAlbum = nil;
+static NSTimeInterval gTrackDuration = 0;   // 0 until the player reports it
 static BOOL gTrackRequested = NO;           // lyrics were asked for, which needs the duration
 static NSTimeInterval gAnchorElapsed = 0;   // virtual clock anchor
 static CFTimeInterval gAnchorHost = 0;
 static double gRate = 0;
-static uint64_t gFlipGeneration = 0;        // invalidates superseded timers
+static dispatch_source_t gFlipTimer = nil;  // one timer, re-armed for every line
 
 void NLEngineStart(void) {
     gCache = [NSMutableDictionary dictionary];
@@ -39,6 +42,16 @@ void NLEngineStart(void) {
     gMissing = [NSMutableSet set];
     gStatus = [NSMutableDictionary dictionary];
     gFetchQueue = dispatch_queue_create("app.nowlyrics.fetch", DISPATCH_QUEUE_SERIAL);
+    gFlipTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+    dispatch_source_set_event_handler(gFlipTimer, ^{ NLEnginePushUpdate(); });
+    dispatch_source_set_timer(gFlipTimer, DISPATCH_TIME_FOREVER, DISPATCH_TIME_FOREVER, 0);
+    dispatch_resume(gFlipTimer);
+}
+
+void NLEngineClearCacheLater(NSTimeInterval requestedAt) {
+    if (requestedAt <= 0) return;
+    // Serial queue: done before any fetch queued after it reads the disk cache.
+    dispatch_async(gFetchQueue, ^{ NLClearCacheIfRequested(requestedAt); });
 }
 
 NSString *NLEngineTrackTitle(void) { return gTrackTitle; }
@@ -46,21 +59,16 @@ NSString *NLEngineTrackArtist(void) { return gTrackArtist; }
 
 #pragma mark - Cache
 
-static NSArray<NLLyricLine *> *NLCachedLines(NSString *key) {
+static id NLLockedGet(NSDictionary *dict, NSString *key) {
     if (key.length == 0) return nil;
     pthread_mutex_lock(&gCacheMutex);
-    NSArray<NLLyricLine *> *lines = gCache[key];
+    id value = dict[key];
     pthread_mutex_unlock(&gCacheMutex);
-    return lines;
+    return value;
 }
 
-static NSString *NLStatusForKey(NSString *key) {
-    if (key.length == 0) return nil;
-    pthread_mutex_lock(&gCacheMutex);
-    NSString *status = gStatus[key];
-    pthread_mutex_unlock(&gCacheMutex);
-    return status;
-}
+static NSArray<NLLyricLine *> *NLCachedLines(NSString *key) { return NLLockedGet(gCache, key); }
+static NSString *NLStatusForKey(NSString *key) { return NLLockedGet(gStatus, key); }
 
 // A miss is only remembered when every source actually answered. If a request
 // timed out, the next play of the same track gets another attempt instead of
@@ -86,14 +94,26 @@ static void NLStoreResult(NSString *key, NSArray<NLLyricLine *> *lines, NSString
     pthread_mutex_unlock(&gCacheMutex);
 }
 
+static void NLRequestLyrics(NSString *key, NSString *title, NSString *artist,
+                            NSString *album, NSTimeInterval duration);
+
 void NLEngineForgetLyrics(void) {
     pthread_mutex_lock(&gCacheMutex);
     [gCache removeAllObjects];
     [gCacheOrder removeAllObjects];
     [gMissing removeAllObjects];   // a previous miss no longer means anything
     [gStatus removeAllObjects];
+    [gPending removeAllObjects];   // a fetch still running used the old sources
     pthread_mutex_unlock(&gCacheMutex);
-    gTrackKey = nil;   // force the next ingest to look everything up again
+
+    // Look the current track up again now rather than at the player's next
+    // update, which for some apps is the next track. Switched off, the next
+    // ingest after switching on does it.
+    gTrackRequested = NO;
+    if (gTrackKey && gTrackDuration > 0 && NLSettingsCurrent().enabled) {
+        gTrackRequested = YES;
+        NLRequestLyrics(gTrackKey, gTrackTitle, gTrackArtist, gTrackAlbum, gTrackDuration);
+    }
 }
 
 #pragma mark - Virtual playback clock
@@ -107,17 +127,26 @@ NSTimeInterval NLEnginePosition(void) {
 
 #pragma mark - Composing
 
+// Re-arming replaces whatever was scheduled, so a superseded flip never fires.
 static void NLScheduleFlip(NSTimeInterval delay) {
-    uint64_t generation = ++gFlipGeneration;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(MAX(delay, 0.05) * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        if (generation != gFlipGeneration) return;   // superseded by a newer schedule
-        NLEnginePushUpdate();
-    });
+    dispatch_source_set_timer(gFlipTimer, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(MAX(delay, 0.05) * NSEC_PER_SEC)),
+                              DISPATCH_TIME_FOREVER, 10 * NSEC_PER_MSEC);
 }
 
 void NLEngineCancelFlip(void) {
-    gFlipGeneration++;
+    dispatch_source_set_timer(gFlipTimer, DISPATCH_TIME_FOREVER, DISPATCH_TIME_FOREVER, 0);
+}
+
+// Chorus marks are only ever shown in the diagnostics readout, so they are
+// worked out the first time a track's lines are shown with it on.
+static void NLEnsureChorus(NSArray<NLLyricLine *> *lines) {
+    static char kMarked;
+    if (objc_getAssociatedObject(lines, &kMarked)) return;
+    objc_setAssociatedObject(lines, &kMarked, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    NLMarkChorus(lines);
+    for (NLLyricLine *line in lines) {
+        if (line.chorusStart) NLLog(@"chorus start @ %.1f: %@", line.start, line.text);
+    }
 }
 
 // Lines are sorted, so binary search for the last one at or before the position.
@@ -182,22 +211,21 @@ static NLShow NLCompose(NLSettings *s, NSString **outTitle, NSString **outArtist
     if (display.length == 0) return NLShowLyrics;
     *outTitle = display;
 
-    NSString *trackCredit = gTrackArtist.length
-        ? [NSString stringWithFormat:@"%@ — %@", gTrackTitle ?: @"", gTrackArtist]
-        : (gTrackTitle ?: @"");
-
     NSString *credit = nil;
-    if (line.length) {
-        if (s.artistMode == NLArtistModeNextLine) {
-            // Falls back to the track credit at the end of the song, so the
+    if (line.length && s.artistMode != NLArtistModeNone) {
+        if (s.artistMode == NLArtistModeNextLine && nextText.length) {
+            credit = nextText;
+        } else {
+            // Next-line mode falls back to this at the end of the song, so the
             // field never just goes blank.
-            credit = nextText.length ? nextText : trackCredit;
-        } else if (s.artistMode == NLArtistModeTitle) {
-            credit = trackCredit;
+            credit = gTrackArtist.length
+                ? [NSString stringWithFormat:@"%@ — %@", gTrackTitle ?: @"", gTrackArtist]
+                : (gTrackTitle ?: @"");
         }
     }
 
     if (s.diagnostics) {
+        NLEnsureChorus(lines);
         NSString *status = NLStatusForKey(gTrackKey);
         // Where the chorus detection thinks we are; ▶ marks the moment a chorus begins.
         if (current.chorus) {
@@ -227,9 +255,10 @@ void NLEnginePushUpdate(void) {
 
     NLPublish(title, artist);
 
-    if (show == NLShowLyrics && gRate > 0) {
-        NSTimeInterval delay = (nextStart > lookup) ? (nextStart - lookup) / gRate : 1.0;
-        NLScheduleFlip(MIN(delay, kNLMaxFlipDelay));
+    // After the last line nothing changes until the player reports something,
+    // which comes back through an ingest.
+    if (show == NLShowLyrics && gRate > 0 && nextStart > lookup) {
+        NLScheduleFlip(MIN((nextStart - lookup) / gRate, kNLMaxFlipDelay));
     }
 }
 
@@ -244,7 +273,7 @@ static void NLRequestLyrics(NSString *key, NSString *title, NSString *artist,
     if (!skip) [gPending addObject:key];
     pthread_mutex_unlock(&gCacheMutex);
     if (skip) {
-        dispatch_async(dispatch_get_main_queue(), ^{ NLEnginePushUpdate(); });
+        NLEnginePushUpdate();
         return;
     }
 
@@ -266,12 +295,6 @@ static void NLRequestLyrics(NSString *key, NSString *title, NSString *artist,
         }
         NLLog(@"%@ → %lu lines (%@)", key, (unsigned long)lines.count, source);
 
-        // Before the lines go into the shared cache, while nothing else can see them.
-        NLMarkChorus(lines);
-        for (NLLyricLine *line in lines) {
-            if (line.chorusStart) NLLog(@"chorus start @ %.1f: %@", line.start, line.text);
-        }
-
         NSString *status = transient ? [source stringByAppendingString:@" (will retry)"] : (source ?: @"unknown");
         NLStoreResult(key, lines, status, transient);
 
@@ -291,20 +314,27 @@ void NLEngineIngest(NSString *title, NSString *artist, NSString *album,
     if (rate) gRate = rate.doubleValue;
     gAnchorHost = CACurrentMediaTime();
 
-    NSString *key = NLTrackKey(title, artist);
-    if (![key isEqualToString:gTrackKey]) {
-        gTrackKey = key;
+    // Most updates are progress on the same track: compare before building a key.
+    BOOL sameTrack = gTrackKey && [title ?: @"" isEqualToString:gTrackTitle ?: @""] &&
+                     [artist ?: @"" isEqualToString:gTrackArtist ?: @""];
+    if (!sameTrack) {
+        gTrackKey = NLTrackKey(title, artist);
         gTrackTitle = title;
         gTrackArtist = artist;
+        gTrackAlbum = nil;
+        gTrackDuration = 0;
         gTrackRequested = NO;
-        gFlipGeneration++;   // cancel any flip still queued for the previous track
+        NLEngineCancelFlip();   // whatever was queued belonged to the previous track
     }
+    // Kept for NLEngineForgetLyrics(), which has to look the track up again.
+    if (album) gTrackAlbum = album;
+    if (duration > 0) gTrackDuration = duration;
 
     // Players sometimes publish a track before they know its length, and the
     // length is what keeps a cover or a live take from being accepted. Wait for it.
     if (!gTrackRequested && duration > 0) {
         gTrackRequested = YES;
-        NLRequestLyrics(key, title, artist, album, duration);
+        NLRequestLyrics(gTrackKey, title, artist, album, duration);
         return;
     }
 

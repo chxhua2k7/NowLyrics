@@ -40,7 +40,7 @@ TWEAK_NAME += NowLyricsIsland
 
 NowLyricsIsland_FILES += NowLyricsIsland.x
 NowLyricsIsland_CFLAGS += -fobjc-arc -Wall
-NowLyricsIsland_FRAMEWORKS += UIKit
+NowLyricsIsland_FRAMEWORKS += UIKit ImageIO
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 

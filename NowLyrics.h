@@ -73,10 +73,7 @@ extern "C" {
 
 #pragma mark - Constants
 
-extern NSString *const kNLPrefsDomain;
-extern NSString *const kNLReloadNotification;
 extern NSString *const kNLUserAgent;
-extern const NSTimeInterval kNLDurationTolerance;   // max track-length mismatch when matching
 
 #pragma mark - NLSettings.m
 
@@ -92,7 +89,6 @@ NSString *NLCleanTitle(NSString *title);
 BOOL NLSplitConnectInfo(NSString *title, NSString *artist, NSString **outTitle, NSString **outArtist);
 NSString *NLPrimaryArtist(NSString *artist);
 NSString *NLTrackKey(NSString *title, NSString *artist);
-NSString *NLLegacyTrackKey(NSString *title, NSString *artist, NSTimeInterval duration);   // pre-2.19 cache names
 NSArray<NLLyricLine *> *NLParseLRC(NSString *lrc);
 NSString *NLLinesToLRC(NSArray<NLLyricLine *> *lines);
 BOOL NLHasContent(NSArray<NLLyricLine *> *lines);   // at least two sung lines
@@ -121,7 +117,8 @@ void NLEngineIngest(NSString *title, NSString *artist, NSString *album,
                     NSTimeInterval duration, NSNumber *elapsed, NSNumber *rate);
 void NLEnginePushUpdate(void);          // redraw for the current position and reschedule the flip
 void NLEngineCancelFlip(void);          // e.g. the app was just switched off
-void NLEngineForgetLyrics(void);        // sources changed: drop the in-memory cache and the current track
+void NLEngineForgetLyrics(void);        // sources changed: drop the in-memory cache, look the current track up again
+void NLEngineClearCacheLater(NSTimeInterval requestedAt);   // NLClearCacheIfRequested on the fetch queue, ahead of any fetch
 NSTimeInterval NLEnginePosition(void);  // extrapolated playback position
 NSString *NLEngineTrackTitle(void);     // what the player really reported for the current track
 NSString *NLEngineTrackArtist(void);

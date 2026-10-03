@@ -1,10 +1,9 @@
 //
 //  NLOffsetCell.m
 //  The slider rows: a slider that applies as you drag plus a field the value
-//  can be typed into. Used for the lyrics offset and the Dynamic Island sizes;
-//  the specifier's min, max, step and unit (plist keys) set the range and how
-//  the value reads. Everything else on the page is stock Preferences cells
-//  driven by prefs/NowLyrics.plist.
+//  can be typed into. Used for the lyrics offset and, on the island page, the
+//  font size and scroll speed; the specifier's min, max, step, unit and
+//  displayScale (plist keys) set the range and how the value reads.
 //
 //  This bundle is also where AltList gets loaded from. Its framework used to
 //  be this bundle's executable (a symlink); now that the bundle has code of its
@@ -23,7 +22,7 @@ static void NLLoadAltList(void) {
     dlopen(ROOT_PATH("/Library/Frameworks/AltList.framework/AltList"), RTLD_NOW);
 }
 
-// Defaults are the lyrics offset row's: seconds, ±3, tenths.
+// Used when a row names no range: the lyrics offset row's seconds, ±3, tenths.
 static const double kNLDefaultLimit = 3.0;
 static const double kNLDefaultStep = 0.1;
 

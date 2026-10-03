@@ -2,8 +2,8 @@
 //  NLRootListController.m
 //  The settings page's controller. libprefs' PLLocalizedListController does the
 //  work: it loads the items from the plist next to the PreferenceLoader entry
-//  (prefs/NowLyrics.plist) and localizes them. This subclass adds the two
-//  things a plist cannot express on its own:
+//  (prefs/NowLyrics.plist) and localizes them. This subclass adds what a plist
+//  cannot express on its own:
 //
 //  - Row icons drawn from SF Symbols at runtime. A row names `iconSymbol` and
 //    `iconColor` and gets the 29 pt white-glyph-on-coloured-tile that Settings
@@ -133,6 +133,32 @@ static NSMutableArray *NLWantedSpecifiers(PSListController *controller, NSArray<
     return wanted;
 }
 
+// Both pages: icons, the link fix below, then the rows to show of `specifiers`,
+// which is kept whole in *all.
+static NSMutableArray *NLPrepareSpecifiers(PSListController *controller, NSArray<PSSpecifier *> *specifiers,
+                                           NSArray<PSSpecifier *> **all) {
+    for (PSSpecifier *specifier in specifiers) {
+        NLApplyIcon(specifier);
+        // libprefs' PLCustomListController turns every PSLinkCell without a bundle
+        // path into another page of the host class; a link that names its
+        // `detail` gets that class back.
+        NSString *detail = [specifier propertyForKey:@"detail"];
+        Class detailClass = [detail isKindOfClass:NSString.class] ? NSClassFromString(detail) : Nil;
+        if (detailClass && specifier.detailControllerClass != detailClass) {
+            [specifier setValue:detailClass forKey:@"detailControllerClass"];
+        }
+    }
+    *all = [specifiers copy];
+    return NLWantedSpecifiers(controller, *all);
+}
+
+static void NLShowAlert(UIViewController *controller, NSString *title, NSString *message, NSArray<UIAlertAction *> *actions) {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:message
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    for (UIAlertAction *action in actions) [alert addAction:action];
+    [controller presentViewController:alert animated:YES completion:nil];
+}
+
 // After a switch changed: bring the shown rows in line with the full list.
 static void NLUpdateShownSpecifiers(PSListController *controller, NSArray<PSSpecifier *> *all, PSSpecifier *changed) {
     NSString *key = [changed propertyForKey:@"key"];
@@ -170,13 +196,11 @@ static void NLUpdateShownSpecifiers(PSListController *controller, NSArray<PSSpec
 }
 
 - (void)nlApply:(id)sender {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:[self nlLocalized:@"Apply"]
-                                                                   message:[self nlLocalized:@"Restart SpringBoard to apply?"]
-                                                            preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:[self nlLocalized:@"Cancel"] style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:[self nlLocalized:@"Respring"] style:UIAlertActionStyleDestructive
-                                            handler:^(UIAlertAction *action) { [self nlRespring]; }]];
-    [self presentViewController:alert animated:YES completion:nil];
+    NLShowAlert(self, [self nlLocalized:@"Apply"], [self nlLocalized:@"Restart SpringBoard to apply?"], @[
+        [UIAlertAction actionWithTitle:[self nlLocalized:@"Cancel"] style:UIAlertActionStyleCancel handler:nil],
+        [UIAlertAction actionWithTitle:[self nlLocalized:@"Respring"] style:UIAlertActionStyleDestructive
+                               handler:^(UIAlertAction *action) { [self nlRespring]; }],
+    ]);
 }
 
 - (void)nlRespring {
@@ -193,20 +217,9 @@ static void NLUpdateShownSpecifiers(PSListController *controller, NSArray<PSSpec
 
 - (NSMutableArray *)specifiers {
     if (_specifiers && _allSpecifiers) return _specifiers;
-    NSMutableArray *specifiers = [super specifiers];
-    for (PSSpecifier *specifier in specifiers) {
-        NLApplyIcon(specifier);
-        // libprefs' PLCustomListController turns every PSLinkCell without a bundle
-        // path into another page of the host class; a link that names its
-        // `detail` gets that class back.
-        NSString *detail = [specifier propertyForKey:@"detail"];
-        Class detailClass = [detail isKindOfClass:NSString.class] ? NSClassFromString(detail) : Nil;
-        if (detailClass && specifier.detailControllerClass != detailClass) {
-            [specifier setValue:detailClass forKey:@"detailControllerClass"];
-        }
-    }
-    _allSpecifiers = [specifiers copy];
-    _specifiers = NLWantedSpecifiers(self, _allSpecifiers);
+    NSArray<PSSpecifier *> *all = nil;
+    _specifiers = NLPrepareSpecifiers(self, [super specifiers], &all);
+    _allSpecifiers = all;
     return _specifiers;
 }
 
@@ -230,12 +243,9 @@ static void NLUpdateShownSpecifiers(PSListController *controller, NSArray<PSSpec
 // when it is next launched.
 - (void)nlClearLyricsCache:(PSSpecifier *)specifier {
     [self setPreferenceValue:@([[NSDate date] timeIntervalSince1970]) specifier:specifier];
-
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:[self nlLocalized:@"Lyrics cache cleared"]
-                                                                   message:[self nlLocalized:@"Apps that are not running clear theirs when next opened."]
-                                                            preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:[self nlLocalized:@"OK"] style:UIAlertActionStyleDefault handler:nil]];
-    [self presentViewController:alert animated:YES completion:nil];
+    NLShowAlert(self, [self nlLocalized:@"Lyrics cache cleared"],
+                [self nlLocalized:@"Apps that are not running clear theirs when next opened."],
+                @[[UIAlertAction actionWithTitle:[self nlLocalized:@"OK"] style:UIAlertActionStyleDefault handler:nil]]);
 }
 
 // The About group's Version row (`get = nlVersion:` in the plist).
@@ -253,10 +263,9 @@ static void NLUpdateShownSpecifiers(PSListController *controller, NSArray<PSSpec
 
 - (NSMutableArray *)specifiers {
     if (!_specifiers) {
-        NSArray *specifiers = [self loadSpecifiersFromPlistName:@"Island" target:self];
-        for (PSSpecifier *specifier in specifiers) NLApplyIcon(specifier);
-        _allSpecifiers = [specifiers copy];
-        _specifiers = NLWantedSpecifiers(self, _allSpecifiers);
+        NSArray<PSSpecifier *> *all = nil;
+        _specifiers = NLPrepareSpecifiers(self, [self loadSpecifiersFromPlistName:@"Island" target:self], &all);
+        _allSpecifiers = all;
     }
     return _specifiers;
 }

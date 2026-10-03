@@ -1,12 +1,11 @@
 //
 //  NLSettings.m
-//  Preference file lookup, the per-app switch, and the load-time safety checks.
+//  The settings snapshot, the per-app switch, and the load-time safety checks.
+//  The file itself is read by NLReadPrefsFile() in NLShared.h.
 //
 
 #import "NowLyrics.h"
 
-NSString *const kNLPrefsDomain = NL_PREFS_DOMAIN;
-NSString *const kNLReloadNotification = NL_RELOAD_NOTIFICATION;
 #ifndef NL_VERSION
 #error NL_VERSION comes from PACKAGE_VERSION in the Makefile
 #endif
@@ -64,64 +63,7 @@ static BOOL NLListContains(NSString *const list[], NSString *bundleID) {
     return NO;
 }
 
-@interface NLSettings ()
-@property (nonatomic, readwrite) BOOL enabled;
-@property (nonatomic, readwrite) NLArtistMode artistMode;
-@property (nonatomic, readwrite) NLSource preferredSource;
-@property (nonatomic, readwrite) BOOL useMusixmatch;
-@property (nonatomic, readwrite) BOOL useLRCLIB;
-@property (nonatomic, readwrite) BOOL useNetease;
-@property (nonatomic, readwrite, copy) NSString *musixmatchKey;
-@property (nonatomic, readwrite, copy) NSString *musixmatchToken;
-@property (nonatomic, readwrite) BOOL killOnChange;
-@property (nonatomic, readwrite) BOOL diagnostics;
-@property (nonatomic, readwrite) BOOL spotifyConnect;
-@property (nonatomic, readwrite) BOOL hideExplicit;
-@property (nonatomic, readwrite) NSTimeInterval offset;
-@property (nonatomic, readwrite) NSTimeInterval cacheClearedAt;
-@property (nonatomic, readwrite, copy) NSString *sourceSignature;
-@end
-
-@implementation NLSettings
-@end
-
-#pragma mark - Reading the file
-
-// Sandboxed apps cannot always read the global preference file, so try a few
-// locations. The first is an in-container override, which is how this can be
-// configured when injected with TrollFools and there is no Settings panel.
-static NSDictionary *NLReadPrefs(void) {
-    // Remember which path worked; reloads happen on every settings change.
-    static NSString *knownPath = nil;
-    if (knownPath) {
-        NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:knownPath];
-        if (dict.count) return dict;
-        knownPath = nil;
-    }
-
-    NSMutableArray<NSString *> *candidates = [NSMutableArray array];
-    NSString *localDir = [NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES) firstObject];
-    if (localDir) {
-        [candidates addObject:[localDir stringByAppendingFormat:@"/Preferences/%@.plist", kNLPrefsDomain]];
-    }
-    [candidates addObject:[NSString stringWithFormat:@"/var/mobile/Library/Preferences/%@.plist", kNLPrefsDomain]];
-    [candidates addObject:[NSString stringWithFormat:@"/var/jb/var/mobile/Library/Preferences/%@.plist", kNLPrefsDomain]];
-
-    for (NSString *path in candidates) {
-        NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:path];
-        if (dict.count) {
-            knownPath = path;
-            NLLog(@"preferences loaded from %@", path);
-            return dict;
-        }
-    }
-    return nil;
-}
-
-static BOOL NLBool(NSDictionary *prefs, NSString *key, BOOL fallback) {
-    id value = prefs[key];
-    return [value isKindOfClass:[NSNumber class]] ? [value boolValue] : fallback;
-}
+#pragma mark - Values
 
 static NSString *NLTrimmed(id value) {
     return [value isKindOfClass:[NSString class]]
@@ -159,13 +101,63 @@ static NSSet<NSString *> *NLSelectedApps(NSDictionary *prefs) {
 static BOOL NLEnabledForBundle(NSString *bundleID, NSDictionary *prefs) {
     if (bundleID.length == 0) return NO;
     if (NLListContains(kNLDeniedBundles, bundleID)) return NO;
-    if (!NLBool(prefs, @"enabled", YES)) return NO;
+    if (!NLPrefBool(prefs, @"enabled", YES)) return NO;
 
     // An empty array means "all off" and must not fall through to the defaults.
     NSSet<NSString *> *selected = NLSelectedApps(prefs);
     if (selected) return [selected containsObject:bundleID];
     return NLListContains(kNLDefaultBundles, bundleID);
 }
+
+#pragma mark - Snapshot
+
+@implementation NLSettings
+
+- (instancetype)initWithPrefs:(NSDictionary *)prefs {
+    if (!(self = [super init])) return nil;
+
+    id artistField = prefs[@"artistField"];
+    if ([artistField isEqual:@"next"]) _artistMode = NLArtistModeNextLine;
+    else if ([artistField isEqual:@"none"]) _artistMode = NLArtistModeNone;
+    else _artistMode = NLArtistModeTitle;
+
+    id preferred = prefs[@"preferredSource"];
+    if ([preferred isEqual:@"musixmatch"]) _preferredSource = NLSourceMusixmatch;
+    else if ([preferred isEqual:@"lrclib"]) _preferredSource = NLSourceLRCLIB;
+    else if ([preferred isEqual:@"netease"]) _preferredSource = NLSourceNetease;
+    else _preferredSource = NLSourceNone;
+
+    // Defaults match prefs/NowLyrics.plist.
+    _useLRCLIB = NLPrefBool(prefs, @"useLRCLIB", YES);
+    _useNetease = NLPrefBool(prefs, @"useNetease", YES);
+    _killOnChange = NLPrefBool(prefs, @"killOnChange", NO);
+    _diagnostics = NLPrefBool(prefs, @"diagnostics", NO);
+    _spotifyConnect = NLPrefBool(prefs, @"spotifyConnect", YES);
+    _hideExplicit = NLPrefBool(prefs, @"hideExplicit", NO);
+    _offset = NLPrefNum(prefs, @"offset", 0);
+    _cacheClearedAt = NLPrefNum(prefs, @"cacheClearedAt", 0);
+    _musixmatchToken = NLExtractToken(prefs[@"musixmatchToken"]);
+    _musixmatchKey = NLTrimmed(prefs[@"musixmatchKey"]);
+
+    // Selected but no credentials entered is the same as switched off.
+    BOOL wantsMusixmatch = NLPrefBool(prefs, @"useMusixmatch", NO);
+    _useMusixmatch = wantsMusixmatch && (_musixmatchKey.length || _musixmatchToken.length);
+    if (wantsMusixmatch && !_useMusixmatch) {
+        NLLog(@"Musixmatch selected but no token or API key set, skipping that source");
+    }
+
+    // Only these invalidate lyrics already fetched. The offset control posts a
+    // notification per change, so clearing the cache on every reload would
+    // mean refetching on every nudge.
+    _sourceSignature = [NSString stringWithFormat:@"%d%d%d|%ld|%@|%@",
+                        _useMusixmatch, _useLRCLIB, _useNetease, (long)_preferredSource,
+                        _musixmatchKey ?: @"", _musixmatchToken ?: @""];
+
+    _enabled = NLEnabledForBundle([[NSBundle mainBundle] bundleIdentifier], prefs);
+    return self;
+}
+
+@end
 
 static NLSettings *gCurrent = nil;
 
@@ -174,55 +166,8 @@ NLSettings *NLSettingsCurrent(void) {
 }
 
 NLSettings *NLSettingsReload(void) {
-    NSDictionary *prefs = NLReadPrefs();
-    NLSettings *s = [NLSettings new];
-
-    id artistField = prefs[@"artistField"];
-    if ([artistField isKindOfClass:[NSString class]]) {
-        if ([artistField isEqualToString:@"next"]) s.artistMode = NLArtistModeNextLine;
-        else if ([artistField isEqualToString:@"none"]) s.artistMode = NLArtistModeNone;
-        else s.artistMode = NLArtistModeTitle;
-    } else {
-        // Carry over the old boolean so existing installs keep their choice.
-        s.artistMode = NLBool(prefs, @"keepOriginalTitle", YES) ? NLArtistModeTitle : NLArtistModeNone;
-    }
-
-    s.preferredSource = NLSourceNone;
-    id preferred = prefs[@"preferredSource"];
-    if ([preferred isKindOfClass:[NSString class]]) {
-        if ([preferred isEqualToString:@"musixmatch"]) s.preferredSource = NLSourceMusixmatch;
-        else if ([preferred isEqualToString:@"lrclib"]) s.preferredSource = NLSourceLRCLIB;
-        else if ([preferred isEqualToString:@"netease"]) s.preferredSource = NLSourceNetease;
-    }
-
-    s.useLRCLIB = NLBool(prefs, @"useLRCLIB", YES);
-    s.useNetease = NLBool(prefs, @"useNetease", YES);
-    s.killOnChange = NLBool(prefs, @"killOnChange", NO);
-    s.diagnostics = NLBool(prefs, @"diagnostics", NO);
-    s.spotifyConnect = NLBool(prefs, @"spotifyConnect", YES);
-    s.hideExplicit = NLBool(prefs, @"hideExplicit", NO);
-    s.offset = NLNum(prefs[@"offset"], 0);
-    s.cacheClearedAt = NLNum(prefs[@"cacheClearedAt"], 0);
-    s.musixmatchToken = NLExtractToken(prefs[@"musixmatchToken"]);
-    s.musixmatchKey = NLTrimmed(prefs[@"musixmatchKey"]);
-
-    // Selected but no credentials entered is the same as switched off.
-    BOOL wantsMusixmatch = NLBool(prefs, @"useMusixmatch", NO);
-    s.useMusixmatch = wantsMusixmatch && (s.musixmatchKey.length || s.musixmatchToken.length);
-    if (wantsMusixmatch && !s.useMusixmatch) {
-        NLLog(@"Musixmatch selected but no token or API key set, skipping that source");
-    }
-
-    // Only these invalidate lyrics already fetched. The offset control posts a
-    // notification per change, so clearing the cache on every reload would
-    // mean refetching on every nudge.
-    s.sourceSignature = [NSString stringWithFormat:@"%d%d%d|%ld|%@|%@",
-                         s.useMusixmatch, s.useLRCLIB, s.useNetease, (long)s.preferredSource,
-                         s.musixmatchKey ?: @"", s.musixmatchToken ?: @""];
-
-    s.enabled = NLEnabledForBundle([[NSBundle mainBundle] bundleIdentifier], prefs);
-    gCurrent = s;
-    return s;
+    gCurrent = [[NLSettings alloc] initWithPrefs:NLReadPrefsFile()];
+    return gCurrent;
 }
 
 #pragma mark - Process checks

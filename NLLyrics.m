@@ -20,20 +20,26 @@ double NLNum(id value, double fallback) {
 
 #pragma mark - Paths
 
-static NSString *NLRootPath(void) {
-    static NSString *root = nil;
+// Library/NowLyrics, without creating it.
+static NSString *NLCacheDir(void) {
+    static NSString *dir = nil;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        root = [NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES) firstObject];
-        root = [root stringByAppendingPathComponent:@"NowLyrics"];
-
-        NSFileManager *fm = [NSFileManager defaultManager];
-        [fm createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:nil];
-        // Created up front so it is discoverable without having to guess the name.
-        [fm createDirectoryAtPath:[root stringByAppendingPathComponent:@"manual"]
-      withIntermediateDirectories:YES attributes:nil error:nil];
+        dir = [NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES).firstObject
+               stringByAppendingPathComponent:@"NowLyrics"];
     });
-    return root;
+    return dir;
+}
+
+// The same, created on first use together with manual/, so that folder is
+// discoverable without having to guess its name.
+static NSString *NLRootPath(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        [[NSFileManager defaultManager] createDirectoryAtPath:[NLCacheDir() stringByAppendingPathComponent:@"manual"]
+                                  withIntermediateDirectories:YES attributes:nil error:nil];
+    });
+    return NLCacheDir();
 }
 
 static NSString *NLSanitizeFilename(NSString *name) {
@@ -53,12 +59,6 @@ NSString *NLTrackKey(NSString *title, NSString *artist) {
     return [NSString stringWithFormat:@"%@|%@", title ?: @"", artist ?: @""];
 }
 
-// What the key looked like before 2.19. Kept so caches written back then are
-// found and renamed rather than fetched again.
-NSString *NLLegacyTrackKey(NSString *title, NSString *artist, NSTimeInterval duration) {
-    return [NSString stringWithFormat:@"%@|%@|%.0f", title ?: @"", artist ?: @"", floor(duration)];
-}
-
 // Readable name plus a djb2 suffix, so cached files can be found and hand-edited.
 NSString *NLCachePath(NSString *key) {
     unsigned long long h = 5381;
@@ -74,16 +74,23 @@ NSString *NLCachePath(NSString *key) {
 
 #pragma mark - Housekeeping
 
-static NSArray<NSString *> *NLCachedFiles(NSString *root) {
-    NSMutableArray<NSString *> *files = [NSMutableArray array];
-    for (NSString *name in [[NSFileManager defaultManager] contentsOfDirectoryAtPath:root error:nil]) {
-        if ([name.pathExtension isEqualToString:@"lrc"]) [files addObject:[root stringByAppendingPathComponent:name]];
-    }
-    return files;   // manual/ is a directory and never matches
+// The cached .lrc files with their modification dates, read in the same
+// directory listing rather than one file at a time. manual/ is a directory and
+// never matches.
+static NSArray<NSURL *> *NLCachedFiles(NSString *root) {
+    NSArray<NSURL *> *all = [[NSFileManager defaultManager] contentsOfDirectoryAtURL:[NSURL fileURLWithPath:root isDirectory:YES]
+                                                          includingPropertiesForKeys:@[NSURLContentModificationDateKey]
+                                                                             options:0
+                                                                               error:nil];
+    return [all filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(NSURL *url, NSDictionary *bindings) {
+        return [url.pathExtension isEqualToString:@"lrc"];
+    }]];
 }
 
-static NSDate *NLModificationDate(NSString *path) {
-    return [[NSFileManager defaultManager] attributesOfItemAtPath:path error:nil][NSFileModificationDate] ?: [NSDate distantPast];
+static NSDate *NLModificationDate(NSURL *url) {
+    NSDate *date = nil;
+    [url getResourceValue:&date forKey:NSURLContentModificationDateKey error:nil];
+    return date ?: [NSDate distantPast];
 }
 
 // "Clear lyrics cache" on the settings page records the time of the tap in the
@@ -92,13 +99,11 @@ static NSDate *NLModificationDate(NSString *path) {
 // files when it is next launched, and never touches anything cached afterwards.
 BOOL NLClearCacheIfRequested(NSTimeInterval requestedAt) {
     if (requestedAt <= 0) return NO;
-    NSString *root = [[NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES) firstObject]
-                      stringByAppendingPathComponent:@"NowLyrics"];   // not NLRootPath(): nothing to create here
     NSDate *cutoff = [NSDate dateWithTimeIntervalSince1970:requestedAt];
     NSUInteger removed = 0;
-    for (NSString *path in NLCachedFiles(root)) {
-        if ([NLModificationDate(path) compare:cutoff] == NSOrderedAscending &&
-            [[NSFileManager defaultManager] removeItemAtPath:path error:nil]) removed++;
+    for (NSURL *url in NLCachedFiles(NLCacheDir())) {   // not NLRootPath(): nothing to create here
+        if ([NLModificationDate(url) compare:cutoff] == NSOrderedAscending &&
+            [[NSFileManager defaultManager] removeItemAtURL:url error:nil]) removed++;
     }
     if (removed) NLLog(@"lyrics cache cleared, %lu files", (unsigned long)removed);
     return removed > 0;
@@ -107,14 +112,14 @@ BOOL NLClearCacheIfRequested(NSTimeInterval requestedAt) {
 // Keeps the cache folder from growing forever: once there are more than
 // `limit` files the oldest go. Fetch queue, after a new file was written.
 void NLPruneCache(NSUInteger limit) {
-    NSArray<NSString *> *files = NLCachedFiles(NLRootPath());
+    NSArray<NSURL *> *files = NLCachedFiles(NLRootPath());
     if (files.count <= limit) return;
-    NSArray<NSString *> *oldestFirst = [files sortedArrayUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
+    NSArray<NSURL *> *oldestFirst = [files sortedArrayUsingComparator:^NSComparisonResult(NSURL *a, NSURL *b) {
         return [NLModificationDate(a) compare:NLModificationDate(b)];
     }];
     NSUInteger excess = files.count - limit;
     for (NSUInteger i = 0; i < excess; i++) {
-        [[NSFileManager defaultManager] removeItemAtPath:oldestFirst[i] error:nil];
+        [[NSFileManager defaultManager] removeItemAtURL:oldestFirst[i] error:nil];
     }
     NLLog(@"pruned %lu cached lyrics", (unsigned long)excess);
 }
@@ -338,18 +343,29 @@ void NLMarkChorus(NSArray<NLLyricLine *> *lines) {
     for (NLLyricLine *line in lines) { line.chorus = NO; line.chorusStart = NO; }
     if (n < kNLChorusMinLines * 2 || n > kNLChorusMaxLines) return;
 
-    NSMutableArray<NSString *> *norm = [NSMutableArray arrayWithCapacity:n];
-    for (NLLyricLine *line in lines) [norm addObject:NLChorusNormalize(line.text)];
+    // Each distinct normalised line becomes a number, so the table below
+    // compares integers instead of strings. 0 is a blank line.
+    NSUInteger w = n + 1;
+    uint16_t *run = calloc(w * w, sizeof(uint16_t));
+    NSUInteger *ids = calloc(n, sizeof(NSUInteger));
+    NSUInteger *chars = calloc(n, sizeof(NSUInteger));
+    if (!run || !ids || !chars) { free(run); free(ids); free(chars); return; }
+    NSMutableDictionary<NSString *, NSNumber *> *idOf = [NSMutableDictionary dictionaryWithCapacity:n];
+    for (NSUInteger i = 0; i < n; i++) {
+        NSString *norm = NLChorusNormalize(lines[i].text);
+        chars[i] = norm.length;
+        if (norm.length == 0) continue;
+        NSNumber *known = idOf[norm];
+        if (!known) idOf[norm] = known = @(idOf.count + 1);
+        ids[i] = known.unsignedIntegerValue;
+    }
 
     // run[i*(n+1)+j]: how many lines match going forward from i and j. Blank
     // lines never match, so a block cannot span an instrumental break.
-    NSUInteger w = n + 1;
-    uint16_t *run = calloc(w * w, sizeof(uint16_t));
-    if (!run) return;
     for (NSInteger i = n - 1; i >= 0; i--) {
-        if (norm[i].length == 0) continue;   // row stays zero
+        if (ids[i] == 0) continue;   // row stays zero
         for (NSInteger j = n - 1; j >= 0; j--) {
-            if (i == j || ![norm[i] isEqualToString:norm[j]]) continue;
+            if (i == j || ids[i] != ids[j]) continue;
             run[i * w + j] = run[(i + 1) * w + (j + 1)] + 1;
         }
     }
@@ -362,17 +378,17 @@ void NLMarkChorus(NSArray<NLLyricLine *> *lines) {
             maxLen = MAX(maxLen, MIN((NSUInteger)run[i * w + j], j - i));
         }
 
-        NSUInteger chars = 0;
+        NSUInteger blockChars = 0;
         for (NSUInteger len = 1; len <= maxLen; len++) {
-            chars += norm[i + len - 1].length;
-            if (len < kNLChorusMinLines || chars < kNLChorusMinChars) continue;
+            blockChars += chars[i + len - 1];
+            if (len < kNLChorusMinLines || blockChars < kNLChorusMinChars) continue;
 
             NSUInteger count = 0;
             for (NSUInteger k = 0; k + len <= n; ) {
                 if (k == i || run[i * w + k] >= len) { count++; k += len; }
                 else k++;
             }
-            NSUInteger score = count * count * chars;
+            NSUInteger score = count * count * blockChars;
             if (count >= 2 && (score > bestScore || (score == bestScore && count > bestCount))) {
                 bestStart = i; bestLen = len; bestCount = count; bestScore = score;
             }
@@ -399,6 +415,8 @@ void NLMarkChorus(NSArray<NLLyricLine *> *lines) {
         }
     }
     free(run);
+    free(ids);
+    free(chars);
 }
 
 #pragma mark - Manual overrides
@@ -409,6 +427,8 @@ void NLMarkChorus(NSArray<NLLyricLine *> *lines) {
 // "Title - Artist.lrc" or "Title.lrc".
 NSArray<NLLyricLine *> *NLManualLyrics(NSString *title, NSString *artist) {
     NSString *dir = [NLRootPath() stringByAppendingPathComponent:@"manual"];
+    // Almost always empty: one listing instead of up to four failed opens.
+    if ([[NSFileManager defaultManager] contentsOfDirectoryAtPath:dir error:nil].count == 0) return nil;
 
     NSMutableArray<NSString *> *names = [NSMutableArray array];
     if (artist.length) [names addObject:[NSString stringWithFormat:@"%@ - %@", title, artist]];

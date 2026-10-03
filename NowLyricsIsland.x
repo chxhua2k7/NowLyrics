@@ -30,6 +30,7 @@
 
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
+#import <ImageIO/ImageIO.h>
 #import <objc/runtime.h>
 #import <dlfcn.h>
 #import "NLShared.h"
@@ -54,9 +55,24 @@ static void NLIFileLog(NSString *format, ...) {
     [h closeFile];
 }
 #define NLI_LOG(...) NLIFileLog(__VA_ARGS__)
+// Logs a state description only when it differs from the last one logged here.
+#define NLI_LOG_CHANGED(expr) do { \
+    static NSString *last_ = nil; \
+    NSString *state_ = (expr); \
+    if (![state_ isEqualToString:last_]) { last_ = state_; NLI_LOG(@"%@", state_); } \
+} while (0)
+// Logs each distinct state description once (at most `limit` of them).
+#define NLI_LOG_ONCE(limit, expr) do { \
+    static NSMutableSet *seen_ = nil; \
+    if (!seen_) seen_ = [NSMutableSet set]; \
+    NSString *state_ = (expr); \
+    if (seen_.count < (limit) && ![seen_ containsObject:state_]) { [seen_ addObject:state_]; NLI_LOG(@"%@", state_); } \
+} while (0)
 #define NLI_DEBUG_HOOKS 1
 #else
 #define NLI_LOG(...) do {} while (0)
+#define NLI_LOG_CHANGED(expr) do {} while (0)
+#define NLI_LOG_ONCE(limit, expr) do {} while (0)
 #define NLI_DEBUG_HOOKS 0
 #endif
 
@@ -94,36 +110,28 @@ typedef struct {
 static NLIslandSettings gSettings;   // read in %ctor
 
 // Ranges and defaults match bundle/Island.plist.
+static const CGFloat kNLDefaultFontSize = 11;
+static const CGFloat kNLDefaultSpeed = 30;   // pt/s, shown as 1.0×
+
 static CGFloat NLIslandNum(NSDictionary *prefs, NSString *key, CGFloat fallback, CGFloat lo, CGFloat hi) {
-    id v = prefs[key];
-    CGFloat n = [v respondsToSelector:@selector(doubleValue)] ? [v doubleValue] : fallback;
+    CGFloat n = NLPrefNum(prefs, key, fallback);
     return isnan(n) ? fallback : MIN(MAX(n, lo), hi);
 }
 
-static BOOL NLIslandBool(NSDictionary *prefs, NSString *key, BOOL fallback) {
-    id v = prefs[key];
-    return [v respondsToSelector:@selector(boolValue)] ? [v boolValue] : fallback;
-}
-
-// The file NLSettings.m reads, at the paths SpringBoard can see.
+// The file NowLyrics reads in the apps (NLShared.h).
 static NLIslandSettings NLIslandReadSettings(void) {
-    NSDictionary *prefs = nil;
-    for (NSString *root in @[@"/var/jb/var/mobile", @"/var/mobile"]) {
-        prefs = [NSDictionary dictionaryWithContentsOfFile:
-                 [NSString stringWithFormat:@"%@/Library/Preferences/%@.plist", root, NL_PREFS_DOMAIN]];
-        if (prefs.count) break;
-    }
+    NSDictionary *prefs = NLReadPrefsFile();
     NLIslandSettings s = {0};
     // Independent of the main switch: with lyrics off, the now-playing title is
     // the real track title, and the strip shows that instead of a line.
-    s.on = NLIslandBool(prefs, @"islandLyrics", NO);
-    s.fontSize = NLIslandNum(prefs, @"islandFontSize", 11, 9, 15);
+    s.on = NLPrefBool(prefs, @"islandLyrics", NO);
+    s.fontSize = NLIslandNum(prefs, @"islandFontSize", kNLDefaultFontSize, 9, 15);
     s.artworkColor = [prefs[@"islandColor"] isEqual:@"artwork"];
     s.scrollUp = [prefs[@"islandTransition"] isEqual:@"up"];
-    s.speed = NLIslandNum(prefs, @"islandMarqueeSpeed", 30, 9, 81);   // shown as 0.3×–2.7×
+    s.speed = NLIslandNum(prefs, @"islandMarqueeSpeed", kNLDefaultSpeed, 9, 81);   // shown as 0.3×–2.7×
 #ifdef NLI_FILELOG
-    s.debugNoGrow = NLIslandBool(prefs, @"islandDebugNoGrow", NO);
-    s.debugNoStrip = NLIslandBool(prefs, @"islandDebugNoStrip", NO);
+    s.debugNoGrow = NLPrefBool(prefs, @"islandDebugNoGrow", NO);
+    s.debugNoStrip = NLPrefBool(prefs, @"islandDebugNoStrip", NO);
 #endif
     return s;
 }
@@ -134,6 +142,7 @@ static __weak SBSystemApertureViewController *gApertureVC = nil;
 static __weak SBSystemApertureSceneElement *gElement = nil;
 static __weak UIView *gSceneContainer = nil;   // as handed to -_layoutSceneViewInContainerView:
 static __weak UIView *gAttachedPill = nil;     // the pill the strip is attached to
+static void *gAttachedPillPtr = NULL;          // the same, for the per-frame layout check
 
 // Geometry. gExtra is what the island is grown by: the distance from the
 // compact island's bottom to the status bar's line. gSensorWidth is the
@@ -150,29 +159,28 @@ static const CGFloat kNLContentGap = 4;   // kept clear on each side of the line
 static NSString *gTitle = nil;
 static BOOL gExplicit = NO;   // the track is flagged explicit (and NowLyrics was not told to hide that)
 static UIColor *gArtworkColor = nil;
-static NSUInteger gArtworkHash = 0;            // the artwork gArtworkColor is (being) taken from
+static NSUInteger gArtworkPrint = 0;           // the artwork gArtworkColor is (being) taken from
 
 static BOOL NLIsNowPlaying(id element) {
     NSString *client = [element respondsToSelector:@selector(clientIdentifier)] ? [element clientIdentifier] : nil;
     return [client isEqualToString:@"com.apple.MediaRemoteUI"];
 }
 
-// iOS 17 and later: the element's own view, the one wrapper inside
-// _SBSystemApertureContainerViewRotatingContentView (itself inside the view that
-// scales). Those container content views must hold exactly one subview:
-// -contentView asserts it (sbsa_onlyObjectOrNilAssert), so -addContentSubview:
-// swaps the element out and a sibling there crashes SpringBoard. The wrapper
-// takes extra subviews and still scales with the island. iOS 16 keeps
-// -addContentSubview:, which adds there instead of replacing.
+// Where SpringBoard has _SBSystemApertureContainerViewRotatingContentView
+// (iOS 17 and later; 16.5.1 has no such class): the element's own view, the one
+// wrapper inside it (itself inside the view that scales). Those container
+// content views must hold exactly one subview: -contentView asserts it
+// (sbsa_onlyObjectOrNilAssert), so -addContentSubview: swaps the element out
+// and a sibling there crashes SpringBoard. The wrapper takes extra subviews and
+// still scales with the island. Without that class, -addContentSubview: adds
+// to the content view instead of replacing.
 static UIView *NLElementWrapperView(UIView *sceneContainer, UIView *pill) {
-    static BOOL modern;
+    static Class rotating;
     static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        modern = [NSProcessInfo.processInfo isOperatingSystemAtLeastVersion:(NSOperatingSystemVersion){17, 0, 0}];
-    });
-    if (!modern) return nil;
+    dispatch_once(&once, ^{ rotating = objc_getClass("_SBSystemApertureContainerViewRotatingContentView"); });
+    if (!rotating) return nil;
     for (UIView *v = sceneContainer.superview; v && v != pill; v = v.superview) {
-        if ([NSStringFromClass(v.superview.class) hasSuffix:@"RotatingContentView"]) return v;
+        if ([v.superview isKindOfClass:rotating]) return v;
     }
     return nil;
 }
@@ -202,6 +210,7 @@ static UIView *NLPillFor(UIView *view) {
     UIView *_content;
     UILabel *_label;
     CAGradientLayer *_fade;
+    CGFloat _fontSize;
     CGFloat _speed;
     CGFloat _laidOutWidth;
     NSString *_text;
@@ -222,17 +231,19 @@ static UIView *NLPillFor(UIView *view) {
         _fade = [CAGradientLayer layer];
         _fade.startPoint = CGPointMake(0, 0.5);
         _fade.endPoint = CGPointMake(1, 0.5);
-        _speed = 30;
+        _speed = kNLDefaultSpeed;
     }
     return self;
 }
 
+// Runs on every update, so nothing is built unless something changed.
 - (void)applyFontSize:(CGFloat)size color:(UIColor *)color speed:(CGFloat)speed {
-    UIFont *font = [UIFont systemFontOfSize:size weight:UIFontWeightSemibold];
-    BOOL changed = ![font isEqual:_label.font] || speed != _speed;
+    BOOL changed = size != _fontSize || speed != _speed;
     BOOL recolor = ![color isEqual:_label.textColor];
-    _label.font = font;
+    if (!changed && !recolor) return;
+    if (size != _fontSize) _label.font = [UIFont systemFontOfSize:size weight:UIFontWeightSemibold];
     _label.textColor = color;
+    _fontSize = size;
     _speed = speed;
     if (changed || recolor) _label.attributedText = [self lineWithText:_text explicit:_explicit];
     if (changed) [self restartMarquee];
@@ -346,8 +357,10 @@ static UIView *NLPillFor(UIView *view) {
         return;
     }
 
-    // Start flush left, glide to flush right, hold, jump back. Holds are long
-    // enough to read the ends; the whole loop repeats while the line lasts.
+    // Start flush left, glide to flush right, hold, then fade out, go back and
+    // fade in at the start. Holds are long enough to read the ends; the glide
+    // eases in and out instead of starting and stopping at full speed; the
+    // whole loop repeats while the line lasts.
     _label.frame = CGRectMake(0, 0, textWidth, b.size.height);
     CGFloat edge = 10;
     _fade.frame = b;
@@ -358,10 +371,25 @@ static UIView *NLPillFor(UIView *view) {
 
     CGFloat startX = textWidth / 2;
     CGFloat endX = startX - overflow;
-    double hold = 1.2, glide = overflow / MAX(_speed, 1), total = hold + glide + hold;
-    CAKeyframeAnimation *a = [CAKeyframeAnimation animationWithKeyPath:@"position.x"];
-    a.values = @[@(startX), @(startX), @(endX), @(endX)];
-    a.keyTimes = @[@0, @(hold / total), @((hold + glide) / total), @1];
+    double hold = 1.2, fade = 0.25, glide = overflow / MAX(_speed, 1);
+    double total = hold + glide + hold + fade * 2;
+    double glideEnd = (hold + glide) / total, out = (hold + glide + hold) / total, back = out + fade / total;
+    CAMediaTimingFunction *linear = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionLinear];
+
+    CAKeyframeAnimation *move = [CAKeyframeAnimation animationWithKeyPath:@"position.x"];
+    move.values = @[@(startX), @(startX), @(endX), @(endX), @(startX), @(startX)];
+    move.keyTimes = @[@0, @(hold / total), @(glideEnd), @(back), @(back), @1];
+    move.timingFunctions = @[linear, [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut],
+                             linear, linear, linear];
+
+    // The jump back happens while the line is invisible.
+    CAKeyframeAnimation *opacity = [CAKeyframeAnimation animationWithKeyPath:@"opacity"];
+    opacity.values = @[@1, @1, @0, @1];
+    opacity.keyTimes = @[@0, @(out), @(back), @1];
+
+    move.duration = opacity.duration = total;   // a group does not stretch its children
+    CAAnimationGroup *a = [CAAnimationGroup animation];
+    a.animations = @[move, opacity];
     a.duration = total;
     a.repeatCount = HUGE_VALF;
     a.removedOnCompletion = NO;
@@ -401,9 +429,16 @@ static NLIslandClipView *gClip = nil;
 #pragma mark - Album color
 
 // The most colorful bright pixel of a small copy of the artwork, lifted until
-// it reads on black. Average colors come out muddy, so the vivid one wins.
-static UIColor *NLColorFromArtwork(UIImage *image) {
-    CGImageRef cg = image.CGImage;
+// it reads on black. Average colors come out muddy, so the vivid one wins. The
+// copy is decoded small to begin with rather than from the full-size cover.
+static UIColor *NLColorFromArtwork(NSData *data) {
+    CGImageSourceRef source = CGImageSourceCreateWithData((__bridge CFDataRef)data, NULL);
+    if (!source) return nil;
+    CGImageRef cg = CGImageSourceCreateThumbnailAtIndex(source, 0, (__bridge CFDictionaryRef)@{
+        (id)kCGImageSourceCreateThumbnailFromImageAlways: @YES,
+        (id)kCGImageSourceThumbnailMaxPixelSize: @64,
+    });
+    CFRelease(source);
     if (!cg) return nil;
     enum { side = 16 };
     uint8_t px[side * side * 4];
@@ -412,21 +447,47 @@ static UIColor *NLColorFromArtwork(UIImage *image) {
     CGContextRef ctx = CGBitmapContextCreate(px, side, side, 8, side * 4, space,
                                              kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
     CGColorSpaceRelease(space);
+    if (ctx) {
+        CGContextSetInterpolationQuality(ctx, kCGInterpolationMedium);
+        CGContextDrawImage(ctx, CGRectMake(0, 0, side, side), cg);
+        CGContextRelease(ctx);
+    }
+    CGImageRelease(cg);
     if (!ctx) return nil;
-    CGContextSetInterpolationQuality(ctx, kCGInterpolationMedium);
-    CGContextDrawImage(ctx, CGRectMake(0, 0, side, side), cg);
-    CGContextRelease(ctx);
 
+    // Hue, saturation and brightness as -[UIColor getHue:saturation:brightness:alpha:] gives them.
     CGFloat bestScore = -1, bh = 0, bs = 0, bb = 0;
     for (size_t i = 0; i < side * side; i++) {
-        UIColor *c = [UIColor colorWithRed:px[i * 4] / 255.0 green:px[i * 4 + 1] / 255.0 blue:px[i * 4 + 2] / 255.0 alpha:1];
-        CGFloat h, s, b, a;
-        if (![c getHue:&h saturation:&s brightness:&b alpha:&a]) continue;
+        CGFloat r = px[i * 4] / 255.0, g = px[i * 4 + 1] / 255.0, bl = px[i * 4 + 2] / 255.0;
+        CGFloat max = MAX(r, MAX(g, bl)), min = MIN(r, MIN(g, bl)), delta = max - min;
+        CGFloat b = max, s = max > 0 ? delta / max : 0, h = 0;
+        if (delta > 0) {
+            if (max == r) h = (g - bl) / delta;
+            else if (max == g) h = 2 + (bl - r) / delta;
+            else h = 4 + (r - g) / delta;
+            h /= 6;
+            if (h < 0) h += 1;
+        }
         CGFloat score = s * (0.4 + b);
         if (b > 0.3 && score > bestScore) { bestScore = score; bh = h; bs = s; bb = b; }
     }
     if (bestScore < 0.15) return nil;   // a grey or dark cover: stay white
     return [UIColor colorWithHue:bh saturation:MIN(bs, 0.65) brightness:MAX(bb, 0.92) alpha:1];
+}
+
+// Tells covers apart. -[NSData hash] only reads the first 80 bytes, which
+// JPEGs from the same encoder share, so the length and two samples from the
+// compressed data further in go in as well.
+static NSUInteger NLArtworkPrint(NSData *data) {
+    const uint8_t *bytes = data.bytes;
+    NSUInteger length = data.length;
+    uint64_t h = 1469598103934665603ULL ^ length;   // FNV-1a
+    NSUInteger window = MIN(length, (NSUInteger)256);
+    NSUInteger starts[] = { length / 2 - MIN(length / 2, window / 2), length - window };
+    for (int k = 0; k < 2; k++) {
+        for (NSUInteger i = starts[k]; i < starts[k] + window; i++) { h ^= bytes[i]; h *= 1099511628211ULL; }
+    }
+    return (NSUInteger)h ?: 1;   // 0 means "nothing claimed"
 }
 
 #pragma mark - Updating
@@ -492,32 +553,33 @@ static void NLIslandMeasureExtra(UIView *pill) {
 // to the end of whatever animation was running.
 static CGFloat gLaidOutFontSize = 0;   // font size of the last layout, to know when one is due
 
+#ifdef NLI_FILELOG
+static void NLIDumpLayout(UIView *host, UIView *pill) {
+    NSMutableArray *chain = [NSMutableArray array];
+    for (UIView *v = host; v && chain.count < 6; v = v.superview) {
+        [chain addObject:[NSString stringWithFormat:@"%@%@ a%.2f%@", NSStringFromClass(v.class),
+                          NSStringFromCGRect(v.frame), v.alpha, v.hidden ? @" H" : @""]];
+    }
+    NSMutableArray *subList = [NSMutableArray array];
+    for (UIView *sv in host.subviews) {
+        [subList addObject:[NSString stringWithFormat:@"%@%@ a%.2f%@ layerHidden%d", NSStringFromClass(sv.class),
+                            NSStringFromCGRect(sv.frame), sv.alpha, sv.hidden ? @" H" : @"", sv.layer.hidden]];
+        for (UIView *inner in sv.subviews) {
+            [subList addObject:[NSString stringWithFormat:@"  >%@%@ a%.2f%@", NSStringFromClass(inner.class),
+                                NSStringFromCGRect(inner.frame), inner.alpha, inner.hidden ? @" H" : @""]];
+        }
+    }
+    NLI_LOG_CHANGED(([NSString stringWithFormat:@"layout chain=%@ subviews=[%@] contentAlpha=%@",
+                      [chain componentsJoinedByString:@" < "], [subList componentsJoinedByString:@" | "],
+                      [pill respondsToSelector:@selector(contentAlpha)] ? [pill valueForKey:@"contentAlpha"] : @"?"]));
+}
+#endif
+
 static void NLIslandLayout(UIView *pill) {
     UIView *host = gClip.superview;
     if (!host || pill != gAttachedPill) return;
 #ifdef NLI_FILELOG
-    {
-        static NSString *last = nil;
-        NSMutableArray *chain = [NSMutableArray array];
-        for (UIView *v = host; v && chain.count < 6; v = v.superview) {
-            [chain addObject:[NSString stringWithFormat:@"%@%@ a%.2f%@", NSStringFromClass(v.class),
-                              NSStringFromCGRect(v.frame), v.alpha, v.hidden ? @" H" : @""]];
-        }
-        NSMutableArray *subList = [NSMutableArray array];
-        for (UIView *sv in host.subviews) {
-            [subList addObject:[NSString stringWithFormat:@"%@%@ a%.2f%@ layerHidden%d", NSStringFromClass(sv.class),
-                                NSStringFromCGRect(sv.frame), sv.alpha, sv.hidden ? @" H" : @"", sv.layer.hidden]];
-            for (UIView *inner in sv.subviews) {
-                [subList addObject:[NSString stringWithFormat:@"  >%@%@ a%.2f%@", NSStringFromClass(inner.class),
-                                    NSStringFromCGRect(inner.frame), inner.alpha, inner.hidden ? @" H" : @""]];
-            }
-        }
-        NSString *subs = [subList componentsJoinedByString:@" | "];
-        NSString *state = [NSString stringWithFormat:@"layout chain=%@ subviews=[%@] contentAlpha=%@",
-                           [chain componentsJoinedByString:@" < "], subs,
-                           [pill respondsToSelector:@selector(contentAlpha)] ? [pill valueForKey:@"contentAlpha"] : @"?"];
-        if (![state isEqualToString:last]) { last = state; NLI_LOG(@"%@", state); }
-    }
+    NLIDumpLayout(host, pill);
 #endif
     // The line's box sits on the island's bottom edge, under the camera. It is
     // exactly the font's line height, so the text's bottom is the island's and
@@ -569,15 +631,9 @@ static void NLIslandUpdate(void) {
     SBSystemApertureSceneElement *element = gElement;
     BOOL compact = [element respondsToSelector:@selector(layoutMode)] && element.layoutMode == kNLCompactLayoutMode;
     BOOL show = gSettings.on && pill && compact && gTitle.length > 0 && !gSettings.debugNoStrip;
-#ifdef NLI_FILELOG
-    {
-        static NSString *last = nil;
-        NSString *state = [NSString stringWithFormat:@"update on=%d pill=%@ mode=%ld title=%@ show=%d",
-                           gSettings.on, pill ? NSStringFromClass(pill.class) : @"nil",
-                           [element respondsToSelector:@selector(layoutMode)] ? (long)element.layoutMode : -1L, gTitle, show];
-        if (![state isEqualToString:last]) { last = state; NLI_LOG(@"%@", state); }
-    }
-#endif
+    NLI_LOG_CHANGED(([NSString stringWithFormat:@"update on=%d pill=%@ mode=%ld title=%@ show=%d",
+                      gSettings.on, pill ? NSStringFromClass(pill.class) : @"nil",
+                      [element respondsToSelector:@selector(layoutMode)] ? (long)element.layoutMode : -1L, gTitle, show]));
     if (!show) {
         // Faded rather than hidden (expanding, the app taking over): a strip
         // vanishing in one frame reads as a flash.
@@ -601,12 +657,14 @@ static void NLIslandUpdate(void) {
     // element's view and leave the strip in one that is no longer in the pill.
     BOOL fresh = !gClip.superview || NLPillFor(gClip.superview) != pill;
     if (fresh) {
+        UIView *wrapper = NLElementWrapperView(gSceneContainer, pill);
+        BOOL canAdd = [pill respondsToSelector:@selector(addContentSubview:)];
+        if (!wrapper && !canAdd) return;   // neither layout known: stay off rather than guess
         gClip.alpha = 0;
         gAttachedPill = pill;
-        UIView *wrapper = NLElementWrapperView(gSceneContainer, pill);
+        gAttachedPillPtr = (__bridge void *)pill;
         if (wrapper) [wrapper addSubview:gClip];
-        else if ([pill respondsToSelector:@selector(addContentSubview:)]) [(SBSystemApertureContainerView *)pill addContentSubview:gClip];
-        else [pill addSubview:gClip];
+        else [(SBSystemApertureContainerView *)pill addContentSubview:gClip];
         [UIView performWithoutAnimation:^{ NLIslandLayout(pill); }];
     } else {
         UIView *host = gClip.superview;
@@ -638,16 +696,16 @@ static void NLIslandRefreshInfo(void) {
         id title = info[@"kMRMediaRemoteNowPlayingInfoTitle"];
         gTitle = [title isKindOfClass:NSString.class] ? title : nil;
         // Cleared by the players already when "Hide explicit badge" is on.
-        gExplicit = NLIslandBool(info, @"kMRMediaRemoteNowPlayingInfoIsExplicitTrack", NO);
+        gExplicit = NLPrefBool(info, @"kMRMediaRemoteNowPlayingInfoIsExplicitTrack", NO);
 
         NSData *artwork = info[@"kMRMediaRemoteNowPlayingInfoArtworkData"];
-        if (gSettings.artworkColor && [artwork isKindOfClass:NSData.class] && artwork.hash != gArtworkHash) {
-            NSUInteger hash = artwork.hash;
-            gArtworkHash = hash;   // claimed now, so the burst at a track change decodes it once
+        NSUInteger print = (gSettings.artworkColor && [artwork isKindOfClass:NSData.class]) ? NLArtworkPrint(artwork) : 0;
+        if (print && print != gArtworkPrint) {
+            gArtworkPrint = print;   // claimed now, so the burst at a track change decodes it once
             dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-                UIColor *color = NLColorFromArtwork([UIImage imageWithData:artwork]);
+                UIColor *color = NLColorFromArtwork(artwork);
                 dispatch_async(dispatch_get_main_queue(), ^{
-                    if (gArtworkHash != hash) return;   // the track changed meanwhile
+                    if (gArtworkPrint != print) return;   // the track changed meanwhile
                     gArtworkColor = color;
                     NLIslandUpdate();
                 });
@@ -685,15 +743,8 @@ static void NLIslandInvalidateHeight(void) {
 
 - (NSDirectionalEdgeInsets)preferredEdgeOutsetsForLayoutMode:(NSInteger)mode suggestedOutsets:(NSDirectionalEdgeInsets)suggested maximumOutsets:(NSDirectionalEdgeInsets)maximum {
     NSDirectionalEdgeInsets outsets = %orig;
-#ifdef NLI_FILELOG
-    {
-        static NSMutableSet *seen = nil;
-        if (!seen) seen = [NSMutableSet set];
-        NSString *client = [self respondsToSelector:@selector(clientIdentifier)] ? [self clientIdentifier] : @"?";
-        NSString *key = [NSString stringWithFormat:@"%@|%@|%ld", NSStringFromClass([self class]), client, (long)mode];
-        if (![seen containsObject:key]) { [seen addObject:key]; NLI_LOG(@"outsets element %@", key); }
-    }
-#endif
+    NLI_LOG_ONCE(NSUIntegerMax, ([NSString stringWithFormat:@"outsets element %@|%@|%ld", NSStringFromClass([self class]),
+                                  [self respondsToSelector:@selector(clientIdentifier)] ? [self clientIdentifier] : @"?", (long)mode]));
     if (!NLIsNowPlaying(self)) return outsets;
     gElement = self;
     if (mode == kNLCompactLayoutMode && gSettings.on && !gSettings.debugNoGrow) {
@@ -710,17 +761,16 @@ static void NLIslandInvalidateHeight(void) {
     if (!NLPillFor(container)) return;
 #ifdef NLI_FILELOG
     {
-        static NSString *last = nil;
         NSMutableArray *chain = [NSMutableArray array];
         for (UIView *v = container; v && chain.count < 6; v = v.superview) {
             [chain addObject:[NSString stringWithFormat:@"%@%@[%lu]", NSStringFromClass(v.class), NSStringFromCGRect(v.frame), (unsigned long)v.subviews.count]];
         }
-        NSString *state = [@"scene container chain=" stringByAppendingString:[chain componentsJoinedByString:@" < "]];
-        if (![state isEqualToString:last]) { last = state; NLI_LOG(@"%@", state); }
+        NLI_LOG_CHANGED([@"scene container chain=" stringByAppendingString:[chain componentsJoinedByString:@" < "]]);
     }
 #endif
     gElement = self;
     gSceneContainer = container;
+    if (!gSettings.on && !gClip.superview) return;   // off and nothing up: nothing to show or fade
     if (gSettings.on && !gTitle) NLIslandRefreshInfo();
     NLIslandUpdate();
 }
@@ -730,7 +780,7 @@ static void NLIslandInvalidateHeight(void) {
 %hook SBSystemApertureContainerView
 - (void)layoutSubviews {
     %orig;
-    if (self == gAttachedPill) NLIslandLayout(self);
+    if ((__bridge void *)self == gAttachedPillPtr) NLIslandLayout(self);
 }
 %end
 
@@ -739,20 +789,22 @@ static void NLIslandInvalidateHeight(void) {
 @interface SBSAElementContextMutator : NSObject
 @end
 
+#ifdef NLI_FILELOG
 static NSString *NLIInsets(NSDirectionalEdgeInsets i) {
     return [NSString stringWithFormat:@"{t %.1f l %.1f b %.1f r %.1f}", i.top, i.leading, i.bottom, i.trailing];
 }
+#endif
 
 %group NLIDebug
 
 %hook SBSystemApertureViewController
 - (NSDirectionalEdgeInsets)preferredEdgeOutsetsForLayoutMode:(NSInteger)mode suggestedOutsets:(NSDirectionalEdgeInsets)suggested maximumOutsets:(NSDirectionalEdgeInsets)maximum forTargetWithOverrider:(id)overrider isDefaultValue:(BOOL *)isDefault {
     NSDirectionalEdgeInsets r = %orig;
-    static NSMutableSet *seen = nil;
-    if (!seen) seen = [NSMutableSet set];
-    id target = [overrider respondsToSelector:@selector(layoutSpecifyingOverridingTarget)] ? [overrider performSelector:@selector(layoutSpecifyingOverridingTarget)] : nil;
-    NSString *key = [NSString stringWithFormat:@"%ld|%@|%@", (long)mode, NSStringFromClass([overrider class]), NSStringFromClass([target class])];
-    if (![seen containsObject:key]) { [seen addObject:key]; NLI_LOG(@"VC outsets mode=%@ -> %@", key, NLIInsets(r)); }
+    NLI_LOG_ONCE(NSUIntegerMax, ([NSString stringWithFormat:@"VC outsets mode=%ld|%@|%@ -> %@", (long)mode,
+                                  NSStringFromClass([overrider class]),
+                                  [overrider respondsToSelector:@selector(layoutSpecifyingOverridingTarget)]
+                                      ? NSStringFromClass([[overrider performSelector:@selector(layoutSpecifyingOverridingTarget)] class]) : @"-",
+                                  NLIInsets(r)]));
     return r;
 }
 %end
@@ -760,10 +812,7 @@ static NSString *NLIInsets(NSDirectionalEdgeInsets i) {
 %hook SBSAElementContextMutator
 - (void)setPreferredEdgeOutsets:(NSDirectionalEdgeInsets)outsets {
     %orig;
-    static NSMutableSet *seen = nil;
-    if (!seen) seen = [NSMutableSet set];
-    NSString *key = NLIInsets(outsets);
-    if (![seen containsObject:key] && seen.count < 40) { [seen addObject:key]; NLI_LOG(@"SBSA setPreferredEdgeOutsets %@ on %@", key, self); }
+    NLI_LOG_ONCE(40, ([NSString stringWithFormat:@"SBSA setPreferredEdgeOutsets %@ on %@", NLIInsets(outsets), NSStringFromClass([self class])]));
 }
 %end
 
@@ -784,7 +833,7 @@ static void NLIslandPrefsChanged(CFNotificationCenterRef center, void *observer,
         BOOL heightChanged = now.on != gSettings.on;
         BOOL colorChanged = now.artworkColor != gSettings.artworkColor;
         gSettings = now;
-        if (colorChanged) gArtworkHash = 0;   // fetch the artwork again
+        if (colorChanged) gArtworkPrint = 0;   // fetch the artwork again
         if (heightChanged) NLIslandInvalidateHeight();
         if (now.on && (!gTitle || colorChanged)) NLIslandRefreshInfo();
         NLIslandUpdate();
