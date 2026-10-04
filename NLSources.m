@@ -162,11 +162,14 @@ static NSArray<NLLyricLine *> *NLFetchMusixmatchToken(NLFetch *f, NSString **not
     if (token.length == 0) return nil;
     *note = @"no result";
 
-    NSString *url = [NSString stringWithFormat:
+    NSMutableString *url = [NSMutableString stringWithFormat:
         @"https://apic.musixmatch.com/ws/1.1/macro.subtitles.get"
         @"?usertoken=%@&app_id=%@&subtitle_format=mxm&q_track=%@&q_artist=%@",
         NLEscape(token), NLEscape(NLMusixmatchAppId()),
         NLEscape(NLCleanTitle(f.title)), NLEscape(NLPrimaryArtist(f.artist))];
+    // A track has subtitles timed to several cuts (single, album, radio edit);
+    // the length picks the one for the cut playing.
+    if (f.duration > 0) [url appendFormat:@"&q_duration=%.0f", f.duration];
 
     id json = NLGetJSON(f, url, nil);
     if (!json) {

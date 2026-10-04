@@ -195,9 +195,12 @@ const CGFloat kNLDefaultSpeed = 30;   // pt/s, shown as 1.0×
     // Start flush left, glide to flush right and stay there; much later, fade
     // out, go back and fade in at the start. The start hold is long enough to
     // read it; the glide eases in and out instead of starting and stopping at
-    // full speed.
-    _label.frame = CGRectMake(0, 0, textWidth, b.size.height);
+    // full speed. The label is a little wider on each side than its text (half
+    // the faded edge), so the first and last characters are not eaten by it.
     CGFloat edge = 10;
+    textWidth += round(edge * 0.5) * 2;
+    overflow = textWidth - b.size.width;
+    _label.frame = CGRectMake(0, 0, textWidth, b.size.height);
     _fade.frame = b;
     _fade.colors = @[(id)UIColor.clearColor.CGColor, (id)UIColor.blackColor.CGColor,
                      (id)UIColor.blackColor.CGColor, (id)UIColor.clearColor.CGColor];

@@ -36,6 +36,7 @@
 "Cancel" = "取消";
 "Respring" = "重啟";
 "Lyrics in the island" = "歌詞上島";
+"Lyrics in the island needs an iPhone with the Dynamic Island, on iOS 16 or later, so it does not show on this one. The lyrics on the lock screen, in Control Center and in CarPlay work as usual." = "歌詞上島需要有動態島的 iPhone（iOS 16 以上），這台不會顯示。鎖定畫面、控制中心和 CarPlay 的歌詞照常運作。";
 "Lyrics color" = "歌詞顏色";
 "White" = "白色";
 "Album color" = "專輯顏色";

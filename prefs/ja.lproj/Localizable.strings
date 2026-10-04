@@ -36,6 +36,7 @@
 "Cancel" = "キャンセル";
 "Respring" = "再起動";
 "Lyrics in the island" = "Islandに歌詞";
+"Lyrics in the island needs an iPhone with the Dynamic Island, on iOS 16 or later, so it does not show on this one. The lyrics on the lock screen, in Control Center and in CarPlay work as usual." = "Islandに歌詞は、ダイナミックアイランドのある iPhone（iOS 16 以降）が必要なため、この iPhone では表示されません。ロック画面、コントロールセンター、CarPlay の歌詞はこれまでどおり使えます。";
 "Lyrics color" = "歌詞の色";
 "White" = "白";
 "Album color" = "アルバムの色";

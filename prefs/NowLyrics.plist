@@ -333,7 +333,7 @@
 			<key>iconColor</key>
 			<string>#8F8F94</string>
 			<key>iconSymbol</key>
-			<string>person.badge.key</string>
+			<string>person.badge.key|key.fill</string>
 			<key>key</key>
 			<string>musixmatchToken</string>
 			<key>label</key>

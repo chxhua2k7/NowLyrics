@@ -162,7 +162,7 @@
 			<key>iconColor</key>
 			<string>#8E8E93</string>
 			<key>iconSymbol</key>
-			<string>text.line.first.and.arrowtriangle.forward</string>
+			<string>text.line.first.and.arrowtriangle.forward|forward</string>
 			<key>key</key>
 			<string>islandMarqueeSpeed</string>
 			<key>label</key>

@@ -55,6 +55,15 @@
 
 extern NSString *const NLIslandPreviewChangedNotification;   // NLIslandPreviewCell.m
 
+// Localized from this bundle's Island.strings, the copies of
+// prefs/<lang>.lproj/Localizable.strings the Makefile puts there. Both pages
+// can use it: the main page's own bundle is PreferenceLoader's folder.
+static NSString *NLL(NSString *key) {
+    static NSBundle *bundle;
+    if (!bundle) bundle = [NSBundle bundleForClass:[NLRootListController class]];
+    return [bundle localizedStringForKey:key value:key table:@"Island"];
+}
+
 #pragma mark - Icons
 
 static const CGFloat kNLIconSize = 29;            // what a Settings row shows
@@ -73,12 +82,17 @@ static UIColor *NLColorFromHex(id value) {
                            alpha:1];
 }
 
-// A white SF Symbol centred on a rounded tile of the given colour.
+// A white SF Symbol centred on a rounded tile of the given colour. The name
+// can list fallbacks, "newer|older", for symbols an older iOS lacks.
 static UIImage *NLTileIcon(NSString *symbolName, UIColor *color) {
     UIImageSymbolConfiguration *configuration = [UIImageSymbolConfiguration configurationWithPointSize:kNLIconGlyphPointSize
                                                                                                 weight:UIImageSymbolWeightMedium];
-    UIImage *glyph = [[UIImage systemImageNamed:symbolName withConfiguration:configuration]
-                      imageWithTintColor:UIColor.whiteColor renderingMode:UIImageRenderingModeAlwaysOriginal];
+    UIImage *symbol = nil;
+    for (NSString *name in [symbolName componentsSeparatedByString:@"|"]) {
+        symbol = [UIImage systemImageNamed:name withConfiguration:configuration];
+        if (symbol) break;
+    }
+    UIImage *glyph = [symbol imageWithTintColor:UIColor.whiteColor renderingMode:UIImageRenderingModeAlwaysOriginal];
 
     CGRect tile = CGRectMake(0, 0, kNLIconSize, kNLIconSize);
     UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:tile.size];
@@ -186,6 +200,8 @@ static void NLUpdateShownSpecifiers(PSListController *controller, NSArray<PSSpec
 
 #pragma mark - Controller
 
+static void NLNoteNoIsland(NSArray<PSSpecifier *> *all, NSString *anchor);   // below, by the island page
+
 @implementation NLRootListController {
     NSArray<PSSpecifier *> *_allSpecifiers;   // every row from the plist, shown or not
 }
@@ -223,6 +239,7 @@ static void NLUpdateShownSpecifiers(PSListController *controller, NSArray<PSSpec
     NSArray<PSSpecifier *> *all = nil;
     _specifiers = NLPrepareSpecifiers(self, [super specifiers], &all);
     _allSpecifiers = all;
+    NLNoteNoIsland(all, @"NLIslandListController");
     return _specifiers;
 }
 
@@ -260,6 +277,53 @@ static void NLUpdateShownSpecifiers(PSListController *controller, NSArray<PSSpec
 
 #pragma mark - Lyrics in the island
 
+// Whether this iPhone has a Dynamic Island, as SpringBoard decides it:
+// SpringBoardServices' SBSIsSystemApertureAvailable (iOS 16 and later), which
+// goes by the artwork subtype MobileGestalt reports, so an iPhone made to show
+// the island by changing that (iOS 16) counts too. Without that function, a
+// status bar taller than a notch's (59 pt and up with the island, 44 to 50
+// with a notch); not known yet (no window) counts as yes, so the note below
+// never shows by mistake.
+static BOOL NLDeviceHasDynamicIsland(void) {
+    if (@available(iOS 16.0, *)) {} else return NO;
+    if (UIDevice.currentDevice.userInterfaceIdiom != UIUserInterfaceIdiomPhone) return NO;
+    static BOOL (*available)(void);
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        dlopen("/System/Library/PrivateFrameworks/SpringBoardServices.framework/SpringBoardServices", RTLD_LAZY);
+        available = (BOOL (*)(void))dlsym(RTLD_DEFAULT, "SBSIsSystemApertureAvailable");
+    });
+    if (available) return available();
+    CGFloat top = 0;
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if (![scene isKindOfClass:UIWindowScene.class]) continue;
+        UIWindowScene *windowScene = (UIWindowScene *)scene;
+        for (UIWindow *window in windowScene.windows) top = MAX(top, window.safeAreaInsets.top);
+        top = MAX(top, CGRectGetHeight(windowScene.statusBarManager.statusBarFrame));
+    }
+    return top == 0 || top > 51;
+}
+
+static NSString *const kNLNoIslandNote = @"Lyrics in the island needs an iPhone with the Dynamic Island, on iOS 16 or later, so it does not show on this one. The lyrics on the lock screen, in Control Center and in CarPlay work as usual.";
+
+// Without a Dynamic Island, a note on the group that holds `anchor`: the
+// island row's (its detail class) on the main page, the switch's on the
+// island page. Ahead of whatever the group already says.
+static void NLNoteNoIsland(NSArray<PSSpecifier *> *all, NSString *anchor) {
+    if (NLDeviceHasDynamicIsland()) return;
+    PSSpecifier *group = nil;
+    for (PSSpecifier *s in all) {
+        if (s.cellType == PSGroupCell) group = s;
+        BOOL hit = [NSStringFromClass(s.detailControllerClass) isEqualToString:anchor] ||
+                   [[s propertyForKey:@"key"] isEqual:anchor];
+        if (hit) break;
+    }
+    if (!group) return;
+    NSString *note = NLL(kNLNoIslandNote);
+    NSString *had = [group propertyForKey:@"footerText"];
+    [group setProperty:had.length ? [NSString stringWithFormat:@"%@\n\n%@", note, had] : note forKey:@"footerText"];
+}
+
 @implementation NLIslandListController {
     NSArray<PSSpecifier *> *_allSpecifiers;
 }
@@ -269,6 +333,7 @@ static void NLUpdateShownSpecifiers(PSListController *controller, NSArray<PSSpec
         NSArray<PSSpecifier *> *all = nil;
         _specifiers = NLPrepareSpecifiers(self, [self loadSpecifiersFromPlistName:@"Island" target:self], &all);
         _allSpecifiers = all;
+        NLNoteNoIsland(all, @"islandLyrics");
     }
     return _specifiers;
 }

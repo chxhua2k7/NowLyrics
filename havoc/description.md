@@ -28,7 +28,7 @@ Set a preferred source; the others fill in when it has nothing.
 
 ## Compatibility
 
-**iOS 15.0 – 26.0.1.** This listing covers the **rootless** package only (Dopamine, palera1n), built for arm64 and arm64e. AltList is installed automatically for the app picker. Settings page verified on iOS 16.5; newer iOS versions verified with Spotify on virtual devices.
+**iOS 15.0 – 26.1.** This listing covers the **rootless** package only (Dopamine, palera1n), built for arm64 and arm64e. AltList is installed automatically for the app picker. Settings page verified on iOS 16.5; newer iOS versions verified with Spotify on virtual devices. On iOS 18 and later the settings page needs PreferenceLoader 2.2.8 (dhinakg's repo, https://dhinakg.github.io/repo/) and is at the bottom of Settings › General.
 
 Cannot be installed alongside **AMLyrics** — both rewrite the same Apple Music item.
 
@@ -50,4 +50,4 @@ NowLyrics 把正在唱的那句歌詞放到曲名的位置：鎖定畫面、控�
 
 「歌詞上島」可在縮小的動態島底部多一列顯示當前歌詞（白色或專輯顏色、淡入或向上捲動，長句自動捲動）；也能隱藏 explicit 歌曲的「E」標記。偏移拉桿 ±3 秒，邊拖邊套用；演出者欄位可顯示原曲名與演出者、下一句歌詞或維持原樣；把自己的 `.lrc` 放進 App 的 `Library/NowLyrics/manual/` 即優先採用。
 
-iOS 15.0 – 26.0.1，僅支援 rootless 越獄（Dopamine、palera1n），不能與 AMLyrics 同時安裝。只會把曲名、演出者、專輯與長度送給歌詞服務，不需帳號、沒有追蹤。
+iOS 15.0 – 26.1，僅支援 rootless 越獄（Dopamine、palera1n），不能與 AMLyrics 同時安裝。iOS 18 以上的設定頁需要 PreferenceLoader 2.2.8（dhinakg 的軟體源），位置在「設定 › 一般」最下面。只會把曲名、演出者、專輯與長度送給歌詞服務，不需帳號、沒有追蹤。

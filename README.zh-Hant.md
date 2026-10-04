@@ -43,6 +43,8 @@ make package FINALPACKAGE=1   # 正式版;單純 `make package` 是帶 NSLog 的
   只有 Xcode 的工具鏈編出來的能過指標驗證。
 - 版本號只在 Makefile 的 `PACKAGE_VERSION`(套件版本、`NL_VERSION` 定義、stage 時填入 `bundle/Info.plist`)。
 - 執行期相依:PreferenceLoader、AltList。`sudo dpkg -i` 安裝後 respring 一次(設定頁的「套用」),SpringBoard 才會載入 NowLyricsIsland;歌詞本身只要播放器重開。
+- iOS 18 起「設定」改用 Swift 重寫,PreferenceLoader 2.2.6 在那裡掛不出 tweak 頁面。裝 dhinakg 的 2.2.8
+  (https://dhinakg.github.io/repo/)後,NowLyrics 在「設定 › 一般」最下面。
 
 ## 結構
 
@@ -57,14 +59,15 @@ make package FINALPACKAGE=1   # 正式版;單純 `make package` 是帶 NSLog 的
 ## 測試
 
 iPhone 14 Pro / iOS 16.5.1 測全部;vphone-cli VM(iOS 26.1、18.6.2)只測注入和 Spotify 路徑
-(VM 的設定 App 掛不出設定頁)。歌詞上島在 14 Pro(16.5.1)與 18.6.2、26.1 的 VM 上驗證過,動畫是用螢幕錄影逐格檢查的。
+(舊的 PreferenceLoader 2.2.6 在 VM 的設定 App 掛不出設定頁,2.2.8 見上)。歌詞上島在 14 Pro(16.5.1)與 18.6.2、26.1 的 VM 上驗證過,動畫是用螢幕錄影逐格檢查的。
 iOS 17 以上改掛在元件自己的 view:那裡容器的內容 view 規定只能有一個子 view,`addContentSubview:` 會把元件換掉。
 
 ## 限制
 
 逐行不逐字。網易雲是簡體。Musixmatch 要 App 的 token(非官方)或 API key(帶時間軸的端點通常要付費)。
-比對靠字串;Apple Music 依賴私有 API。歌詞上島需要有動態島的 iPhone,依賴在 16.5.1、18.6.2、26.1
-確認過的 SpringBoard 內部實作,其他版本可能需要調整。
+比對靠字串;Apple Music 依賴私有 API。歌詞上島需要有動態島的 iPhone(依 SpringBoardServices 的
+`SBSIsSystemApertureAvailable` 判斷,所以 iOS 16 用 MobileGestalt 開出動態島的 iPhone 也算;其他機型設定頁會說明),
+依賴在 16.5.1、18.6.2、26.1 確認過的 SpringBoard 內部實作,其他版本可能需要調整。
 
 ## 授權
 

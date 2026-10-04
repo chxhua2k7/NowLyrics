@@ -56,6 +56,9 @@ make package FINALPACKAGE=1   # release; plain `make package` = debug with NSLog
 - Runtime deps: PreferenceLoader, AltList. Install with `sudo dpkg -i`, then
   respring once (Apply on the settings page) so SpringBoard loads
   NowLyricsIsland; the lyrics themselves only need the player relaunched.
+- iOS 18 and later rewrote Settings in Swift: PreferenceLoader 2.2.6 shows no
+  tweak pages there. With dhinakg's 2.2.8 (https://dhinakg.github.io/repo/)
+  NowLyrics is at the bottom of Settings › General.
 
 ## Layout
 
@@ -70,7 +73,8 @@ make package FINALPACKAGE=1   # release; plain `make package` = debug with NSLog
 ## Testing
 
 iPhone 14 Pro / iOS 16.5.1 for everything; vphone-cli VMs (iOS 26.1, 18.6.2)
-for injection and the Spotify path only (their Settings never shows the page).
+for injection and the Spotify path only (their Settings shows no page with the
+old PreferenceLoader 2.2.6; see the 2.2.8 note above).
 The island strip is verified on the 14 Pro (16.5.1) and in the 18.6.2 and 26.1
 VMs; its animation work was checked frame by frame on screen recordings. On
 iOS 17+ it hangs in the element's own view: there the container's content views
@@ -81,8 +85,11 @@ assert a single subview, so `addContentSubview:` would replace the element.
 Per line, not per syllable. NetEase is Simplified Chinese. Musixmatch needs the
 app's token (unofficial) or an API key whose timed endpoint is usually paid.
 Matching is by strings; Apple Music relies on private API. Lyrics in the island
-needs a Dynamic Island iPhone and rests on SpringBoard internals checked on
-16.5.1, 18.6.2 and 26.1; other versions may need adjusting.
+needs a Dynamic Island iPhone (as SpringBoardServices'
+`SBSIsSystemApertureAvailable` says, so iOS 16 iPhones given the island
+through MobileGestalt count; the settings page says so on others) and rests on
+SpringBoard internals checked on 16.5.1, 18.6.2 and 26.1; other versions may
+need adjusting.
 
 ## License
 
