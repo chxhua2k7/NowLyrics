@@ -1,6 +1,6 @@
 # 版本號只寫在這裡:也是 tweak 和設定 bundle 的 NL_VERSION(User-Agent、「關於」的版本列),
 # bundle/Info.plist 的 __VERSION__ 則在 stage 時填入。control 的 Version 由 Theos 用這個值覆蓋。
-export PACKAGE_VERSION := 1.2.0
+export PACKAGE_VERSION := 1.2.2
 
 TARGET := iphone:clang:16.5:15.0
 
@@ -72,7 +72,7 @@ NowLyricsPrefs_FILES += prefsbundle/NLOffsetCell.m prefsbundle/NLRootListControl
                          prefsbundle/NLIslandPreviewCell.m prefsbundle/NLPreviewLines.m NLIslandStrip.m \
                          prefsbundle/NLNowPlayingController.m prefsbundle/NLLibraryController.m \
                          prefsbundle/NLLyricsEditor.m prefsbundle/NLLyricsImport.m prefsbundle/NLWaveformView.m prefsbundle/NLPlayerHeader.m prefsbundle/NLCrescendo.m prefsbundle/NLSourceOrderController.m prefsbundle/NLAppleMusicController.m \
-                         prefsbundle/NLAppleMusicAccess.m prefsbundle/NLMusixmatchAccess.m prefsbundle/NLPopUpCell.m prefsbundle/NLNextUp.m \
+                         prefsbundle/NLAppleMusicAccess.m prefsbundle/NLMusixmatchAccess.m prefsbundle/NLAppListController.m prefsbundle/NLPopUpCell.m prefsbundle/NLNextUp.m \
                          NLLyrics.m NLTTML.m NLLocate.m NLPlayerTint.m
 NowLyricsPrefs_CFLAGS += -fobjc-arc -Wall -DNL_VERSION=\"$(PACKAGE_VERSION)\"
 NowLyricsPrefs_FRAMEWORKS += UIKit ImageIO QuartzCore UniformTypeIdentifiers CoreImage

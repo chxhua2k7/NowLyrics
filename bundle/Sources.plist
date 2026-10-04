@@ -23,8 +23,6 @@
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
-			<key>footerText</key>
-			<string>Sources are tried in the order set under Source order. NetEase lyrics are Simplified Chinese. Apple Music lyrics need an Apple Music subscription, Musixmatch lyrics the Musixmatch app: unlocking checks for them.</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -37,6 +35,12 @@
 			<string>list.number</string>
 			<key>label</key>
 			<string>Source order</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>Sources are tried in the order set under Source order. NetEase lyrics are Simplified Chinese. Apple Music lyrics need an Apple Music subscription, Musixmatch lyrics the Musixmatch app: unlocking checks for them.</string>
 		</dict>
 		<dict>
 			<key>action</key>

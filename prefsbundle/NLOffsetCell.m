@@ -18,10 +18,13 @@
 #import "../NLShared.h"
 #import "NLOffsetControl.h"
 
+void NLRegisterAppListController(void);   // NLAppListController.m
+
 __attribute__((constructor))
 static void NLLoadAltList(void) {
     @autoreleasepool {
         dlopen(NLJBPath(@"/Library/Frameworks/AltList.framework/AltList").fileSystemRepresentation, RTLD_NOW);
+        NLRegisterAppListController();   // Choose Apps' list, with its filter
     }
 }
 

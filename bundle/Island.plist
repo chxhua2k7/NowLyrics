@@ -84,6 +84,40 @@
 			<key>cellClass</key>
 			<string>NLPopUpCell</string>
 			<key>default</key>
+			<string>closed</string>
+			<key>defaults</key>
+			<string>app.nowlyrics</string>
+			<key>iconColor</key>
+			<string>#5856D6</string>
+			<key>iconSymbol</key>
+			<string>arrow.up.left.and.arrow.down.right</string>
+			<key>key</key>
+			<string>islandPreviewOpen</string>
+			<key>label</key>
+			<string>Preview island</string>
+			<key>showIf</key>
+			<string>islandLyrics</string>
+			<key>validTitles</key>
+			<array>
+				<string>Compact</string>
+				<string>Expanded</string>
+				<string>Auto compact</string>
+			</array>
+			<key>validValues</key>
+			<array>
+				<string>closed</string>
+				<string>open</string>
+				<string>auto</string>
+			</array>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>app.nowlyrics/ReloadPrefs</string>
+			<key>cell</key>
+			<string>PSDefaultCell</string>
+			<key>cellClass</key>
+			<string>NLPopUpCell</string>
+			<key>default</key>
 			<string>white</string>
 			<key>defaults</key>
 			<string>app.nowlyrics</string>

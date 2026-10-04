@@ -3,6 +3,9 @@
 "Enabled" = "有効";
 "Apps" = "音楽アプリ";
 "Choose Apps" = "アプリを選択";
+"Music Apps" = "ミュージックApp";
+"All Apps" = "すべてのApp";
+"Filter" = "フィルタ";
 "Display" = "表示";
 "Artist field" = "アーティスト欄";
 "Track and artist" = "曲名とアーティスト";
@@ -31,6 +34,10 @@
 "Cancel" = "キャンセル";
 "Respring" = "再起動";
 "Lyrics Island" = "Islandに歌詞";
+"Preview island" = "プレビューのIsland";
+"Compact" = "コンパクト";
+"Expanded" = "展開";
+"Auto compact" = "自動でコンパクト";
 "Lyrics Island needs an iPhone with the Dynamic Island, on iOS 16 or later, so it does not show on this one. The lyrics on the lock screen, in Control Center and in CarPlay work as usual." = "Islandに歌詞は、ダイナミックアイランドのある iPhone（iOS 16 以降）が必要なため、この iPhone では表示されません。ロック画面、コントロールセンター、CarPlay の歌詞はこれまでどおり使えます。";
 "Lyrics color" = "歌詞の色";
 "White" = "白";

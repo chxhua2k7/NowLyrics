@@ -5,7 +5,8 @@
 Synced lyrics in place of the track title on the lock screen, Control Center,
 the Dynamic Island and CarPlay, for Spotify, Apple Music and any player that
 publishes now-playing info, plus an optional strip with the current line under
-the compact Dynamic Island. Sources: Musixmatch, LRCLIB, NetEase.
+the compact Dynamic Island. Sources: Apple Music (with a subscription),
+Musixmatch, LRCLIB, NetEase.
 
 Private source repo. Public page: [chxhua2k7/NowLyrics](https://github.com/chxhua2k7/NowLyrics).
 Sold on Havoc as `com.c3x14n.nowlyrics`; listing material in `havoc/`.
@@ -49,9 +50,9 @@ Sold on Havoc as `com.c3x14n.nowlyrics`; listing material in `havoc/`.
   `ICMusicSubscriptionStatusController`, then StoreKit, then tries one song's
   lyrics); it is checked again daily, and a lapsed one locks it again.
 - **Word by word**: Apple Music, Musixmatch (`track.richsync.get`, with a token), NetEase
-  (`yrc` from `/api/song/lyric/v1`) and imported TTML carry word times, stored
-  as enhanced LRC (`<mm:ss.xx>`). The lock screen still shows the line; the
-  island finds the lyrics file through the app's `nowplaying.plist`, matches
+  (`yrc` from `/api/song/lyric/v1`) and imported TTML or word-by-word LRC carry
+  word times, stored as enhanced LRC (`<mm:ss.xx>`). The lock screen still shows
+  the line; the island finds the lyrics file through the app's `nowplaying.plist`, matches
   the line by MediaRemote's position the way the app does, and moves a soft
   mask along the word times (long lines glide with the singing).
   Musixmatch has one richsync per track, timed to one cut, which need not be
@@ -82,7 +83,11 @@ Sold on Havoc as `com.c3x14n.nowlyrics`; listing material in `havoc/`.
   ActivityUIServices scene) by its notification-list group
   `com.apple.MediaRemoteUI`. The cover blurred under a scrim sized from its
   brightest tenth, whatever color the lyrics are; between songs the old look
-  stays until the new cover is there.
+  stays until the new cover is there. Advanced › Transparency (`playerTintClear`,
+  default 50 %) thins the cover and the system material under it together
+  (`MTMaterialView` `weighting`) so the wallpaper shows through; the thinned
+  material first gets a backdrop group of its own (`groupNameBase`), as the
+  materials of one group share their filters.
 - **Crescendo** (if installed): its switches come from its notify state
   (`com.yves.crescendo.state`); the settings player's dormant volume row is
   forced on (`-[MRUNowPlayingView setShowVolumeControlsView:]`) and the island
@@ -101,9 +106,16 @@ Sold on Havoc as `com.c3x14n.nowlyrics`; listing material in `havoc/`.
   (`NLWaveformDriver`). It stretches when dragged and opens on a long press.
   The open view's `-layoutSubviews` sets the cover's and waveform's frames in
   its own coordinates on every pass, wherever they now live; the preview wraps
-  it and puts them back in the same pass.
+  it and puts them back in the same pass. Preview island (`islandPreviewOpen`)
+  sets how it comes up: Compact, Expanded, or Auto compact (opens, then closes
+  after 5 s left alone).
 - **Hide explicit badge** clears `MPMediaItemPropertyIsExplicit` (and Music's
   `explicitItem`) before the system sees it, so no "E" follows the lyric line.
+- **Choose Apps** (`NLAppListController`): AltList's app list with a filter at
+  the top right (`appListFilter`), music apps by default (the App Store's Music
+  genre 6011, Music, Podcasts and the apps already chosen) or all. The filter is
+  an AltList section predicate; the subclass is made at runtime, as AltList is
+  dlopen'ed rather than linked.
 
 Lyrics are cached per app in `Library/NowLyrics/` (max 300 files; since 1.2.0
 with `[ti:]`/`[ar:]`/`[nl-source:]` tags on top, added to older files when they
@@ -164,7 +176,8 @@ checked symbol by symbol against those builds.
 
 ## Limitations
 
-Per line, not per syllable. NetEase is Simplified Chinese. Musixmatch needs the
+The lock screen shows the line; only the island goes word by word, and only
+with lyrics that have word times. NetEase is Simplified Chinese. Musixmatch needs the
 app's token (unofficial) or an API key whose timed endpoint is usually paid.
 Matching is by strings; Apple Music relies on private API. Lyrics Island
 needs a Dynamic Island iPhone (as SpringBoardServices'

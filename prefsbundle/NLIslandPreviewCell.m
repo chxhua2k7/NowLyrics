@@ -110,10 +110,10 @@ static const CGSize kNLOpenView = {371, 198};       // the open island's own vie
 static const CGFloat kNLExpandedLiveRadius = 44.5;
 // Crescendo's volume row in the open island (CRHooksDynamicIsland.x): the
 // island opens this much taller, the 24 pt slider 24 pt above its bottom,
-// 24 pt in from the sides; above NextUp 3's row it takes less, centred
-// between the transport controls and that row.
+// 24 pt in from the sides; above NextUp 3's row it is centred between the
+// transport controls and that row, with room to keep it off the row's line.
 static const CGFloat kNLVolumeStrip = 40;
-static const CGFloat kNLVolumeStripAboveNextUp = 28;
+static const CGFloat kNLVolumeStripAboveNextUp = 44;
 static const CGFloat kNLVolumeSlider = 24;
 
 @interface NSObject (NLNextUpRow)
@@ -129,10 +129,28 @@ static const CGFloat kNLTopMargin = 8;   // from the top of the table to the isl
 static const CGFloat kNLSensorWidth = 125;   // the line is centred under the camera at this width
 static const CGFloat kNLPressScale = 1.06;
 static const NSTimeInterval kNLExpandDelay = 0.45;
+static const NSTimeInterval kNLAutoClose = 5;   // "Auto compact": an open island untouched this long closes
 static const NSUInteger kNLBars = 6;
 static const NSUInteger kNLRecentLines = 20;   // not repeated until this many others came by
 
 @interface NLIslandPreviewCell : PSTableCell <UIGestureRecognizerDelegate>
+@end
+
+// The open island's extra rows hang below their host, which takes the open
+// view's geometry so they move as it moves: touches still reach them there.
+// Its empty space is the island's.
+@interface NLExtrasHostView : UIView
+@end
+
+@implementation NLExtrasHostView
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    if (self.hidden || self.alpha < 0.01 || !self.userInteractionEnabled) return nil;
+    for (UIView *sub in self.subviews.reverseObjectEnumerator) {
+        UIView *hit = [sub hitTest:[self convertPoint:point toView:sub] withEvent:event];
+        if (hit) return hit;
+    }
+    return nil;
+}
 @end
 
 
@@ -174,6 +192,9 @@ static const NSUInteger kNLRecentLines = 20;   // not repeated until this many o
     BOOL _wordByWord;
     BOOL _expanded;
     BOOL _pressCancelled;
+    NSString *_openMode;       // islandPreviewOpen: "closed", "open" or "auto"
+    NSUInteger _autoCloseGeneration;   // invalidates the pending auto close
+    BOOL _quiet;               // opening or closing by itself: no tap felt
     BOOL _stretching;   // the press became a sideways pull
     UIViewPropertyAnimator *_pressAnimator;   // the swell under the finger, stopped when a pull takes over
     CGPoint _pressStart;
@@ -544,6 +565,37 @@ static __weak NLIslandPreviewCell *gIslandOwner;
         [cell nlLiveTick];
     }];
     [self nlLiveTick];
+    [self nlOpenAsWanted:YES];
+}
+
+// "Expanded" and "Auto compact" open the island as it comes up (after the
+// page's push), "Compact" leaves it closed; changed on the page, at once.
+- (void)nlOpenAsWanted:(BOOL)appearing {
+    if (appearing && [_openMode isEqualToString:@"closed"]) return;
+    NSString *mode = _openMode;
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)((appearing ? kNLExpandDelay : 0) * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        NLIslandPreviewCell *cell = weakSelf;
+        if (!cell || ![cell nlOnScreen] || ![cell->_openMode isEqualToString:mode]) return;
+        cell->_quiet = YES;
+        [cell nlSetExpanded:![mode isEqualToString:@"closed"]];
+        cell->_quiet = NO;
+    });
+}
+
+// "Auto compact": the open island closes once left alone for kNLAutoClose;
+// every touch on it starts the wait again.
+- (void)nlScheduleAutoClose {
+    NSUInteger generation = ++_autoCloseGeneration;
+    if (!_expanded || ![_openMode isEqualToString:@"auto"]) return;
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kNLAutoClose * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        NLIslandPreviewCell *cell = weakSelf;
+        if (!cell || cell->_autoCloseGeneration != generation || !cell->_expanded || ![cell nlOnScreen]) return;
+        cell->_quiet = YES;
+        [cell nlSetExpanded:NO];
+        cell->_quiet = NO;
+    });
 }
 
 - (void)nlValuesChanged:(NSNotification *)note {
@@ -558,6 +610,10 @@ static __weak NLIslandPreviewCell *gIslandOwner;
     CGFloat speed = [values[@"islandMarqueeSpeed"] respondsToSelector:@selector(doubleValue)] ? [values[@"islandMarqueeSpeed"] doubleValue] : kNLDefaultSpeed;
     _scrollUp = [values[@"islandTransition"] isEqual:@"up"];
     _liveWanted = [values[@"islandPreviewLive"] respondsToSelector:@selector(boolValue)] ? [values[@"islandPreviewLive"] boolValue] : YES;
+    NSString *openMode = [@[@"open", @"auto"] containsObject:values[@"islandPreviewOpen"]] ? values[@"islandPreviewOpen"] : @"closed";
+    BOOL openChanged = _openMode && ![openMode isEqualToString:_openMode];
+    _openMode = openMode;
+    if (openChanged) [self nlOpenAsWanted:NO];
     _wordByWord = [values[@"islandWordByWord"] respondsToSelector:@selector(boolValue)] ? [values[@"islandWordByWord"] boolValue] : YES;
     _textColor = ([values[@"islandColor"] isEqual:@"artwork"] && _albumColor) ? _albumColor : [UIColor colorWithWhite:1 alpha:0.92];
     _crescendoWanted = NLCrescendoShows(NLCrescendoDynamicIsland);
@@ -674,6 +730,7 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
 
 // The open real island's controls take their own touches.
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture shouldReceiveTouch:(UITouch *)touch {
+    if (_expanded) [self nlScheduleAutoClose];   // the open island's own controls too
     if (!_expanded || !_liveInfo) return YES;
     for (UIView *v = touch.view; v && v != _pill; v = v.superview) {
         if ([v isKindOfClass:UIControl.class] || v == _nextUpRow) return NO;   // NextUp's row: its taps and swipes
@@ -693,6 +750,7 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
             [_lightTap impactOccurred];
             [self nlSetPressed:YES];
             [self nlWakeKeyLine];
+            _autoCloseGeneration++;   // not while the finger is down
             if (_expanded) break;   // open already: this press is a tap to close
             NSUInteger generation = ++_pressGeneration;
             __weak typeof(self) weakSelf = self;
@@ -722,13 +780,14 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
                 _stretching = NO;
                 [self nlSetPageScrolls:YES];
                 [self nlSetPressed:NO];   // springs back
+                [self nlScheduleAutoClose];
                 break;
             }
             if (_pressCancelled) break;
             _pressGeneration++;
             [self nlSetPressed:NO];
             if (_pressStartedOpen) [self nlSetExpanded:NO];   // a tap on the open island closes it
-            else if (_expanded) {}                              // just opened by this press: stays open until tapped
+            else if (_expanded) [self nlScheduleAutoClose];     // just opened by this press: open until tapped (or left alone, auto)
             else if (!_liveInfo) [self nlNextLine];            // a tap: the next sample line
             break;
         }
@@ -785,8 +844,7 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
     if (_expanded == expanded) return;
     _expanded = expanded;
     _quietUntil = CACurrentMediaTime() + 0.9;
-    if (expanded) [_firmTap impactOccurred];
-    else [_lightTap impactOccurred];
+    if (!_quiet) [(expanded ? _firmTap : _lightTap) impactOccurred];
     BOOL live = _liveInfo != nil && _activity != nil;
     if (!live) _lineLabel.text = _line;
 
@@ -915,6 +973,7 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
         self->_lineLabel.transform = expanded ? CGAffineTransformIdentity : small;
     });
 
+    [self nlScheduleAutoClose];   // open: the wait for an auto close; closed: none
     if (!expanded) {
         // Pick the cycle up again where it stopped.
         NSUInteger generation = ++_generation;
@@ -1241,7 +1300,7 @@ CGFloat NLIslandPreviewMostExtraHeight(void) {
         return;
     }
     if (!_extrasHost) {
-        _extrasHost = [UIView new];
+        _extrasHost = [NLExtrasHostView new];
         [_pill insertSubview:_extrasHost aboveSubview:openView];
         _extrasHost.alpha = openView.alpha;
         _extrasHost.transform = openView.transform;

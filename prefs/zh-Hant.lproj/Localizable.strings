@@ -3,6 +3,9 @@
 "Enabled" = "啟用";
 "Apps" = "音樂 App";
 "Choose Apps" = "選擇 App";
+"Music Apps" = "音樂 App";
+"All Apps" = "所有 App";
+"Filter" = "篩選";
 "Display" = "顯示";
 "Artist field" = "演出者欄位";
 "Track and artist" = "曲名與演出者";
@@ -31,6 +34,10 @@
 "Cancel" = "取消";
 "Respring" = "重啟";
 "Lyrics Island" = "歌詞上島";
+"Preview island" = "預覽島";
+"Compact" = "縮小";
+"Expanded" = "展開";
+"Auto compact" = "自動縮小";
 "Lyrics Island needs an iPhone with the Dynamic Island, on iOS 16 or later, so it does not show on this one. The lyrics on the lock screen, in Control Center and in CarPlay work as usual." = "歌詞上島需要有動態島的 iPhone（iOS 16 以上），這台不會顯示。鎖定畫面、控制中心和 CarPlay 的歌詞照常運作。";
 "Lyrics color" = "歌詞顏色";
 "White" = "白色";

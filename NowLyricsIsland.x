@@ -523,6 +523,11 @@ static void NLIslandUpdateWords(NSDictionary *info) {
     id app = [[objc_getClass("SBMediaController") sharedInstance] nowPlayingApplication];
     NSString *bundleID = [app respondsToSelector:@selector(bundleIdentifier)] ? [app bundleIdentifier] : nil;
     NLShownWords *words = NLWordsForShownLine(bundleID, gTitle, info, gPrefs);
+#ifdef NLI_FILELOG
+    NSDictionary *np = NLReadNowPlaying(bundleID);
+    NLI_LOG(@"words app=%@ title=%@ np.words=%@ np.file=%@ elapsed=%@ got=%lu", bundleID, gTitle, np[NL_NP_WORDS],
+            [np[NL_NP_PATH] lastPathComponent], info[@"kMRMediaRemoteNowPlayingInfoElapsedTime"], (unsigned long)words.texts.count);
+#endif
     if (!words) return;
     gWordTexts = words.texts;
     gWordStarts = words.starts;

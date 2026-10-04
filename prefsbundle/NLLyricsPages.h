@@ -110,6 +110,10 @@ UIImage *NLSampleCoverIcon(void);   // the main switch's: a warm gradient with a
 // A row's icon as the plists give it: the installed app's (`app`), else the
 // symbol on a tile of `hex`.
 UIImage *NLRowIcon(NSString *app, NSString *symbol, NSString *hex);
+// NLAppListController.m: Choose Apps' list (AltList's, with a filter for music
+// apps), made once AltList is loaded (NLOffsetCell.m).
+void NLRegisterAppListController(void);
+
 // NLSourceOrderController.m: a lyrics source's icon by its preference name
 // ("applemusic", …; "" for automatic), as Lyrics Sources shows it.
 UIImage *NLSourceIcon(NSString *name);

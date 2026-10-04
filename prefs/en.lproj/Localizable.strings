@@ -3,6 +3,9 @@
 "Enabled" = "Enabled";
 "Apps" = "Apps";
 "Choose Apps" = "Choose Apps";
+"Music Apps" = "Music Apps";
+"All Apps" = "All Apps";
+"Filter" = "Filter";
 "Display" = "Display";
 "Artist field" = "Artist field";
 "Track and artist" = "Track and artist";
@@ -35,6 +38,10 @@
 "Cancel" = "Cancel";
 "Respring" = "Respring";
 "Lyrics Island" = "Lyrics Island";
+"Preview island" = "Preview island";
+"Compact" = "Compact";
+"Expanded" = "Expanded";
+"Auto compact" = "Auto compact";
 "Lyrics Island needs an iPhone with the Dynamic Island, on iOS 16 or later, so it does not show on this one. The lyrics on the lock screen, in Control Center and in CarPlay work as usual." = "Lyrics Island needs an iPhone with the Dynamic Island, on iOS 16 or later, so it does not show on this one. The lyrics on the lock screen, in Control Center and in CarPlay work as usual.";
 "Lyrics color" = "Lyrics color";
 "White" = "White";

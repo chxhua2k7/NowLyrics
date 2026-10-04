@@ -84,7 +84,7 @@
 			<key>defaults</key>
 			<string>app.nowlyrics</string>
 			<key>detail</key>
-			<string>ATLApplicationListMultiSelectionController</string>
+			<string>NLAppListController</string>
 			<key>iconColor</key>
 			<string>#338CFA</string>
 			<key>iconSymbol</key>
