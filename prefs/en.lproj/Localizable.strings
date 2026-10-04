@@ -62,13 +62,11 @@
 "The app looks the song up again." = "The app looks the song up again.";
 "Delete" = "Delete";
 "Play a song in an app NowLyrics is on for, then come back." = "Play a song in an app NowLyrics is on for, then come back.";
-"Added lyrics are used in %@ before any online source. LRC, word-by-word LRC and TTML work." = "Added lyrics are used in %@ before any online source. LRC, word-by-word LRC and TTML work.";
 "Added by you" = "Added by you";
 "Searching…" = "Searching…";
 "Saved" = "Saved";
 "No lyrics found" = "No lyrics found";
 "Nothing is playing" = "Nothing is playing";
-"Search again" = "Search again";
 "Remove added lyrics" = "Remove added lyrics";
 "Remove added lyrics?" = "Remove added lyrics?";
 "Remove" = "Remove";
@@ -88,9 +86,7 @@
 "Clear lyrics cache?" = "Clear lyrics cache?";
 "Clear" = "Clear";
 "Apple Music lyrics" = "Apple Music lyrics";
-"Lyrics source" = "Lyrics source";
 "Automatic" = "Automatic";
-"Picks the source for this song and searches it again. Automatic follows the order on the main page." = "Picks the source for this song and searches it again. Automatic follows the source order.";
 "Preview what’s playing" = "Preview what’s playing";
 "Paste the debug info from the Musixmatch app (Settings → Get help → Copy debug info), or use an API key of your own." = "Paste the debug info from the Musixmatch app (Settings → Get help → Copy debug info), or use an API key of your own.";
 "Size" = "Size";
@@ -99,7 +95,6 @@
 "Every song starts with this offset; a positive one shows lyrics earlier. Now Playing changes one song’s offset only. Drag the slider, or tap the value to type one, e.g. 0.25 or -300ms." = "Every song starts with this offset; a positive one shows lyrics earlier. Now Playing changes one song’s offset only. Drag the slider, or tap the value to type one, e.g. 0.25 or -300ms.";
 "This song’s timing only; a positive offset shows its lyrics earlier. Every other song uses the default offset under Advanced." = "This song’s timing only; a positive offset shows its lyrics earlier. Every other song uses the default offset under Advanced.";
 "Player in lyrics color" = "Player in lyrics color";
-"Player in lyrics color colors the player here, on the lock screen and in Control Center: the album color the lyrics use, or the cover blurred and darkened." = "Player in lyrics color colors the player here, on the lock screen and in Control Center: the album color the lyrics use, or the cover blurred and darkened.";
 "Other apps" = "Other apps";
 "Test with the song playing" = "Test with the song playing";
 "On" = "On";
@@ -129,3 +124,10 @@
 "Could not check the subscription (%@). Try again later." = "Could not check the subscription (%@). Try again later.";
 "SpringBoard did not answer" = "SpringBoard did not answer";
 "Sources are tried in the order set under Source order. NetEase lyrics are Simplified Chinese. Apple Music lyrics need an Apple Music subscription: unlocking checks for one." = "Sources are tried in the order set under Source order. NetEase lyrics are Simplified Chinese. Apple Music lyrics need an Apple Music subscription: unlocking checks for one.";
+"Tap a source to look this song up again with it; the ticked one looks it up again as before. Automatic follows the source order. Added lyrics are used in %@ before any online source; LRC, word-by-word LRC and TTML work." = "Tap a source to look this song up again with it; the ticked one looks it up again as before. Automatic follows the source order. Added lyrics are used in %@ before any online source; LRC, word-by-word LRC and TTML work.";
+"Colors the now-playing player in Settings, on the lock screen and in Control Center: the album color the lyrics use, or the cover blurred and darkened." = "Colors the now-playing player in Settings, on the lock screen and in Control Center: the album color the lyrics use, or the cover blurred and darkened.";
+"This song uses lyrics you added" = "This song uses lyrics you added";
+"Searching with %@…" = "Searching with %@…";
+"%@ · %lu lines · %@" = "%@ · %lu lines · %@";
+"word-timed" = "word-timed";
+"line-timed" = "line-timed";

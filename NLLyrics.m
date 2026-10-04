@@ -5,7 +5,6 @@
 //
 
 #import "NowLyrics.h"
-
 @implementation NLLyricWord
 @end
 
@@ -549,7 +548,7 @@ NSString *NLLinesToLRC(NSArray<NLLyricLine *> *lines) {
 // start a new line.
 NSString *NLLinesToLRCWithHeader(NSArray<NLLyricLine *> *lines, NSDictionary<NSString *, NSString *> *header) {
     NSMutableString *out = [NSMutableString string];
-    for (NSString *tag in @[NL_LRC_TITLE, NL_LRC_ARTIST, NL_LRC_ALBUM, NL_LRC_SOURCE]) {
+    for (NSString *tag in @[NL_LRC_TITLE, NL_LRC_ARTIST, NL_LRC_ALBUM, NL_LRC_SOURCE, NL_LRC_CHECKED]) {
         NSString *value = header[tag];
         if (![value isKindOfClass:[NSString class]]) continue;
         value = [[[value componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]]
@@ -585,6 +584,86 @@ BOOL NLHasWords(NSArray<NLLyricLine *> *lines) {
         if (line.words.count) return YES;
     }
     return NO;
+}
+
+// Letters and digits, which is what takes time to sing; spaces and
+// punctuation do not.
+static NSUInteger NLSungLength(NSString *text) {
+    static NSCharacterSet *sung;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSMutableCharacterSet *set = [NSMutableCharacterSet letterCharacterSet];
+        [set formUnionWithCharacterSet:NSCharacterSet.decimalDigitCharacterSet];
+        sung = [set copy];
+    });
+    NSUInteger n = 0;
+    for (NSUInteger i = 0; i < text.length; i++) {
+        if ([sung characterIsMember:[text characterAtIndex:i]]) n++;
+    }
+    return n;
+}
+
+// Word times now and then come squeezed: Musixmatch has richsyncs whose lines
+// last a quarter of a second, the whole song over in under a minute, the words
+// lit long before they are sung. Faster than anyone sings (the quickest rap is
+// some 30 letters a second) on more than a few lines means the times are wrong.
+static const double kNLFastestSinging = 40;   // letters a second
+
+BOOL NLWordTimesPlausible(NSArray<NLLyricLine *> *lines) {
+    NSUInteger measured = 0, tooFast = 0;
+    for (NLLyricLine *line in lines) {
+        if (line.words.count == 0) continue;
+        NSUInteger letters = NLSungLength(line.text);
+        double length = MAX(line.words.lastObject.end, line.words.lastObject.start) - line.words.firstObject.start;
+        if (letters < 6 || length <= 0) continue;
+        measured++;
+        if (letters / length > kNLFastestSinging) tooFast++;
+    }
+    return measured < 4 || tooFast * 5 < measured;   // under a fifth
+}
+
+static NSString *NLComparableText(NSString *text) {
+    NSMutableString *out = [NSMutableString string];
+    NSString *lower = text.lowercaseString;
+    for (NSUInteger i = 0; i < lower.length; i++) {
+        unichar c = [lower characterAtIndex:i];
+        if ([NSCharacterSet.alphanumericCharacterSet characterIsMember:c]) [out appendFormat:@"%C", c];
+    }
+    return out;
+}
+
+// Whether word-timed lines keep in step with a line-timed version of the same
+// lyrics (Musixmatch hands out both, made apart): the same lines found in
+// order, each about as far from its counterpart as the typical one. A constant
+// difference is allowed, since the two can be timed to cuts with intros of
+// different lengths and either may be the one playing; times that drift apart
+// (a squeezed richsync) are not. Too few lines in common to tell counts as
+// agreeing.
+BOOL NLWordLinesAgree(NSArray<NLLyricLine *> *words, NSArray<NLLyricLine *> *timed) {
+    NSMutableArray<NSString *> *timedTexts = [NSMutableArray arrayWithCapacity:timed.count];
+    for (NLLyricLine *line in timed) [timedTexts addObject:NLComparableText(line.text)];
+    NSMutableArray<NSNumber *> *gaps = [NSMutableArray array];
+    NSUInteger from = 0, sung = 0;
+    for (NLLyricLine *line in words) {
+        NSString *text = NLComparableText(line.text);
+        if (text.length == 0) continue;
+        sung++;
+        // A few lines ahead at most, so one line's repeat later in the song is
+        // not taken for it.
+        for (NSUInteger i = from; i < timed.count && i < from + 4; i++) {
+            if (![timedTexts[i] isEqualToString:text]) continue;
+            [gaps addObject:@(line.start - timed[i].start)];
+            from = i + 1;
+            break;
+        }
+    }
+    if (gaps.count < 3 || gaps.count * 3 < sung) return YES;
+    [gaps sortUsingSelector:@selector(compare:)];
+    double typical = gaps[gaps.count / 2].doubleValue;
+    NSMutableArray<NSNumber *> *spread = [NSMutableArray arrayWithCapacity:gaps.count];
+    for (NSNumber *gap in gaps) [spread addObject:@(fabs(gap.doubleValue - typical))];
+    [spread sortUsingSelector:@selector(compare:)];
+    return spread[spread.count / 2].doubleValue <= 1.5;
 }
 
 // A result with fewer than two sung lines is almost certainly an end marker or

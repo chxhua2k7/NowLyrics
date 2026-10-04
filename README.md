@@ -54,6 +54,14 @@ Sold on Havoc as `com.c3x14n.nowlyrics`; listing material in `havoc/`.
   island finds the lyrics file through the app's `nowplaying.plist`, matches
   the line by MediaRemote's position the way the app does, and moves a soft
   mask along the word times (long lines glide with the singing).
+  Musixmatch has one richsync per track, timed to one cut, which need not be
+  the cut playing: the subtitle is asked for by the song's length
+  (`q_duration`), and the richsync is dropped for it when its
+  `richsync_length` is more than 3 s off, when its lines drift from the
+  subtitle's, or when it runs faster than anyone sings (any source). The
+  position MediaRemote reports is the app's own: `MPNowPlayingInfoCenter` holds
+  a third-party app's update back 0.5 s when it comes within 0.5 s of the last
+  one (`_pushDate`), so each lyric push clears that first, on the center's queue.
 - **Lyrics management** (Settings: Now Playing, Lyrics Library): Preferences is
   not sandboxed, so it reads and writes the lyrics files in each app's container
   (`NLLocate.m` maps bundle IDs from the container metadata plists), then posts
@@ -74,6 +82,11 @@ Sold on Havoc as `com.c3x14n.nowlyrics`; listing material in `havoc/`.
   (`com.yves.crescendo.state`); the settings player's dormant volume row is
   forced on (`-[MRUNowPlayingView setShowVolumeControlsView:]`) and the island
   preview gets a `MRUNowPlayingVolumeControlsView` of its own, 40 pt taller.
+- **NextUp 3** (if installed): its library is loaded into Settings after
+  MediaControls, so the settings player gets its Up Next row as the lock
+  screen does. Its iOS 17 island hooks also reach the preview's view on 16.5,
+  so the preview takes that view back (`NLNextUpKeepOut`) and places a
+  `NUNextUpRowView` of its own, as on the real island.
 - **Island preview** (island settings page): with music, MediaControls'
   `MRUActivityNowPlayingViewController` (what MediaRemoteUI draws the island
   with): its leading/trailing views as cover and waveform, its open layout when
@@ -81,6 +94,9 @@ Sold on Havoc as `com.c3x14n.nowlyrics`; listing material in `havoc/`.
   `-[UIView SBUISA_layoutMode]` and the camera layout guide for views in its
   pill. Waveform levels need an audio tap, so they are made up
   (`NLWaveformDriver`). It stretches when dragged and opens on a long press.
+  The open view's `-layoutSubviews` sets the cover's and waveform's frames in
+  its own coordinates on every pass, wherever they now live; the preview wraps
+  it and puts them back in the same pass.
 - **Hide explicit badge** clears `MPMediaItemPropertyIsExplicit` (and Music's
   `explicitItem`) before the system sees it, so no "E" follows the lyric line.
 

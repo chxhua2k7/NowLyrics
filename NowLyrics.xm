@@ -56,6 +56,7 @@ static BOOL gBypass = NO;               // set while we push our own update
 static NSDictionary *gPushedBase = nil; // gBaseInfo as of our last push
 static NSString *gPushedTitle = nil;
 static NSString *gPushedArtist = nil;
+static double gPushedElapsed = -1;      // the elapsed time our last push carried
 
 // Content-item path. The item is main-queue state; the raw pointer is a mirror
 // the hooks may compare against from whatever thread the app happens to be on.
@@ -88,8 +89,36 @@ static NSDictionary *NLCleanInfo(NSDictionary *info, NLSettings *settings) {
     return clean ? [clean copy] : info;
 }
 
+// MPNowPlayingInfoCenter sends a third-party app's info at most every half
+// second: a set within 0.5 s of the last send waits a full 0.5 s, then goes
+// with the elapsed time it was given, and MediaRemote stamps it with when it
+// arrives. The position everyone reads (the island's word timing runs on it)
+// was 0.5 s behind until the next update, and our line changes often come
+// right after the player's own update. The last send is forgotten first, on
+// the center's own queue (ahead of the set, which queues behind it), so ours
+// goes at once. 16.5.1: -_onQueue_pushNowPlayingInfoAndRetry:, _pushDate;
+// system apps are exempt.
+static void NLLiftPushThrottle(MPNowPlayingInfoCenter *center) {
+    static Ivar pushDate, accessQueue;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        Ivar date = class_getInstanceVariable(MPNowPlayingInfoCenter.class, "_pushDate");
+        Ivar queue = class_getInstanceVariable(MPNowPlayingInfoCenter.class, "_accessQueue");
+        const char *dateType = date ? ivar_getTypeEncoding(date) : NULL, *queueType = queue ? ivar_getTypeEncoding(queue) : NULL;
+        if (dateType && dateType[0] == '@' && queueType && queueType[0] == '@') {
+            pushDate = date;
+            accessQueue = queue;
+        }
+    });
+    if (!pushDate || !center) return;
+    id queue = object_getIvar(center, accessQueue);
+    if (![queue isKindOfClass:objc_getClass("OS_dispatch_queue")]) return;
+    dispatch_barrier_async((dispatch_queue_t)queue, ^{ object_setIvar(center, pushDate, nil); });
+}
+
 static void NLPushInfo(NSDictionary *info) {
     gBypass = YES;
+    NLLiftPushThrottle(gCenter);
     gCenter.nowPlayingInfo = info;
     gBypass = NO;
 }
@@ -102,13 +131,28 @@ static void NLPublishInfo(NSString *title, NSString *artist) {
         (artist == gPushedArtist || [artist isEqualToString:gPushedArtist])) return;
 
     NSMutableDictionary *info = [gBaseInfo mutableCopy];
-    info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = @(MAX(NLEnginePosition(), 0));   // otherwise the scrubber jumps back
+    double elapsed = MAX(NLEnginePosition(), 0);
+    info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = @(elapsed);   // otherwise the scrubber jumps back
     if (title) info[MPMediaItemPropertyTitle] = title;
     if (artist) info[MPMediaItemPropertyArtist] = artist;
     gPushedBase = gBaseInfo;
     gPushedTitle = title;
     gPushedArtist = artist;
+    gPushedElapsed = elapsed;
     NLPushInfo(info);
+}
+
+// Some apps read nowPlayingInfo back, edit it and push it again. What they
+// read is our last push, elapsed time included, which by then is old: taken
+// as news it would set the clock back by however long ago that push was, and
+// lines and words would run that much late until the player next reported a
+// position itself. Main queue.
+static BOOL NLIsOwnEcho(NSDictionary *info) {
+    NSNumber *elapsed = info[MPNowPlayingInfoPropertyElapsedPlaybackTime];
+    if (gPushedElapsed < 0 || ![elapsed isKindOfClass:NSNumber.class] || elapsed.doubleValue != gPushedElapsed) return NO;
+    NSString *title = info[MPMediaItemPropertyTitle], *artist = info[MPMediaItemPropertyArtist];
+    return (gPushedTitle.length && [title isKindOfClass:NSString.class] && [title isEqualToString:gPushedTitle]) ||
+           (gPushedArtist.length && [artist isKindOfClass:NSString.class] && [artist isEqualToString:gPushedArtist]);
 }
 
 // Switched off: put the player's own title back now instead of leaving the
@@ -124,10 +168,12 @@ static void NLRestoreInfo(void) {
     gPushedBase = nil;
     gPushedTitle = nil;
     gPushedArtist = nil;
+    gPushedElapsed = -1;
 }
 
-// Main queue.
-static void NLIngestInfo(MPNowPlayingInfoCenter *center, NSDictionary *info) {
+// Main queue. `ownEcho`: the hook already found this to be our own last push
+// read back (and gave the system the current position instead).
+static void NLIngestInfo(MPNowPlayingInfoCenter *center, NSDictionary *info, BOOL ownEcho) {
     gCenter = center;
 
     NSString *title = info[MPMediaItemPropertyTitle];
@@ -136,6 +182,7 @@ static void NLIngestInfo(MPNowPlayingInfoCenter *center, NSDictionary *info) {
     NSTimeInterval duration = [info[MPMediaItemPropertyPlaybackDuration] doubleValue];
     NSNumber *elapsed = info[MPNowPlayingInfoPropertyElapsedPlaybackTime];
     NSNumber *rate = info[MPNowPlayingInfoPropertyPlaybackRate];
+    if (ownEcho || NLIsOwnEcho(info)) elapsed = nil;   // the clock keeps running instead
 
     // Some apps read nowPlayingInfo back, edit it and push it again. That would
     // feed our lyric line back as the track title and trigger a refetch on every
@@ -407,10 +454,19 @@ static void NLHideExplicitNow(void) {
     // Cleaned before the system sees it; otherwise the raw values show for a
     // moment at every track change until our first push lands.
     snapshot = NLCleanInfo(snapshot, NLSettingsCurrent());
+    // Our own push read back: the system gets the position as of now, not as
+    // of that push. Only on the main queue, which our state belongs to;
+    // elsewhere the ingest finds it and pushes the right one right after.
+    BOOL ownEcho = NSThread.isMainThread && NLIsOwnEcho(snapshot);
+    if (ownEcho) {
+        NSMutableDictionary *fresh = [snapshot mutableCopy];
+        fresh[MPNowPlayingInfoPropertyElapsedPlaybackTime] = @(MAX(NLEnginePosition(), 0));
+        snapshot = [fresh copy];
+    }
     %orig(snapshot);
 
     dispatch_async(dispatch_get_main_queue(), ^{
-        NLIngestInfo(center, snapshot);
+        NLIngestInfo(center, snapshot, ownEcho);
     });
 }
 
@@ -551,8 +607,22 @@ static void NLLyricsChanged(CFNotificationCenterRef center, void *observer,
     dispatch_async(dispatch_get_main_queue(), ^{
         // The settings page often wrote a setting just before (a source picked
         // for this song); the file on disk may only have caught up now, after
-        // the reload notification that came with it. Read it again first.
-        NLSettings *now = NLSettingsReload();
+        // the reload notification that came with it. Read it again first, with
+        // the pick the page left beside nowplaying.plist (NL_LOOKUP_FILE) on
+        // top, which holds even when the file has not caught up yet.
+        static CFAbsoluteTime lastLookup = 0;
+        NSString *lookupPath = [[NLNowPlayingPath() stringByDeletingLastPathComponent] stringByAppendingPathComponent:NL_LOOKUP_FILE];
+        NSDictionary *lookup = [NSDictionary dictionaryWithContentsOfFile:lookupPath];
+        double stamp = [lookup[@"stamp"] respondsToSelector:@selector(doubleValue)] ? [lookup[@"stamp"] doubleValue] : 0;
+        BOOL fresh = stamp > lastLookup && CFAbsoluteTimeGetCurrent() - stamp < 30 && [lookup[@"key"] isKindOfClass:[NSString class]];
+        NLSettings *now;
+        if (fresh) {
+            lastLookup = stamp;
+            id source = lookup[@"source"];
+            now = NLSettingsReloadPicking(lookup[@"key"], [source isKindOfClass:[NSString class]] ? source : @"");
+        } else {
+            now = NLSettingsReload();
+        }
         gEnabled = now.enabled;
         if (!gEnabled) return;   // switching on looks the track up anyway
         NLLog(@"lyrics files changed, looking the track up again");

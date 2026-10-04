@@ -105,7 +105,9 @@ UIImage *NLSourceIcon(NSString *name);   // the main switch's: a warm gradient w
 typedef NS_ENUM(NSInteger, NLCrescendoPlace) { NLCrescendoLockScreen, NLCrescendoDynamicIsland };
 BOOL NLCrescendoShows(NLCrescendoPlace place);
 BOOL NLCrescendoSyncPlayer(UIViewController *platter);   // YES when it changed the player
-CGFloat NLCrescendoPlayerHeight(UIViewController *platter, CGFloat width);   // 0 unless forced
+// The settings player's height as it asks for it, with what tweaks add to
+// -[MRUNowPlayingView sizeThatFits:] (Crescendo, NextUp 3). 0 without a player.
+CGFloat NLPlayerFittingHeight(UIViewController *platter, CGFloat width);
 UIView *NLCrescendoMakeVolumeRow(UIView *host);           // nil when this iOS lacks the parts
 
 // NLPopUpCell.m: a choice picked in place, as Settings' pop-up rows: the
@@ -119,3 +121,15 @@ BOOL NLAppleMusicVerified(void);
 void NLCheckAppleMusicSubscription(void (^done)(NLSubscription result, NSString *detail));   // main queue
 void NLApplyAppleMusicSubscription(NLSubscription result);   // active: unlocked; none: locked, Apple Music off
 void NLRecheckAppleMusicIfDue(void (^changed)(void));        // silent; `changed` when it locked or unlocked
+
+// NLNextUp.m: NextUp 3's Up Next row in these pages' copies of the players.
+BOOL NLNextUpInstalled(void);
+void NLNextUpLoad(void);            // its library, once: the settings player then gets its row as the lock screen's does
+BOOL NLNextUpShowsInIsland(void);   // its switches want the island's row
+BOOL NLNextUpActive(void);          // it has a next track for what plays
+void NLNextUpStart(void);
+void NLNextUpKeepOut(UIView *view);   // the island preview's view: none of NextUp's own row or layout
+
+// NLIslandPreviewCell.m: the most the open island preview grows by for the rows
+// tweaks add, which the island page keeps room for under it.
+CGFloat NLIslandPreviewMostExtraHeight(void);

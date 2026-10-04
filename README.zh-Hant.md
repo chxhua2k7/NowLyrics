@@ -38,7 +38,11 @@ English: [README.md](README.md)
 - **逐字歌詞**:Apple Music、Musixmatch(有 token 時的 `track.richsync.get`)、網易雲(`/api/song/lyric/v1` 的 `yrc`)
   與匯入的 TTML 有逐字時間,存成 enhanced LRC(`<mm:ss.xx>`)。鎖定畫面照舊一行;島從 App 的
   `nowplaying.plist` 找到歌詞檔,用 MediaRemote 的進度和 App 一樣的方式對到這一行,遮罩照時間推進
-  (柔邊、長句跟著唱到的位置平滑捲動)。
+  (柔邊、長句跟著唱到的位置平滑捲動)。Musixmatch 一首歌只有一份 richsync,對的是某一個版本,
+  不一定是正在播的:逐行字幕用歌曲長度挑(`q_duration`),richsync 的 `richsync_length` 差超過 3 秒、
+  各行和逐行字幕越差越遠,或快到人唱不出來(任何來源都檢查)時就改用逐行。MediaRemote 的進度就是
+  App 推的:`MPNowPlayingInfoCenter` 對第三方 App 距上次不到 0.5 秒的更新會延後 0.5 秒(`_pushDate`),
+  所以每次推歌詞前先在它的佇列上清掉。
 - **歌詞管理**(設定頁「正在播放」「歌詞庫」):Preferences 沒有沙盒,直接讀寫各 App 容器裡的歌詞檔
   (`NLLocate.m` 用容器的 metadata plist 找 bundle ID),改完發 `app.nowlyrics/LyricsChanged`,
   App 先重讀設定再清掉記憶體快取、找一次。每首偏移和每首指定的來源存在設定檔的 `trackOffsets`、
@@ -52,10 +56,15 @@ English: [README.md](README.md)
 - **Crescendo**(有裝時):開關從它的 notify state(`com.yves.crescendo.state`)讀;設定頁播放器裡
   休眠的音量列強制打開(`-[MRUNowPlayingView setShowVolumeControlsView:]`),歌詞上島的預覽另外放一條
   `MRUNowPlayingVolumeControlsView`,展開時高 40 pt。
+- **NextUp 3**(有裝時):在 MediaControls 之後把它的 dylib 載入設定 App,設定頁播放器就和鎖定畫面一樣
+  有「接著播放」列。它給 iOS 17 島的 hook 在 16.5 也會碰到預覽的 view,所以預覽把那個 view 收回來
+  (`NLNextUpKeepOut`),自己照真正的島放一條 `NUNextUpRowView`。
 - **歌詞上島頁的預覽**:有音樂時用 MediaControls 的 `MRUActivityNowPlayingViewController`(MediaRemoteUI
   畫島的同一個),封面、聲波是它的 leading/trailing view,展開是它的展開版面;設定 App 沒有島的宿主,
   所以 `-[UIView SBUISA_layoutMode]` 與鏡頭的 layout guide 由預覽代答(只限膠囊裡的 view)。聲波的
   音量需要音訊 tap 權限,這裡餵模擬值(`NLWaveformDriver`)。可拖動拉長、長按展開。
+  展開版面的 `-layoutSubviews` 每次排版都用自己的座標設定封面和聲波的 frame,不管它們現在在哪裡;
+  預覽包住這個方法,在同一次排版裡放回原位。
 - **隱藏 E 標記**:在系統看到之前清掉 `MPMediaItemPropertyIsExplicit`(Apple Music 為 `explicitItem`),
   歌詞後面就不會出現「E」。
 

@@ -33,6 +33,7 @@ static id NLAppPref(NSString *key) {
     NLPlayerTintView *_tint;         // the platter's background, in the lyrics' color (NLPlayerTint.h)
     BOOL _tintedOnce;                // shown once: changes fade after that
     id _infoObserver;                // MediaRemote's now-playing changes
+    id _nextUpObserver;              // NextUp 3's next track changes
     NSUInteger _ticks;
 }
 
@@ -41,6 +42,7 @@ static id NLAppPref(NSString *key) {
     _owner = owner;
     _table = table;
     dlopen("/System/Library/PrivateFrameworks/MediaControls.framework/MediaControls", RTLD_NOW);
+    NLNextUpLoad();   // NextUp 3, if installed: its Up Next row, as on the lock screen
     Class platterClass = objc_getClass("MRPlatterViewController");
     if (![platterClass respondsToSelector:@selector(coverSheetPlatterViewController)]) return self;
     _platter = [platterClass coverSheetPlatterViewController];
@@ -68,6 +70,12 @@ static id NLAppPref(NSString *key) {
         if (registerFor) registerFor(dispatch_get_main_queue());
     });
     __weak typeof(self) weakSelf = self;
+    // NextUp's row comes and goes with the queue: the player's height with it.
+    _nextUpObserver = [[NSNotificationCenter defaultCenter] addObserverForName:@"NUNextUpDidChangeNotification"
+                                                                        object:nil queue:NSOperationQueue.mainQueue
+                                                                    usingBlock:^(NSNotification *note) {
+        dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf layout]; });
+    }];
     _infoObserver = [[NSNotificationCenter defaultCenter] addObserverForName:@"kMRMediaRemoteNowPlayingInfoDidChangeNotification"
                                                                       object:nil queue:NSOperationQueue.mainQueue
                                                                   usingBlock:^(NSNotification *note) {
@@ -79,6 +87,7 @@ static id NLAppPref(NSString *key) {
 
 - (void)dealloc {
     if (_infoObserver) [[NSNotificationCenter defaultCenter] removeObserver:_infoObserver];
+    if (_nextUpObserver) [[NSNotificationCenter defaultCenter] removeObserver:_nextUpObserver];
 }
 
 - (BOOL)available { return _platter != nil; }
@@ -132,10 +141,12 @@ static id NLAppPref(NSString *key) {
     CGFloat inset = table.layoutMargins.left;
     CGFloat width = MAX(table.bounds.size.width - inset * 2, 0);
     NLCrescendoSyncPlayer(_platter);
-    CGFloat height = _platter.preferredContentSize.height;
+    // The player's own size, with what tweaks add to it (Crescendo's volume row,
+    // NextUp's Up Next row: both grow -[MRUNowPlayingView sizeThatFits:]).
+    CGFloat height = NLPlayerFittingHeight(_platter, width);
+    if (height < 60) height = _platter.preferredContentSize.height;
     if (height < 60) height = [_platter.view systemLayoutSizeFittingSize:CGSizeMake(width, UILayoutFittingCompressedSize.height)].height;
     if (height < 60) height = 200;
-    height = MAX(height, NLCrescendoPlayerHeight(_platter, width));   // Crescendo's volume row
     CGRect frame = CGRectMake(inset, 16, width, height);
     if (!CGRectEqualToRect(_platter.view.frame, frame)) _platter.view.frame = frame;
     CGRect host = CGRectMake(0, 0, table.bounds.size.width, 16 + height + 24);

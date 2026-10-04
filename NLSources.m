@@ -161,8 +161,10 @@ static NSString *NLMusixmatchAppId(void) {
 // Word by word, for a matched track that has it ("richsync"): a second call.
 // The body is [{"ts": lineStart, "te": lineEnd, "x": line, "l": [{"c": piece,
 // "o": offset from ts}]}], a space being a piece of its own whose offset is
-// where the word before it stops.
-static NSArray<NLLyricLine *> *NLFetchMusixmatchRichsync(NLFetch *f, id track) {
+// where the word before it stops. `outLength` gets the length of the cut it
+// was timed to (richsync_length, seconds), 0 if not said.
+static NSArray<NLLyricLine *> *NLFetchMusixmatchRichsync(NLFetch *f, id track, double *outLength) {
+    *outLength = 0;
     long long trackID = (long long)NLNum(NLValue(track, @"track_id"), 0);
     if (NLNum(NLValue(track, @"has_richsync"), 0) == 0 || trackID <= 0) return nil;
 
@@ -172,6 +174,7 @@ static NSArray<NLLyricLine *> *NLFetchMusixmatchRichsync(NLFetch *f, id track) {
     id message = NLValue(NLGetJSON(f, url, nil), @"message");
     id richsync = NLValue(NLValue(message, @"body"), @"richsync");
     if (NLMxmStatus(message) != 200 || NLNum(NLValue(richsync, @"restricted"), 0) != 0) return nil;
+    *outLength = NLNum(NLValue(richsync, @"richsync_length"), 0);
     NSString *body = NLString(richsync, @"richsync_body");
     id parsed = body.length ? [NSJSONSerialization JSONObjectWithData:[body dataUsingEncoding:NSUTF8StringEncoding]
                                                               options:0 error:nil] : nil;
@@ -205,41 +208,10 @@ static NSArray<NLLyricLine *> *NLFetchMusixmatchRichsync(NLFetch *f, id track) {
     return NLFinishWordLines(lines);
 }
 
-static NSArray<NLLyricLine *> *NLFetchMusixmatchToken(NLFetch *f, NSString **note) {
-    NSString *token = f.settings.musixmatchToken;
-    if (token.length == 0) return nil;
-    *note = @"no result";
-
-    NSString *url = [NSString stringWithFormat:
-        @"https://apic.musixmatch.com/ws/1.1/macro.subtitles.get"
-        @"?usertoken=%@&app_id=%@&subtitle_format=mxm&q_track=%@&q_artist=%@",
-        NLEscape(token), NLEscape(NLMusixmatchAppId()),
-        NLEscape(NLCleanTitle(f.title)), NLEscape(NLPrimaryArtist(f.artist))];
-
-    id json = NLGetJSON(f, url, nil);
-    if (!json) {
-        *note = NLNoAnswer(f);
-        return nil;
-    }
-    id message = NLValue(json, @"message");
-    if (!message) return nil;
-
-    NSInteger status = NLMxmStatus(message);
-    if (status == 401) {
-        *note = @"token rejected (401)";
-        NLLog(@"Musixmatch token rejected (401), re-copy the debug info");
-        return nil;
-    }
-
-    id macroCalls = NLValue(NLValue(message, @"body"), @"macro_calls");
-
-    // Word by word when the track has it; the line-timed subtitle otherwise.
-    id track = NLValue(NLValue(NLValue(NLValue(macroCalls, @"matcher.track.get"), @"message"), @"body"), @"track");
-    NSArray<NLLyricLine *> *words = NLFetchMusixmatchRichsync(f, track);
-    if (NLHasContent(words)) {
-        *note = nil;
-        return words;
-    }
+// The line-timed subtitle out of macro.subtitles.get's answer. nil, with the
+// reason in `note`, when there is none to use. `outLength` as for the richsync.
+static NSArray<NLLyricLine *> *NLMusixmatchSubtitleLines(id macroCalls, NSString **note, double *outLength) {
+    *outLength = 0;
     id subtitleMessage = NLValue(NLValue(macroCalls, @"track.subtitles.get"), @"message");
     NSArray *subtitleList = NLArray(NLValue(subtitleMessage, @"body"), @"subtitle_list");
     if (subtitleList.count == 0) {
@@ -256,6 +228,7 @@ static NSArray<NLLyricLine *> *NLFetchMusixmatchToken(NLFetch *f, NSString **not
         NLLog(@"Musixmatch subtitle is restricted for this track");
         return nil;
     }
+    *outLength = NLNum(NLValue(subtitle, @"subtitle_length"), 0);
 
     // subtitle_body is itself a JSON string: [{"text": ..., "time": {"total": seconds}}]
     NSString *body = NLString(subtitle, @"subtitle_body");
@@ -279,9 +252,74 @@ static NSArray<NLLyricLine *> *NLFetchMusixmatchToken(NLFetch *f, NSString **not
         line.text = (i + 1 == entries.count) ? @"" : (NLString(entry, @"text") ?: @"");
         [lines addObject:line];
     }
-
-    if (lines.count) *note = nil;
     return lines.count ? [lines copy] : nil;
+}
+
+// Lengths Musixmatch gives in whole seconds; within this, the same cut.
+static const double kNLCutSlack = 3;
+
+static NSArray<NLLyricLine *> *NLFetchMusixmatchToken(NLFetch *f, NSString **note) {
+    NSString *token = f.settings.musixmatchToken;
+    if (token.length == 0) return nil;
+    *note = @"no result";
+
+    NSMutableString *url = [NSMutableString stringWithFormat:
+        @"https://apic.musixmatch.com/ws/1.1/macro.subtitles.get"
+        @"?usertoken=%@&app_id=%@&subtitle_format=mxm&q_track=%@&q_artist=%@",
+        NLEscape(token), NLEscape(NLMusixmatchAppId()),
+        NLEscape(NLCleanTitle(f.title)), NLEscape(NLPrimaryArtist(f.artist))];
+    // A track has subtitles timed to several cuts (single, album, radio edit);
+    // the length picks the one for the cut playing.
+    if (f.duration > 0) [url appendFormat:@"&q_duration=%.0f", f.duration];
+
+    id json = NLGetJSON(f, url, nil);
+    if (!json) {
+        *note = NLNoAnswer(f);
+        return nil;
+    }
+    id message = NLValue(json, @"message");
+    if (!message) return nil;
+
+    NSInteger status = NLMxmStatus(message);
+    if (status == 401) {
+        *note = @"token rejected (401)";
+        NLLog(@"Musixmatch token rejected (401), re-copy the debug info");
+        return nil;
+    }
+
+    id macroCalls = NLValue(NLValue(message, @"body"), @"macro_calls");
+    NSString *timedNote = nil;
+    double timedLength = 0, wordsLength = 0;
+    NSArray<NLLyricLine *> *timed = NLMusixmatchSubtitleLines(macroCalls, &timedNote, &timedLength);
+
+    // Word by word when the track has it and its times hold up. A track has
+    // one richsync, timed to one cut, and it may not be the cut playing: a
+    // longer intro had every word lit seconds late (So High: richsync timed
+    // to 214 s, the song is 200 s), a shorter one early. Some are squeezed
+    // into a fraction of the song outright, which the subtitle of the same
+    // answer gives away. The subtitle otherwise.
+    id track = NLValue(NLValue(NLValue(NLValue(macroCalls, @"matcher.track.get"), @"message"), @"body"), @"track");
+    NSArray<NLLyricLine *> *words = NLFetchMusixmatchRichsync(f, track, &wordsLength);
+    if (NLHasContent(words)) {
+        BOOL plausible = NLWordTimesPlausible(words);
+        BOOL agrees = timed.count == 0 || NLWordLinesAgree(words, timed);
+        BOOL otherCut = f.duration > 0 && wordsLength > 0 && fabs(wordsLength - f.duration) > kNLCutSlack &&
+                        timed.count && timedLength > 0 && fabs(timedLength - f.duration) <= kNLCutSlack;
+        if (plausible && agrees && !otherCut) {
+            *note = nil;
+            return words;
+        }
+        NLLog(@"Musixmatch richsync dropped: %@", !plausible ? @"faster than singing"
+              : otherCut ? [NSString stringWithFormat:@"timed to %.0f s, the song is %.0f s", wordsLength, f.duration]
+              : @"its lines are not where the subtitle has them");
+    }
+    if (timed.count) {
+        *note = nil;
+        return timed;
+    }
+    if (NLHasContent(words)) *note = @"word times off";
+    else if (timedNote) *note = timedNote;
+    return nil;
 }
 
 #pragma mark - Musixmatch via developer API key
@@ -501,6 +539,13 @@ static NSArray<NLLyricLine *> *NLFetchSource(NLFetch *f, NLSource source, NSStri
             return nil;
     }
 
+    // Squeezed word times light every word early; the next source instead.
+    if (NLHasWords(lines) && !NLWordTimesPlausible(lines)) {
+        NLLog(@"%@ word times faster than singing, skipped", label);
+        lines = nil;
+        note = @"word times off";
+    }
+
     if (NLHasContent(lines)) {
         *outSource = label;
         // With the track and the source on top, so the settings page can list
@@ -510,6 +555,7 @@ static NSArray<NLLyricLine *> *NLFetchSource(NLFetch *f, NLSource source, NSStri
         header[NL_LRC_ARTIST] = f.artist;
         header[NL_LRC_ALBUM] = f.album;
         header[NL_LRC_SOURCE] = label;
+        header[NL_LRC_CHECKED] = @"1";
         [NLLinesToLRCWithHeader(lines, header) writeToFile:cachePath atomically:YES encoding:NSUTF8StringEncoding error:nil];
         NLPruneCache(kNLDiskCacheLimit);
         return lines;
@@ -549,8 +595,21 @@ NSArray<NLLyricLine *> *NLResolveLyrics(NLSettings *settings, NSString *key,
 
     NSString *path = NLCachePath(key);
     NSString *disk = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
+    NSArray<NLLyricLine *> *suspect = nil;   // cached with word times not to be trusted
+    NSString *suspectSource = nil;
     if (disk.length) {
         NSArray<NLLyricLine *> *cached = NLParseLRC(disk);
+        // Word times cached before they were checked (squeezed ones, and
+        // Musixmatch's, which may be timed to another cut): looked up again,
+        // and kept only should nothing better come back.
+        NSDictionary<NSString *, NSString *> *head = NLHasWords(cached) ? NLParseLRCHeader(disk) : nil;
+        BOOL unchecked = [head[NL_LRC_SOURCE] hasPrefix:@"Musixmatch"] && !head[NL_LRC_CHECKED];
+        if (head && (unchecked || !NLWordTimesPlausible(cached))) {
+            suspect = cached;
+            NSString *from = head[NL_LRC_SOURCE];
+            suspectSource = from.length ? [@"cache · " stringByAppendingString:from] : @"cache";
+            cached = nil;
+        }
         if (cached.count) {
             NSDictionary<NSString *, NSString *> *tags = NLParseLRCHeader(disk);
             // Cached before 1.2.0: no tags, and the file name cannot be split
@@ -587,6 +646,12 @@ NSArray<NLLyricLine *> *NLResolveLyrics(NLSettings *settings, NSString *key,
             *outPath = path;
             return lines;
         }
+    }
+
+    if (suspect) {
+        *source = suspectSource;
+        *outPath = path;
+        return suspect;
     }
 
     // Nothing worked. Say what each provider said, in the order they were tried,

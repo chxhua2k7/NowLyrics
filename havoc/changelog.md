@@ -9,7 +9,10 @@
 - Clear lyrics cache moved into the library; lyrics you added are kept
 - **Source order**: drag the sources into the order they are tried (replaces Preferred); only sources switched on are listed
 - **Player in lyrics color** on the lock screen, in Control Center and in Settings (optional): the album color, or for white and grey covers the cover blurred and darkened so the text stays readable; with nothing playing, the system's own look
-- **Crescendo** supported: its volume slider also shows in the player and the island preview in Settings
+- **Crescendo** and **NextUp 3** supported: the volume slider and the Up Next row also show in the player and the island preview in Settings
+- **Word timing**: Musixmatch's word-by-word lyrics are checked against the song (some were timed to a version with a longer or shorter intro and lit seconds late or early, some were squeezed into the first minute); when they do not fit, the line-by-line lyrics timed to the version playing are used. A half-second system delay on line changes in Spotify and other apps is gone
+- The island line stays out of the way while Face ID uses the island
+- Now Playing: picking a source searches again at once and shows what it found
 - Settings reorganized: the player at the top, colors after the island preview, display options on the Now Playing page, one offset per song there with the default offset under Advanced, choices picked in place, the tweak's size under About
 
 ## 1.1.1

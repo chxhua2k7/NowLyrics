@@ -48,15 +48,32 @@ UIButton *NLPopUpButton(NSArray<NSString *> *titles, NSArray *values, id current
     return button;
 }
 
+@interface PSTableCell (NLValue)
+- (void)setValue:(id)value;   // how the row is given its value to show
+@end
+
 @interface NLPopUpCell : PSTableCell
 @end
 
 @implementation NLPopUpCell
 
+// The value is the pop-up's title; the row would also print it raw ("artwork")
+// as its detail text.
+- (void)setValue:(id)value {
+    [super setValue:value];
+    self.detailTextLabel.text = nil;
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    self.detailTextLabel.hidden = YES;
+}
+
 - (void)refreshCellContentsWithSpecifier:(PSSpecifier *)specifier {
     [super refreshCellContentsWithSpecifier:specifier];
     self.selectionStyle = UITableViewCellSelectionStyleNone;
     self.accessoryType = UITableViewCellAccessoryNone;
+    self.detailTextLabel.text = nil;
 
     NSArray *values = [specifier propertyForKey:@"validValues"];
     NSArray *rawTitles = [specifier propertyForKey:@"validTitles"];

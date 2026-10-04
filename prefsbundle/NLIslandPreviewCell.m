@@ -107,9 +107,17 @@ static const CGSize kNLOpenView = {371, 198};       // the open island's own vie
 static const CGFloat kNLExpandedLiveRadius = 44.5;
 // Crescendo's volume row in the open island (CRHooksDynamicIsland.x): the
 // island opens this much taller, the 24 pt slider 24 pt above its bottom,
-// 24 pt in from the sides.
+// 24 pt in from the sides; above NextUp 3's row it takes less, centred
+// between the transport controls and that row.
 static const CGFloat kNLVolumeStrip = 40;
+static const CGFloat kNLVolumeStripAboveNextUp = 28;
 static const CGFloat kNLVolumeSlider = 24;
+
+@interface NSObject (NLNextUpRow)
++ (CGFloat)preferredHeightForControlCenter;   // NUNextUpRowView: its height in the island
+- (void)configureForDynamicIsland;
+- (void)refreshFromManager;
+@end
 // The outline as SpringBoard's key line behaves: bright while the island
 // changes or is touched, then settling to a dimmer, inert line.
 static const NSTimeInterval kNLKeyLineHold = 2.5;
@@ -123,6 +131,7 @@ static const NSUInteger kNLRecentLines = 20;   // not repeated until this many o
 
 @interface NLIslandPreviewCell : PSTableCell <UIGestureRecognizerDelegate>
 @end
+
 
 @implementation NLIslandPreviewCell {
     UIView *_pill;
@@ -142,7 +151,8 @@ static const NSUInteger kNLRecentLines = 20;   // not repeated until this many o
     UIView *_liveArt;                      // the island's own cover view, in the sample cover's place
     NLWaveformDriver *_activityWave;       // moves its waveform, which has no audio tap here
     NSUInteger _liveArtworkLength;         // the cover the album color was taken from
-    BOOL _morphing;                        // inside the open/close spring: frames set now are animated
+    BOOL _activityPlacesLive;              // the open view may move the cover and waveform (opening, once)
+    BOOL _keepingLiveViews;                // inside -nlKeepLiveViewsThrough: (a nested pass is left alone)
     BOOL _collapsingLive;                  // the live island is closing: the cover and waveform are the close animation's
     NSUInteger _closeGeneration;           // invalidates a close animation's last step when reopened
     CFTimeInterval _quietUntil;            // live updates wait until the open/close animation is over
@@ -166,8 +176,11 @@ static const NSUInteger kNLRecentLines = 20;   // not repeated until this many o
     CGPoint _pressStart;
     UIImpactFeedbackGenerator *_lightTap, *_firmTap;
     UIView *_volumeRow;        // Crescendo's slider in the open island, when it wants one there
-    UIView *_volumeHost;       // holds it over the open view, moving as it moves (not in it: see -nlLayoutVolumeRow)
-    CGFloat _volumeExtra;      // kNLVolumeStrip then, else 0
+    UIView *_nextUpRow;        // NextUp 3's Up Next row (its NUNextUpRowView), when it wants one there
+    UIView *_extrasHost;       // holds them over the open view, moving as it moves (not in it: see -nlLayoutExtraRows)
+    CGFloat _extraHeight;      // what they add to the open island
+    BOOL _crescendoWanted, _nextUpWanted;
+    id _nextUpObserver;
     NSUInteger _keyLineGeneration;   // invalidates the pending settle of the outline
 }
 
@@ -263,6 +276,7 @@ UIColor *NLNowLyricsColor(void) {
 // The theme is the color of what the island shows: the album's, or NowLyrics'
 // for the sample (and for a grey cover).
 - (void)nlReportTheme {
+    if (![self nlOnScreen]) return;   // a cell waiting for reuse has no say
     NLThemeSetColor((_liveInfo && _albumColor) ? _albumColor : NLNowLyricsColor());
 }
 
@@ -281,6 +295,7 @@ UIColor *NLNowLyricsColor(void) {
 
 - (void)dealloc {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
+    if (_nextUpObserver) [[NSNotificationCenter defaultCenter] removeObserver:_nextUpObserver];
     [_liveTimer invalidate];
     [_activity removeFromParentViewController];
 }
@@ -312,8 +327,25 @@ UIColor *NLNowLyricsColor(void) {
     return table;
 }
 
+// The one preview whose island is up on the page. The table makes a new cell
+// for the row now and then (scrolling, reloads) and keeps the old one for
+// reuse, hidden but still in its window: its island, hosted in the table
+// rather than in the row, stayed up next to the new one's.
+static __weak NLIslandPreviewCell *gIslandOwner;
+
+- (BOOL)nlOnScreen {
+    return self.window != nil && !self.hidden;
+}
+
 - (void)nlHostPill {
-    UIView *table = self.window ? [self nlTable] : nil;
+    UIView *table = [self nlOnScreen] ? [self nlTable] : nil;
+    if (table) {
+        NLIslandPreviewCell *other = gIslandOwner;
+        if (other && other != self) [other nlStandDown];
+        gIslandOwner = self;
+    } else if (gIslandOwner == self) {
+        gIslandOwner = nil;
+    }
     UIView *host = table ?: self.contentView;
     if (_pill.superview == host) return;
     // Often inside the page's push animation, which must not carry it along.
@@ -349,7 +381,8 @@ UIColor *NLNowLyricsColor(void) {
 // Bounds and centre rather than frame, so the press transform can stay on.
 - (void)nlLayoutPill {
     BOOL live = _liveInfo != nil && _activity != nil;
-    CGSize liveSize = CGSizeMake(kNLExpandedLive.width, kNLExpandedLive.height + _volumeExtra);
+    [self nlUpdateExtraHeight];   // NextUp's row only while live
+    CGSize liveSize = CGSizeMake(kNLExpandedLive.width, kNLExpandedLive.height + _extraHeight);
     CGSize size = _expanded ? (live ? liveSize : kNLExpanded) : kNLCompact;
     // The closed island's top: right under the navigation bar, at the top of
     // the table (its own row below only keeps room for it to open into);
@@ -408,21 +441,50 @@ UIColor *NLNowLyricsColor(void) {
 
 - (void)didMoveToWindow {
     [super didMoveToWindow];
+    [self nlScreenChanged];
+}
+
+// Hidden by the table to wait for reuse: off the page as much as out of the window.
+- (void)setHidden:(BOOL)hidden {
+    BOOL was = self.hidden;
+    [super setHidden:hidden];
+    if (was != hidden && _pill) [self nlScreenChanged];
+}
+
+// Another cell shows the island now: this one's goes back into its own row
+// (hidden with it) and stops.
+- (void)nlStandDown {
+    if (gIslandOwner == self) gIslandOwner = nil;
+    [self nlStop];
+    [UIView performWithoutAnimation:^{
+        [self.contentView addSubview:self->_ring];
+        [self.contentView addSubview:self->_pill];
+        self->_ring.layer.zPosition = 0;
+        self->_pill.layer.zPosition = 0;
+    }];
+}
+
+- (void)nlStop {
+    _generation++;   // stops the cycle
+    [_liveTimer invalidate];
+    _liveTimer = nil;
+    if (_expanded) {
+        _expanded = NO;   // back closed next time, without animating off screen
+        _titleLabel.alpha = _lineLabel.alpha = 0;
+        _strip.alpha = 1;
+        _pill.transform = CGAffineTransformIdentity;
+        _ring.transform = CGAffineTransformIdentity;
+        [self nlLayoutPill];
+    }
+}
+
+- (void)nlScreenChanged {
     [self nlHostPill];
-    _generation++;   // stops the cycle while off screen
-    if (!self.window) {
-        [_liveTimer invalidate];
-        _liveTimer = nil;
-        if (_expanded) {
-            _expanded = NO;   // back closed next time, without animating off screen
-            _titleLabel.alpha = _lineLabel.alpha = 0;
-            _strip.alpha = 1;
-            _pill.transform = CGAffineTransformIdentity;
-            _ring.transform = CGAffineTransformIdentity;
-            [self nlLayoutPill];
-        }
+    if (![self nlOnScreen]) {
+        [self nlStop];
         return;
     }
+    _generation++;
     [self nlApplyValues];
     [self nlReportTheme];
     [self nlWakeKeyLine];
@@ -432,7 +494,7 @@ UIColor *NLNowLyricsColor(void) {
     __weak typeof(self) weakSelf = self;
     _liveTimer = [NSTimer scheduledTimerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *timer) {
         NLIslandPreviewCell *cell = weakSelf;
-        if (!cell.window) { [timer invalidate]; return; }
+        if (![cell nlOnScreen]) { [timer invalidate]; return; }
         [cell nlLiveTick];
     }];
     [self nlLiveTick];
@@ -452,7 +514,10 @@ UIColor *NLNowLyricsColor(void) {
     _liveWanted = [values[@"islandPreviewLive"] respondsToSelector:@selector(boolValue)] ? [values[@"islandPreviewLive"] boolValue] : YES;
     _wordByWord = [values[@"islandWordByWord"] respondsToSelector:@selector(boolValue)] ? [values[@"islandWordByWord"] boolValue] : YES;
     _textColor = ([values[@"islandColor"] isEqual:@"artwork"] && _albumColor) ? _albumColor : [UIColor colorWithWhite:1 alpha:0.92];
-    _volumeExtra = NLCrescendoShows(NLCrescendoDynamicIsland) ? kNLVolumeStrip : 0;
+    _crescendoWanted = NLCrescendoShows(NLCrescendoDynamicIsland);
+    _nextUpWanted = NLNextUpShowsInIsland();
+    if (_nextUpWanted) NLNextUpLoad();   // its row view and manager
+    [self nlUpdateExtraHeight];
     _lineLabel.textColor = _textColor;
     [self nlLayoutPill];
     [_strip layoutIfNeeded];
@@ -565,7 +630,7 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture shouldReceiveTouch:(UITouch *)touch {
     if (!_expanded || !_liveInfo) return YES;
     for (UIView *v = touch.view; v && v != _pill; v = v.superview) {
-        if ([v isKindOfClass:UIControl.class]) return NO;
+        if ([v isKindOfClass:UIControl.class] || v == _nextUpRow) return NO;   // NextUp's row: its taps and swipes
     }
     return YES;
 }
@@ -673,7 +738,7 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
     [self nlWakeKeyLine];
     if (_expanded == expanded) return;
     _expanded = expanded;
-    _quietUntil = CACurrentMediaTime() + 0.75;
+    _quietUntil = CACurrentMediaTime() + 0.9;
     if (expanded) [_firmTap impactOccurred];
     else [_lightTap impactOccurred];
     BOOL live = _liveInfo != nil && _activity != nil;
@@ -688,7 +753,7 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
     // only then do the cover and waveform grow in where the closed island has
     // them.
     UIView *openView = live ? _activity.view : nil;
-    UIView *volumeHost = live ? _volumeHost : nil;
+    UIView *extrasHost = live ? _extrasHost : nil;
     UIView *cover = live ? _liveArt : nil, *wave = live ? _liveWave : nil;
     CGFloat closedScale = kNLCompact.width / kNLExpandedLive.width;
     CGFloat startWidth = _pill.bounds.size.width;
@@ -696,35 +761,41 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
     if (live && expanded) {
         [self nlReturnLiveViews];   // still out of the island from closing
         _collapsingLive = NO;
+        // Its open layout once, as it lays it out (the cover at its open size
+        // from the start); the spring then takes them to the preview's places.
+        _activityPlacesLive = YES;
         [self nlSetActivityMode:kNLActivityExpanded];
+        _activityPlacesLive = NO;
         [UIView performWithoutAnimation:^{
             openView.transform = NLTopScale(closedScale, kNLOpenView.height);
-            volumeHost.transform = openView.transform;
+            extrasHost.transform = openView.transform;
             cover.transform = CGAffineTransformIdentity;
             wave.transform = CGAffineTransformIdentity;
         }];
-        [UIView animateWithDuration:0.3 delay:0 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
+        [UIView animateWithDuration:0.35 delay:0 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
             openView.alpha = 1;
-            volumeHost.alpha = 1;
+            extrasHost.alpha = 1;
             cover.alpha = 1;   // if reopened before they came back
             wave.alpha = 1;
         } completion:nil];
     }
     if (live && !expanded) {
         _collapsingLive = YES;
-        [UIView animateWithDuration:0.18 delay:0 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
+        // The rows tweaks add go at once: NextUp's buttons sit on a material,
+        // which does not fade with the views above it and was left behind as a
+        // ghost while the island closed.
+        [UIView performWithoutAnimation:^{ extrasHost.alpha = 0; }];
+        [UIView animateWithDuration:0.22 delay:0 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
             openView.alpha = 0;
-            volumeHost.alpha = 0;
             cover.alpha = 0;
             wave.alpha = 0;
         } completion:nil];
     }
-    UIViewPropertyAnimator *morph = NLSpring(expanded ? 0.5 : 0.42, expanded ? 0.78 : 0.95, ^{
-        self->_morphing = YES;
+    // Softer and longer than before (0.5 / 0.42 s, 0.78 / 0.95): it read as fast and stiff.
+    UIViewPropertyAnimator *morph = NLSpring(expanded ? 0.6 : 0.52, expanded ? 0.82 : 0.9, ^{
         [self nlLayoutPill];
-        self->_morphing = NO;
         openView.transform = expanded ? CGAffineTransformIdentity : NLTopScale(closedScale, kNLOpenView.height);
-        volumeHost.transform = openView.transform;
+        extrasHost.transform = openView.transform;
         if (live && !expanded) {
             // About the island's top centre, which is at half its width in its
             // own coordinates: half the open width now, half the closed one at
@@ -745,7 +816,7 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
         // the cover and waveform grow in. Inside the island they would ride
         // in with its edges, so for now they hang over it, outside it, where
         // they end up on screen, and go back in once all has stopped.
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             if (self->_expanded || self->_closeGeneration != generation) return;   // opened again meanwhile
             [self nlSetActivityMode:kNLActivityCompact];
             UIView *host = self->_pill.superview;
@@ -769,7 +840,7 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
                     view.transform = small;
                 }
             }];
-            UIViewPropertyAnimator *grow = [[UIViewPropertyAnimator alloc] initWithDuration:0.36 dampingRatio:0.75 animations:^{
+            UIViewPropertyAnimator *grow = [[UIViewPropertyAnimator alloc] initWithDuration:0.42 dampingRatio:0.8 animations:^{
                 cover.transform = CGAffineTransformIdentity;
                 wave.transform = CGAffineTransformIdentity;
             }];
@@ -777,7 +848,7 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
                 if (self->_closeGeneration == generation && !self->_expanded) [self nlReturnLiveViews];
             }];
             [grow startAnimation];
-            [UIView animateWithDuration:0.15 animations:^{ cover.alpha = 1; wave.alpha = 1; }];
+            [UIView animateWithDuration:0.18 animations:^{ cover.alpha = 1; wave.alpha = 1; }];
         });
     }
 
@@ -789,12 +860,12 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
     // The line goes at once when opening (it would ride down with the island's
     // bottom edge) and comes back once the island has nearly closed.
     if (expanded) [UIView performWithoutAnimation:^{ self->_strip.alpha = 0; }];
-    [UIView animateWithDuration:expanded ? 0.12 : 0.2 delay:expanded ? 0 : 0.28
+    [UIView animateWithDuration:expanded ? 0.12 : 0.24 delay:expanded ? 0 : 0.34
                         options:UIViewAnimationOptionBeginFromCurrentState animations:^{
         if (!expanded) self->_strip.alpha = 1;
         self->_wave.alpha = expanded ? 0.6 : 1;
     } completion:nil];
-    NLSpring(expanded ? 0.45 : 0.25, 1, ^{
+    NLSpring(expanded ? 0.5 : 0.3, 1, ^{
         self->_titleLabel.alpha = (expanded && !live) ? 1 : 0;
         self->_lineLabel.alpha = (expanded && !live) ? 1 : 0;
         self->_titleLabel.transform = expanded ? CGAffineTransformIdentity : small;
@@ -829,6 +900,64 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
     return nil;
 }
 
+// The island's open view (MRUActivityNowPlayingView) sets the frames of its
+// cover and waveform in its own -layoutSubviews on every pass, through its
+// ivars and in its own 371 x 198 space, wherever they live now (16.5.1:
+// {0,0} / {349,0} at 22 pt closed, {21.67,24} 66 pt / {315.33,35} 28 pt open).
+// A pass runs whenever something marks the view for layout: its safe area
+// changing as the island is pulled up under the navigation bar, a back swipe,
+// NextUp. After each pass they go back to where they were before it, in the
+// same pass, so the wrong place is never drawn.
+static char kNLActivityOwnerKey;
+static IMP gActivityLayoutIMP;
+
+static void NLPutBack(UIView *view, CGRect bounds, CGPoint center) {
+    if (!view) return;
+    if (!CGRectEqualToRect(view.bounds, bounds)) view.bounds = bounds;
+    if (!CGPointEqualToPoint(view.center, center)) view.center = center;
+}
+
+- (void)nlKeepLiveViewsThrough:(NS_NOESCAPE void (^)(void))layout {
+    UIView *art = _liveArt, *wave = _liveWave;
+    if (_keepingLiveViews || _activityPlacesLive || (!art && !wave)) { layout(); return; }
+    _keepingLiveViews = YES;
+    // Bounds and centre, in whatever they are in now (the pill, or the table
+    // while the island closes): they can carry a scale then.
+    CGRect artBounds = art.bounds, waveBounds = wave.bounds;
+    CGPoint artCenter = art.center, waveCenter = wave.center;
+    layout();
+    [UIView performWithoutAnimation:^{
+        NLPutBack(art, artBounds, artCenter);
+        NLPutBack(wave, waveBounds, waveCenter);
+    }];
+    _keepingLiveViews = NO;
+}
+
+static void NLActivityLayoutSubviews(UIView *view, SEL cmd) {
+    void (*original)(id, SEL) = (void (*)(id, SEL))gActivityLayoutIMP;
+    NLIslandPreviewCell *(^owner)(void) = objc_getAssociatedObject(view, &kNLActivityOwnerKey);
+    NLIslandPreviewCell *cell = owner ? owner() : nil;
+    if (!cell) { original(view, cmd); return; }
+    [cell nlKeepLiveViewsThrough:^{ original(view, cmd); }];
+}
+
+// Only where the class has its own -layoutSubviews (16.5.1 does): replacing an
+// inherited one would replace UIView's for every view.
+static void NLKeepLiveViewsInPlace(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        Class viewClass = objc_getClass("MRUActivityNowPlayingView");
+        unsigned int count = 0;
+        Method *methods = viewClass ? class_copyMethodList(viewClass, &count) : NULL;
+        for (unsigned int i = 0; i < count; i++) {
+            if (method_getName(methods[i]) != @selector(layoutSubviews)) continue;
+            gActivityLayoutIMP = method_setImplementation(methods[i], (IMP)NLActivityLayoutSubviews);
+            break;
+        }
+        free(methods);
+    });
+}
+
 // Made once, as MediaRemoteUI makes it: it brings its own now-playing
 // controller and loads what is playing by itself.
 - (UIViewController *)nlActivity {
@@ -838,11 +967,15 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
     UIViewController *host = [self nlHostController];
     if (!activityClass || !host) return nil;
     NLStandInForHost();
+    NLKeepLiveViewsInPlace();
     // The camera, as the island's host reports it: a 14 Pro's sensor region,
     // at the top of the island, centred.
     objc_setAssociatedObject(_pill, &kNLHostModeKey, @(kNLActivityCompact), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     UIViewController *activity = [activityClass new];
     if (![activity respondsToSelector:@selector(leadingView)] || ![activity respondsToSelector:@selector(setActiveLayoutMode:)]) return nil;
+    __weak NLIslandPreviewCell *weakSelf = self;
+    objc_setAssociatedObject(activity.view, &kNLActivityOwnerKey, ^NLIslandPreviewCell *{ return weakSelf; },
+                             OBJC_ASSOCIATION_COPY_NONATOMIC);
     UILayoutGuide *camera = [UILayoutGuide new];
     [activity.view addLayoutGuide:camera];
     [NSLayoutConstraint activateConstraints:@[
@@ -856,22 +989,27 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
     activity.view.alpha = 0;
     [_pill insertSubview:activity.view atIndex:0];
     [activity didMoveToParentViewController:host];
+    NLNextUpKeepOut(activity.view);   // before its first layout with NextUp's mark on it
     [(id)activity setActiveLayoutMode:kNLActivityCompact];
     _activity = activity;
     return activity;
 }
 
-// The cover and waveform back inside the island after closing, at the same
-// place on screen.
+// The cover and waveform back inside the island after closing, where the
+// closed island has them (the pill's frame would be its pressed or pulled box).
 - (void)nlReturnLiveViews {
-    CGPoint origin = _pill.frame.origin;
     [UIView performWithoutAnimation:^{
         for (UIView *view in @[self->_liveArt ?: [NSNull null], self->_liveWave ?: [NSNull null]]) {
             if (![view isKindOfClass:UIView.class] || view.superview == self->_pill) continue;
-            CGPoint c = view.center;
             [self->_pill addSubview:view];
             view.layer.zPosition = 0;
-            view.center = CGPointMake(c.x - origin.x, c.y - origin.y);
+            if (view == self->_liveArt) {
+                view.bounds = CGRectMake(0, 0, self->_art.frame.size.width, self->_art.frame.size.height);
+                view.center = CGPointMake(CGRectGetMidX(self->_art.frame), CGRectGetMidY(self->_art.frame));
+            } else {
+                view.bounds = self->_wave.bounds;
+                view.center = self->_wave.center;
+            }
         }
     }];
     _collapsingLive = NO;
@@ -927,9 +1065,10 @@ static void NLDisableTaps(UIView *view) {
     _art.hidden = live && _liveArt;
     _liveArt.hidden = !live;
     if (!_activity) return;
+    NLNextUpKeepOut(_activity.view);   // NextUp's hooks reach this view; the preview places its row itself
     if (!live) {
         _activity.view.alpha = 0;
-        _volumeHost.alpha = 0;
+        _extrasHost.alpha = 0;
         return;
     }
     // The waveform is the island's own too (its trailing view), moved by
@@ -986,43 +1125,109 @@ static void NLDisableTaps(UIView *view) {
         }];
     }
     openView.center = CGPointMake(size.width / 2, -kNLRing + kNLOpenView.height / 2);
-    [self nlLayoutVolumeRow];
+    [self nlLayoutExtraRows];
 }
 
-// Crescendo's row hangs below the open view's measured height, in the strip
-// the island grew by, and scales and fades with the open view. It sits in a
-// view of its own laid over the open view rather than in it: anything that
-// lays the open view out (adding the row, the row's volume updates) has it
-// place its cover and waveform, which live in the pill, in its own
-// coordinates, and they drifted off.
-- (void)nlLayoutVolumeRow {
+// What the rows tweaks add to the open island can come to: NextUp's row with
+// Crescendo's slider above it, or the slider alone. The page keeps that much
+// more room under the preview for it to open into.
+CGFloat NLIslandPreviewMostExtraHeight(void) {
+    BOOL crescendo = NLCrescendoShows(NLCrescendoDynamicIsland);
+    BOOL nextUp = NLNextUpShowsInIsland();
+    if (nextUp) NLNextUpLoad();
+    Class rowClass = nextUp ? objc_getClass("NUNextUpRowView") : Nil;
+    CGFloat height = rowClass ? [(id)rowClass preferredHeightForControlCenter] : 0;
+    if (crescendo) height += rowClass ? kNLVolumeStripAboveNextUp : kNLVolumeStrip;
+    return height;
+}
+
+// NextUp's row is there while NextUp has a next track for what plays.
+- (BOOL)nlNextUpShown {
+    return _nextUpWanted && _liveInfo && NLNextUpActive() && objc_getClass("NUNextUpRowView");
+}
+
+// What the rows under the controls add to the open island, as on the real one:
+// NextUp's row at the bottom, Crescendo's slider above it (or alone, lower).
+- (void)nlUpdateExtraHeight {
+    BOOL nextUp = [self nlNextUpShown];
+    CGFloat height = nextUp ? [(id)objc_getClass("NUNextUpRowView") preferredHeightForControlCenter] : 0;
+    if (_crescendoWanted) height += nextUp ? kNLVolumeStripAboveNextUp : kNLVolumeStrip;
+    _extraHeight = height;
+}
+
+- (void)nlNextUpChanged {
+    [_nextUpRow refreshFromManager];
+    CGFloat was = _extraHeight;
+    [self nlUpdateExtraHeight];
+    if (was != _extraHeight) [self nlLayoutPill];
+    else [self nlLayoutExtraRows];
+}
+
+// The rows hang below the open view's measured height, in the strip the island
+// grew by, and scale and fade with the open view. They sit in a view of their
+// own laid over the open view rather than in it: anything that lays the open
+// view out (adding a row, the slider's volume updates) has it place its cover
+// and waveform, which live in the pill, in its own coordinates, and they
+// drifted off.
+- (void)nlLayoutExtraRows {
     UIView *openView = _activity.view;
-    if (_volumeExtra <= 0 || !openView) {
-        _volumeHost.hidden = YES;
+    if (_extraHeight <= 0 || !openView) {
+        _extrasHost.hidden = YES;
         return;
     }
-    if (!_volumeRow) {
-        _volumeRow = NLCrescendoMakeVolumeRow(openView);
-        if (!_volumeRow) return;
-        _volumeHost = [UIView new];
-        [_volumeHost addSubview:_volumeRow];
-        [_pill insertSubview:_volumeHost aboveSubview:openView];
-        _volumeHost.alpha = openView.alpha;
-        _volumeHost.transform = openView.transform;
+    if (!_extrasHost) {
+        _extrasHost = [UIView new];
+        [_pill insertSubview:_extrasHost aboveSubview:openView];
+        _extrasHost.alpha = openView.alpha;
+        _extrasHost.transform = openView.transform;
     }
-    _volumeHost.hidden = NO;
-    // The open view's own place: the same bounds and centre, so its transform
-    // means the same here.
-    CGFloat bottom = kNLExpandedLive.height + _volumeExtra + kNLRing;
-    CGFloat y = bottom - kNLVolumeSlider - kNLVolumeSlider;
+    if (_crescendoWanted && !_volumeRow) {
+        _volumeRow = NLCrescendoMakeVolumeRow(openView);
+        if (_volumeRow) [_extrasHost addSubview:_volumeRow];
+    }
+    if (_nextUpWanted && !_nextUpRow) {
+        NLNextUpStart();
+        Class rowClass = objc_getClass("NUNextUpRowView");
+        if (rowClass) {
+            _nextUpRow = [[rowClass alloc] initWithFrame:CGRectZero];
+            [(id)_nextUpRow configureForDynamicIsland];
+            [(id)_nextUpRow refreshFromManager];
+            [_extrasHost addSubview:_nextUpRow];
+            __weak typeof(self) weakSelf = self;
+            _nextUpObserver = [[NSNotificationCenter defaultCenter] addObserverForName:@"NUNextUpDidChangeNotification"
+                                                                                object:nil queue:NSOperationQueue.mainQueue
+                                                                            usingBlock:^(NSNotification *note) {
+                dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf nlNextUpChanged]; });
+            }];
+        }
+    }
+    _extrasHost.hidden = !_expanded;   // only open: a material on it would show through a mere alpha of 0
+
+    // In the open view's coordinates (its top is kNLRing above the island's),
+    // at the island's width.
+    BOOL nextUp = [self nlNextUpShown];
+    CGFloat rowHeight = nextUp ? [(id)objc_getClass("NUNextUpRowView") preferredHeightForControlCenter] : 0;
+    CGFloat bottom = kNLExpandedLive.height + _extraHeight + kNLRing;
+    CGFloat transportBottom = 0;
     Class transport = objc_getClass("MRUNowPlayingTransportControlsView");
     for (UIView *sub in openView.subviews) {
-        if (transport && [sub isKindOfClass:transport] && !sub.hidden) y = MAX(y, CGRectGetMaxY(sub.frame));
+        if (transport && [sub isKindOfClass:transport] && !sub.hidden) transportBottom = MAX(transportBottom, CGRectGetMaxY(sub.frame));
+    }
+    CGFloat sliderY;
+    if (nextUp) {
+        CGFloat bandBottom = bottom - rowHeight;
+        CGFloat bandTop = MAX(transportBottom, bandBottom - kNLVolumeStripAboveNextUp);
+        sliderY = bandTop + ((bandBottom - bandTop) - kNLVolumeSlider) / 2;
+    } else {
+        sliderY = MAX(transportBottom, bottom - kNLVolumeSlider - kNLVolumeSlider);
     }
     [UIView performWithoutAnimation:^{
-        self->_volumeHost.bounds = openView.bounds;
-        self->_volumeHost.center = openView.center;
-        self->_volumeRow.frame = CGRectMake(24 + kNLRing, y, kNLOpenView.width - 48 - kNLRing * 2, kNLVolumeSlider);
+        self->_extrasHost.bounds = openView.bounds;
+        self->_extrasHost.center = openView.center;
+        self->_volumeRow.hidden = !self->_crescendoWanted;
+        self->_volumeRow.frame = CGRectMake(24 + kNLRing, sliderY, kNLOpenView.width - 48 - kNLRing * 2, kNLVolumeSlider);
+        self->_nextUpRow.hidden = !nextUp;
+        if (nextUp) self->_nextUpRow.frame = CGRectMake(kNLRing, bottom - rowHeight, kNLExpandedLive.width, rowHeight);
     }];
 }
 

@@ -58,13 +58,11 @@
 "The app looks the song up again." = "App 會重新找這首歌的歌詞。";
 "Delete" = "刪除";
 "Play a song in an app NowLyrics is on for, then come back." = "在有開 NowLyrics 的 App 播一首歌，再回來這裡。";
-"Added lyrics are used in %@ before any online source. LRC, word-by-word LRC and TTML work." = "加入的歌詞只用在 %@，優先於線上來源。支援 LRC、逐字 LRC 和 TTML。";
 "Added by you" = "手動加入";
 "Searching…" = "搜尋中…";
 "Saved" = "已儲存";
 "No lyrics found" = "找不到歌詞";
 "Nothing is playing" = "目前沒有在播放";
-"Search again" = "重新搜尋";
 "Remove added lyrics" = "移除手動歌詞";
 "Remove added lyrics?" = "要移除手動加入的歌詞嗎？";
 "Remove" = "移除";
@@ -84,9 +82,7 @@
 "Clear lyrics cache?" = "要清除歌詞快取嗎？";
 "Clear" = "清除";
 "Apple Music lyrics" = "Apple Music 歌詞";
-"Lyrics source" = "歌詞來源";
 "Automatic" = "自動";
-"Picks the source for this song and searches it again. Automatic follows the order on the main page." = "選這首歌要用的來源，並重新搜尋。「自動」照「來源順序」。";
 "Preview what’s playing" = "預覽正在播放";
 "Paste the debug info from the Musixmatch app (Settings → Get help → Copy debug info), or use an API key of your own." = "貼上 Musixmatch App 的 debug info（設定 → Get help → Copy debug info），或使用你自己的 API Key。";
 "Size" = "大小";
@@ -95,7 +91,6 @@
 "Every song starts with this offset; a positive one shows lyrics earlier. Now Playing changes one song’s offset only. Drag the slider, or tap the value to type one, e.g. 0.25 or -300ms." = "每首歌一開始都用這個偏移，正值讓歌詞提早出現。在「正在播放」調整的只會改那一首。拖動滑桿，或點數值直接輸入，例如 0.25 或 -300ms。";
 "This song’s timing only; a positive offset shows its lyrics earlier. Every other song uses the default offset under Advanced." = "只調整這首歌的時間，正值讓歌詞提早出現。其他歌曲用「進階」裡的預設偏移。";
 "Player in lyrics color" = "播放器用歌詞顏色";
-"Player in lyrics color colors the player here, on the lock screen and in Control Center: the album color the lyrics use, or the cover blurred and darkened." = "「播放器用歌詞顏色」會套用在這裡、鎖定畫面和控制中心的播放器：用歌詞的專輯顏色，或把封面模糊再加深。";
 "Other apps" = "其他 App";
 "Test with the song playing" = "用正在播放的歌測試";
 "On" = "開啟";
@@ -125,3 +120,10 @@
 "Could not check the subscription (%@). Try again later." = "無法確認訂閱（%@）。請稍後再試。";
 "SpringBoard did not answer" = "SpringBoard 沒有回應";
 "Sources are tried in the order set under Source order. NetEase lyrics are Simplified Chinese. Apple Music lyrics need an Apple Music subscription: unlocking checks for one." = "依「來源順序」依序嘗試。網易雲歌詞為簡體中文。Apple Music 歌詞需要 Apple Music 訂閱，解鎖時會確認。";
+"Tap a source to look this song up again with it; the ticked one looks it up again as before. Automatic follows the source order. Added lyrics are used in %@ before any online source; LRC, word-by-word LRC and TTML work." = "點一個來源就會用它重新搜尋這首歌，點已勾選的就是照原樣重新搜尋。「自動」照「來源順序」。加入的歌詞只用在 %@，優先於線上來源；支援 LRC、逐字 LRC 和 TTML。";
+"Colors the now-playing player in Settings, on the lock screen and in Control Center: the album color the lyrics use, or the cover blurred and darkened." = "把設定頁、鎖定畫面和控制中心的播放器換成歌詞的顏色：用歌詞的專輯顏色，或把封面模糊再加深。";
+"This song uses lyrics you added" = "這首歌用的是你加入的歌詞";
+"Searching with %@…" = "用「%@」搜尋中…";
+"%@ · %lu lines · %@" = "%@ · %lu 行 · %@";
+"word-timed" = "逐字";
+"line-timed" = "逐行";

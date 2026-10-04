@@ -58,13 +58,11 @@
 "The app looks the song up again." = "アプリがこの曲の歌詞を探し直します。";
 "Delete" = "削除";
 "Play a song in an app NowLyrics is on for, then come back." = "NowLyrics をオンにしたアプリで曲を再生してから戻ってきてください。";
-"Added lyrics are used in %@ before any online source. LRC, word-by-word LRC and TTML work." = "追加した歌詞は %@ でのみ、オンラインのソースより優先して使われます。LRC、単語単位の LRC、TTML に対応。";
 "Added by you" = "手動で追加";
 "Searching…" = "検索中…";
 "Saved" = "保存済み";
 "No lyrics found" = "歌詞が見つかりません";
 "Nothing is playing" = "再生中の曲はありません";
-"Search again" = "検索し直す";
 "Remove added lyrics" = "追加した歌詞を削除";
 "Remove added lyrics?" = "追加した歌詞を削除しますか？";
 "Remove" = "削除";
@@ -84,9 +82,7 @@
 "Clear lyrics cache?" = "歌詞キャッシュを消去しますか？";
 "Clear" = "消去";
 "Apple Music lyrics" = "Apple Music の歌詞";
-"Lyrics source" = "歌詞のソース";
 "Automatic" = "自動";
-"Picks the source for this song and searches it again. Automatic follows the order on the main page." = "この曲に使うソースを選び、検索し直します。「自動」は「ソースの順序」に従います。";
 "Preview what’s playing" = "再生中の曲をプレビュー";
 "Paste the debug info from the Musixmatch app (Settings → Get help → Copy debug info), or use an API key of your own." = "Musixmatch アプリの debug info（設定 → Get help → Copy debug info）を貼り付けるか、自分の API キーを使います。";
 "Size" = "サイズ";
@@ -95,7 +91,6 @@
 "Every song starts with this offset; a positive one shows lyrics earlier. Now Playing changes one song’s offset only. Drag the slider, or tap the value to type one, e.g. 0.25 or -300ms." = "すべての曲はこのオフセットから始まります。正の値で歌詞が早く表示されます。「再生中」での変更はその曲だけに適用されます。スライダーをドラッグするか、数値をタップして入力します（例：0.25、-300ms）。";
 "This song’s timing only; a positive offset shows its lyrics earlier. Every other song uses the default offset under Advanced." = "この曲のタイミングだけを調整します。正の値で歌詞が早く表示されます。ほかの曲は「詳細」のデフォルトのオフセットを使います。";
 "Player in lyrics color" = "プレーヤーを歌詞の色に";
-"Player in lyrics color colors the player here, on the lock screen and in Control Center: the album color the lyrics use, or the cover blurred and darkened." = "「プレーヤーを歌詞の色に」は、ここ・ロック画面・コントロールセンターのプレーヤーに適用されます。歌詞のアルバムカラー、またはぼかして暗くしたジャケットを使います。";
 "Other apps" = "ほかのアプリ";
 "Test with the song playing" = "再生中の曲でテスト";
 "On" = "オン";
@@ -125,3 +120,10 @@
 "Could not check the subscription (%@). Try again later." = "サブスクリプションを確認できませんでした（%@）。しばらくしてからもう一度お試しください。";
 "SpringBoard did not answer" = "SpringBoard から応答がありません";
 "Sources are tried in the order set under Source order. NetEase lyrics are Simplified Chinese. Apple Music lyrics need an Apple Music subscription: unlocking checks for one." = "「ソースの順序」の順に試します。NetEase の歌詞は簡体字です。Apple Music の歌詞には Apple Music のサブスクリプションが必要で、ロック解除時に確認します。";
+"Tap a source to look this song up again with it; the ticked one looks it up again as before. Automatic follows the source order. Added lyrics are used in %@ before any online source; LRC, word-by-word LRC and TTML work." = "ソースをタップすると、そのソースでこの曲を検索し直します。チェックの付いたものをタップすると、同じ条件で検索し直します。「自動」は「ソースの順序」に従います。追加した歌詞は %@ でオンラインのソースより優先して使われます。LRC、単語ごとの LRC、TTML に対応しています。";
+"Colors the now-playing player in Settings, on the lock screen and in Control Center: the album color the lyrics use, or the cover blurred and darkened." = "設定・ロック画面・コントロールセンターの再生プレーヤーを歌詞の色にします。歌詞のアルバムカラー、またはぼかして暗くしたジャケットを使います。";
+"This song uses lyrics you added" = "この曲は追加した歌詞を使っています";
+"Searching with %@…" = "「%@」で検索しています…";
+"%@ · %lu lines · %@" = "%@ · %lu 行 · %@";
+"word-timed" = "単語ごと";
+"line-timed" = "行ごと";

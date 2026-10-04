@@ -151,10 +151,10 @@ BOOL NLCrescendoSyncPlayer(UIViewController *platter) {
     return YES;
 }
 
-CGFloat NLCrescendoPlayerHeight(UIViewController *platter, CGFloat width) {
+CGFloat NLPlayerFittingHeight(UIViewController *platter, CGFloat width) {
     Class playerClass = objc_getClass("MRUNowPlayingView");
     UIView *player = playerClass && platter.isViewLoaded ? NLFindView(platter.view, playerClass) : nil;
-    if (!player || !NLForced(player)) return 0;
+    if (!player) return 0;
     CGFloat around = MAX(platter.view.bounds.size.height - player.bounds.size.height, 0);
     CGFloat inner = player.bounds.size.width > 0 ? player.bounds.size.width : width;
     return [player sizeThatFits:CGSizeMake(inner, CGFLOAT_MAX)].height + around;

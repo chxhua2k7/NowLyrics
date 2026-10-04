@@ -60,7 +60,7 @@
 @end
 
 
-extern NSString *const NLIslandPreviewChangedNotification;   // NLIslandPreviewCell.m
+extern NSString *const NLIslandPreviewChangedNotification;          // NLIslandPreviewCell.m
 
 #pragma mark - Icons
 
@@ -428,12 +428,14 @@ static void NLUpdateShownSpecifiers(PSListController *controller, NSArray<PSSpec
         NSArray<PSSpecifier *> *all = nil;
         _specifiers = NLPrepareSpecifiers(self, [self loadSpecifiersFromPlistName:@"Island" target:self], &all);
         _allSpecifiers = all;
-        // Room for the open island, taller by Crescendo's volume row when it adds one.
+        // Room for the open island, taller by the rows tweaks add to it (Crescendo's
+        // volume row, NextUp 3's Up Next row), at the most it can be.
         PSSpecifier *preview = nil;
         for (PSSpecifier *s in all) if ([s.identifier isEqualToString:@"islandPreview"]) preview = s;   // shown or not
         id height = [preview propertyForKey:@"height"];
-        if (preview && NLCrescendoShows(NLCrescendoDynamicIsland) && [height respondsToSelector:@selector(doubleValue)]) {
-            [preview setProperty:@([height doubleValue] + 40) forKey:@"height"];
+        CGFloat extra = NLIslandPreviewMostExtraHeight();
+        if (preview && extra > 0 && [height respondsToSelector:@selector(doubleValue)]) {
+            [preview setProperty:@([height doubleValue] + extra) forKey:@"height"];
         }
     }
     return _specifiers;

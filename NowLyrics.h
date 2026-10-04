@@ -47,6 +47,7 @@
 #define NL_LRC_ARTIST  @"ar"
 #define NL_LRC_ALBUM   @"al"
 #define NL_LRC_SOURCE  @"nl-source"
+#define NL_LRC_CHECKED @"nl-checked"   // fetched since word times are checked against the song (1.2.0)
 
 // What to put in the artist field while a lyric line occupies the title.
 typedef NS_ENUM(NSInteger, NLArtistMode) {
@@ -105,7 +106,10 @@ extern NSString *const kNLUserAgent;
 BOOL NLProcessIsEligible(void);         // load-time safety check, independent of user settings
 BOOL NLProcessUsesContentItems(void);   // Apple's Music app publishes through content items
 NLSettings *NLSettingsCurrent(void);    // the latest snapshot; loads one if there is none yet
-NLSettings *NLSettingsReload(void);     // re-reads the file and computes `enabled` for this process
+NLSettings *NLSettingsReload(void);
+// The same with a source picked for one track on top (NL_LOOKUP_FILE): what
+// the preference file will say once it has been written.
+NLSettings *NLSettingsReloadPicking(NSString *trackKey, NSString *source);     // re-reads the file and computes `enabled` for this process
 
 #pragma mark - NLLyrics.m
 
@@ -128,6 +132,8 @@ NSString *NLLinesToLRC(NSArray<NLLyricLine *> *lines);
 NSString *NLLinesToLRCWithHeader(NSArray<NLLyricLine *> *lines, NSDictionary<NSString *, NSString *> *header);
 BOOL NLHasContent(NSArray<NLLyricLine *> *lines);   // at least two sung lines
 BOOL NLHasWords(NSArray<NLLyricLine *> *lines);     // some line is timed word by word
+BOOL NLWordTimesPlausible(NSArray<NLLyricLine *> *lines);   // NO when the words go faster than anyone sings
+BOOL NLWordLinesAgree(NSArray<NLLyricLine *> *words, NSArray<NLLyricLine *> *timed);   // same lines at about the same times
 void NLMarkChorus(NSArray<NLLyricLine *> *lines);   // sets chorus/chorusStart; leaves them NO when nothing repeats
 NSString *NLCachePath(NSString *key);
 NSString *NLNowPlayingPath(void);                   // Library/NowLyrics/nowplaying.plist

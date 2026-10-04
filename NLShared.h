@@ -45,6 +45,15 @@
 #define NL_NP_PATH      @"path"       // the lyrics file in use, absent when there is none
 #define NL_NP_WORDS     @"words"      // the lyrics have word timings
 #define NL_NP_UPDATED   @"updated"    // NSDate
+#define NL_NP_STAMP     @"stamp"      // the same as a CFAbsoluteTime: a date in the plist keeps whole seconds only
+
+// The settings page looking the playing song up again with a source:
+// Library/NowLyrics/lookup.plist beside nowplaying.plist, with `key` (the
+// track key), `source` (a sourceOrder name, "" for automatic) and `stamp` (a
+// CFAbsoluteTime). The app reads it when told the lyrics changed, so the pick
+// holds at once, before cfprefsd has written the preference file the app reads
+// (which once took a few taps).
+#define NL_LOOKUP_FILE  @"lookup.plist"
 
 // The preference file. Sandboxed apps cannot always read the global one, so a
 // few locations are tried. The first is the process's own Library, which in

@@ -3,10 +3,10 @@
 //  "Now Playing": the lock screen's own player at the top (MediaControls'
 //  cover sheet platter: artwork, the line being sung as its title, scrubber,
 //  transport), then the song as the app really reports it and where its lyrics
-//  came from, a source picked for this song, how lines are shown (the artist
-//  field, the overall offset, the E badge: changed here, seen in the player
-//  above), its own offset, and search again, paste or import lyrics of its
-//  own, look at and edit the file.
+//  came from, how lines are shown (the artist field, the E badge: changed
+//  here, seen in the player above) and its offset, and
+//  its lyrics: the sources to look it up again with (a tap does it), pasting
+//  or importing lyrics of its own, looking at and editing the file.
 //
 //  The real title and the lyrics file come from the app's nowplaying.plist
 //  (the now-playing title MediaRemote has is a lyric line). After a change the
@@ -29,10 +29,8 @@ static const NSTimeInterval kNLRefreshInterval = 0.75;   // how often the page l
 
 typedef NS_ENUM(NSInteger, NLSection) {
     NLSectionSong = 0,
-    NLSectionSource,
-    NLSectionDisplay,
-    NLSectionOffset,
-    NLSectionLyrics,
+    NLSectionDisplay,      // how lines are shown, and this song's offset
+    NLSectionLyrics,       // the sources to look it up with, then pasting, importing, editing
     NLSectionCount,
     NLSectionNothing,   // with nothing playing: the note, then Display
 };
@@ -40,7 +38,7 @@ typedef NS_ENUM(NSInteger, NLSection) {
 typedef NS_ENUM(NSInteger, NLDisplayRow) {
     NLDisplayRowArtist = 0,
     NLDisplayRowExplicit,
-    NLDisplayRowTint,       // the player's background in the lyrics' color, here and on the lock screen / in Control Center
+    NLDisplayRowOffset,     // only while a song plays: its own
     NLDisplayRowCount,
 };
 
@@ -161,6 +159,9 @@ static NSString *NLSourceTitle(NSString *name) {
     NSString *_bundleID;
     NSDictionary *_np;            // the app's nowplaying.plist
     NSArray<NSString *> *_actions;
+    CFAbsoluteTime _askedAt;         // looked up again from here (0: not): "Searching…" until the app has answered
+    NSString *_askedSource;          // with which source ("" automatic), for the result row
+    BOOL _showResult;                // the result row: since a lookup from here, until another song
     NSArray<NSString *> *_sources;   // the source rows offered for this app
     NSTimer *_refresh;
     NSUInteger _ticks;
@@ -271,16 +272,33 @@ static NSString *NLSourceTitle(NSString *name) {
     _bundleID = bundleID;
     _np = np;
     if (!sameSong) {
+        _askedAt = 0;
+        _showResult = NO;   // the result was another song's
+    } else if (_askedAt && [self nlWrittenAfter:_askedAt]) {
+        _askedAt = 0;       // the app has answered
+    }
+    if (!sameSong) {
         [self nlRebuild];
         return;
     }
-    NSUInteger oldActions = _actions.count;
+    NSUInteger oldRows = [self nlLyricsRowCount];
     [self nlRebuild:NO];
+    if ([self nlLyricsRowCount] != oldRows) {
+        [_table reloadData];
+        return;
+    }
     NSMutableIndexSet *sections = [NSMutableIndexSet indexSetWithIndex:NLSectionSong];
-    [sections addIndex:NLSectionSource];
-    if (_actions.count == oldActions) [sections addIndex:NLSectionLyrics];
-    if (_actions.count != oldActions) [_table reloadData];
-    else [_table reloadSections:sections withRowAnimation:UITableViewRowAnimationNone];
+    [sections addIndex:NLSectionLyrics];
+    [_table reloadSections:sections withRowAnimation:UITableViewRowAnimationNone];
+}
+
+// Whether the app wrote its nowplaying.plist after `time`: by its stamp, or by
+// its date (whole seconds only) for an app not restarted since NowLyrics was.
+- (BOOL)nlWrittenAfter:(CFAbsoluteTime)time {
+    id stamp = _np[NL_NP_STAMP];
+    if ([stamp respondsToSelector:@selector(doubleValue)]) return [stamp doubleValue] > time;
+    NSDate *updated = _np[NL_NP_UPDATED];
+    return [updated isKindOfClass:NSDate.class] && updated.timeIntervalSinceReferenceDate > floor(time) - 0.001;
 }
 
 - (NSString *)nlString:(NSString *)key {
@@ -307,7 +325,7 @@ static NSString *NLSourceTitle(NSString *name) {
     _sources = sources;
     NSMutableArray<NSString *> *actions = [NSMutableArray array];
     if (_np) {
-        [actions addObject:[self nlIsManual] ? @"removeManual" : @"search"];
+        if ([self nlIsManual]) [actions addObject:@"removeManual"];
         [actions addObject:@"paste"];
         [actions addObject:@"import"];
         if ([self nlPath]) [actions addObject:@"edit"];
@@ -315,6 +333,11 @@ static NSString *NLSourceTitle(NSString *name) {
     _actions = actions;
     if (reload) [_table reloadData];
 }
+
+// The lyrics group: the result of a lookup from here (while there is one),
+// the sources, then the actions.
+- (NSUInteger)nlResultRows { return (_showResult && _np) ? 1 : 0; }
+- (NSUInteger)nlLyricsRowCount { return [self nlResultRows] + _sources.count + _actions.count; }
 
 - (BOOL)nlBoolPref:(NSString *)key fallback:(BOOL)fallback {
     id value = [self nlPref:key];
@@ -415,17 +438,39 @@ static NSString *NLSourceTitle(NSString *name) {
 
 // Pinned (or back to automatic): the saved copy goes, and once the apps have
 // re-read the settings, they are told to look the song up again.
+// A tap on a source looks the song up again with it at once; on the one ticked
+// already, the same again (what "Search again" was). The song's row says
+// "Searching…" right away.
 - (void)nlPickSource:(NSString *)name {
-    if ([name isEqualToString:[self nlPickedSource]]) return;
-    [self nlSetTrackValue:(name.length ? name : nil) inPref:NL_TRACK_SOURCES_KEY];
+    BOOL same = [name isEqualToString:[self nlPickedSource]];
+    if (!same) [self nlSetTrackValue:(name.length ? name : nil) inPref:NL_TRACK_SOURCES_KEY];
     NSString *path = [self nlPath];
     if (path && ![self nlIsManual]) [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
-    [_table reloadSections:[NSIndexSet indexSetWithIndex:NLSectionSource] withRowAnimation:UITableViewRowAnimationNone];
-    CFPreferencesAppSynchronize(CFSTR("app.nowlyrics"));
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        NLPostLyricsChanged();
-        [self nlStartPolling];
+    CFAbsoluteTime asked = CFAbsoluteTimeGetCurrent();
+    _askedAt = asked;
+    _askedSource = name;
+    _showResult = YES;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(20 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (self->_askedAt != asked) return;
+        self->_askedAt = 0;   // no answer: say what the file says again
+        [self->_table reloadData];
     });
+    NSMutableIndexSet *sections = [NSMutableIndexSet indexSetWithIndex:NLSectionSong];
+    [sections addIndex:NLSectionLyrics];
+    [_table reloadSections:sections withRowAnimation:UITableViewRowAnimationNone];
+    // The pick also goes beside the app's nowplaying.plist (NL_LOOKUP_FILE),
+    // which it reads when told: the preference just written may not be in the
+    // file it reads yet, and the song was looked up with the old source.
+    NSString *container = NLDataContainerForBundle(_bundleID);
+    NSString *key = [self nlString:NL_NP_KEY];
+    if (container && key.length) {
+        NSString *dir = [container stringByAppendingPathComponent:@"Library/NowLyrics"];
+        [@{@"key": key, @"source": name ?: @"", @"stamp": @(CFAbsoluteTimeGetCurrent())}
+            writeToFile:[dir stringByAppendingPathComponent:NL_LOOKUP_FILE] atomically:YES];
+    }
+    CFPreferencesAppSynchronize(CFSTR("app.nowlyrics"));
+    NLPostLyricsChanged();
+    [self nlStartPolling];
 }
 
 - (void)nlOffsetChanged:(NLOffsetControl *)control {
@@ -452,11 +497,6 @@ static NSString *NLSourceTitle(NSString *name) {
     if ([value isEqualToString:[self nlArtistField]]) return;
     [self nlSetPref:value forKey:@"artistField"];
     [self nlReloadDisplayRow:NLDisplayRowArtist];
-}
-
-- (void)nlTintChanged:(UISwitch *)toggle {
-    [self nlSetPref:@(toggle.on) forKey:NL_PLAYER_TINT_KEY];
-    [_player layout];
 }
 
 - (void)nlExplicitChanged:(UISwitch *)toggle {
@@ -490,16 +530,15 @@ static NSString *NLSourceTitle(NSString *name) {
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     switch ([self nlSectionKind:section]) {
-        case NLSectionLyrics: return (NSInteger)_actions.count;
-        case NLSectionSource: return (NSInteger)_sources.count;
-        case NLSectionDisplay: return NLDisplayRowCount;
+        case NLSectionLyrics: return (NSInteger)[self nlLyricsRowCount];
+        case NLSectionDisplay: return _np ? NLDisplayRowCount : NLDisplayRowOffset;
         default: return 1;
     }
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     switch ([self nlSectionKind:section]) {
-        case NLSectionSource: return NLL(@"Lyrics source");
+        case NLSectionLyrics: return NLL(@"Lyrics");
         case NLSectionDisplay: return NLL(@"Display");
         default: return nil;
     }
@@ -508,11 +547,9 @@ static NSString *NLSourceTitle(NSString *name) {
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     NLSection kind = [self nlSectionKind:section];
     if (kind == NLSectionNothing) return NLL(@"Play a song in an app NowLyrics is on for, then come back.");
-    if (kind == NLSectionDisplay) return NLL(@"Player in lyrics color colors the player here, on the lock screen and in Control Center: the album color the lyrics use, or the cover blurred and darkened.");
-    if (kind == NLSectionOffset) return NLL(@"This song’s timing only; a positive offset shows its lyrics earlier. Every other song uses the default offset under Advanced.");
-    if (kind == NLSectionSource) return NLL(@"Picks the source for this song and searches it again. Automatic follows the order on the main page.");
-    if (section == NLSectionLyrics) {
-        return [NSString stringWithFormat:NLL(@"Added lyrics are used in %@ before any online source. LRC, word-by-word LRC and TTML work."),
+    if (kind == NLSectionDisplay && _np) return NLL(@"This song’s timing only; a positive offset shows its lyrics earlier. Every other song uses the default offset under Advanced.");
+    if (kind == NLSectionLyrics) {
+        return [NSString stringWithFormat:NLL(@"Tap a source to look this song up again with it; the ticked one looks it up again as before. Automatic follows the source order. Added lyrics are used in %@ before any online source; LRC, word-by-word LRC and TTML work."),
                 NLAppName(_bundleID)];
     }
     return nil;
@@ -520,7 +557,7 @@ static NSString *NLSourceTitle(NSString *name) {
 
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
     NLSection kind = [self nlSectionKind:indexPath.section];
-    if (kind == NLSectionOffset) return 92;
+    if (kind == NLSectionDisplay && indexPath.row == NLDisplayRowOffset) return 92;
     return UITableViewAutomaticDimension;
 }
 
@@ -532,7 +569,7 @@ static NSString *NLSourceTitle(NSString *name) {
     NSString *text;
     if ([self nlIsManual]) {
         text = NLL(@"Added by you");
-    } else if (!status) {
+    } else if (!status || _askedAt) {   // searching, or asked from here and not answered yet
         text = NLL(@"Searching…");
     } else if (path) {
         NSString *from = [status hasPrefix:@"cache · "] ? [status substringFromIndex:8] : status;
@@ -564,19 +601,13 @@ static NSString *NLSourceTitle(NSString *name) {
 }
 
 - (UITableViewCell *)nlDisplayCellForRow:(NSInteger)row {
+    if (row == NLDisplayRowOffset) return [self nlOffsetCell];
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
     cell.selectionStyle = UITableViewCellSelectionStyleNone;
     if (row == NLDisplayRowArtist) {
         cell.textLabel.text = NLL(@"Artist field");
         cell.imageView.image = NLSettingsIcon(@"text.alignleft", @"#FC9429");
         cell.accessoryView = [self nlArtistFieldButton];
-    } else if (row == NLDisplayRowTint) {
-        cell.textLabel.text = NLL(@"Player in lyrics color");
-        cell.imageView.image = NLSettingsIcon(@"paintbrush.fill", @"#FF6482");
-        UISwitch *toggle = [UISwitch new];
-        toggle.on = [self nlBoolPref:NL_PLAYER_TINT_KEY fallback:YES];
-        [toggle addTarget:self action:@selector(nlTintChanged:) forControlEvents:UIControlEventValueChanged];
-        cell.accessoryView = toggle;
     } else {
         cell.textLabel.text = NLL(@"Hide explicit badge");
         cell.imageView.image = NLSettingsIcon(@"e.square", @"#8E8E93");
@@ -588,9 +619,56 @@ static NSString *NLSourceTitle(NSString *name) {
     return cell;
 }
 
+// What the lookup from here came to: still searching (with which source),
+// found (where, how many lines, word or line timing, the first lines), or not
+// (with what each source answered).
+- (UITableViewCell *)nlResultCell {
+    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:nil];
+    cell.selectionStyle = UITableViewCellSelectionStyleNone;
+    cell.textLabel.numberOfLines = 0;
+    cell.textLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightSemibold];
+    cell.detailTextLabel.numberOfLines = 0;
+    cell.detailTextLabel.textColor = UIColor.secondaryLabelColor;
+    cell.imageView.image = NLSettingsIcon(@"magnifyingglass", @"#5C5CDE");
+    NSString *status = [self nlString:NL_NP_STATUS];
+    NSString *path = [self nlPath];
+    if ([self nlIsManual]) {
+        cell.textLabel.text = NLL(@"This song uses lyrics you added");
+        return cell;
+    }
+    if (_askedAt || !status) {
+        cell.textLabel.text = [NSString stringWithFormat:NLL(@"Searching with %@…"), NLSourceTitle(_askedSource ?: @"")];
+        UIActivityIndicatorView *spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
+        [spinner startAnimating];
+        cell.accessoryView = spinner;
+        return cell;
+    }
+    NSString *text = path ? [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil] : nil;
+    NSArray<NLLyricLine *> *lines = text ? NLParseLRC(text) : nil;
+    NSMutableArray<NSString *> *sung = [NSMutableArray array];
+    for (NLLyricLine *line in lines) if (line.text.length) [sung addObject:line.text];
+    if (!sung.count) {
+        cell.textLabel.text = NLL(@"No lyrics found");
+        cell.detailTextLabel.text = status;   // what each source answered
+        return cell;
+    }
+    NSString *from = [status hasPrefix:@"cache · "] ? [status substringFromIndex:8] : status;
+    if ([from hasPrefix:@"Musixmatch"]) from = @"Musixmatch";
+    cell.imageView.image = NLSourceIcon([self nlSourceNameForLabel:from]);
+    cell.textLabel.text = [NSString stringWithFormat:NLL(@"%@ · %lu lines · %@"), from, (unsigned long)sung.count,
+                           NLHasWords(lines) ? NLL(@"word-timed") : NLL(@"line-timed")];
+    cell.detailTextLabel.text = [[sung subarrayWithRange:NSMakeRange(0, MIN(sung.count, (NSUInteger)2))] componentsJoinedByString:@"\n"];
+    return cell;
+}
+
+// The source's preference name from the label the engine writes.
+- (NSString *)nlSourceNameForLabel:(NSString *)label {
+    NSDictionary *names = @{@"Apple Music": @"applemusic", @"Musixmatch": @"musixmatch", @"LRCLIB": @"lrclib", @"NetEase": @"netease"};
+    return names[label] ?: @"";
+}
+
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     if ([self nlSectionKind:indexPath.section] == NLSectionDisplay) return [self nlDisplayCellForRow:indexPath.row];
-    if ([self nlSectionKind:indexPath.section] == NLSectionOffset) return [self nlOffsetCell];
     if (!_np) {
         UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
         cell.textLabel.text = NLL(@"Nothing is playing");
@@ -607,8 +685,10 @@ static NSString *NLSourceTitle(NSString *name) {
         cell.statusLabel.text = [self nlStatusText];
         return cell;
     }
-    if (indexPath.section == NLSectionSource) {
-        NSString *name = _sources[indexPath.row];
+    NSInteger lyricsRow = indexPath.row - (NSInteger)[self nlResultRows];
+    if (indexPath.section == NLSectionLyrics && lyricsRow < 0) return [self nlResultCell];
+    if (indexPath.section == NLSectionLyrics && lyricsRow < (NSInteger)_sources.count) {
+        NSString *name = _sources[lyricsRow];
         UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
         cell.textLabel.text = NLSourceTitle(name);
         cell.imageView.image = NLSourceIcon(name);
@@ -617,10 +697,9 @@ static NSString *NLSourceTitle(NSString *name) {
         return cell;
     }
 
-    NSString *action = _actions[indexPath.row];
+    NSString *action = _actions[lyricsRow - _sources.count];
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
     NSDictionary *rows = @{
-        @"search":       @[@"Search again", @"arrow.clockwise"],
         @"removeManual": @[@"Remove added lyrics", @"trash"],
         @"paste":        @[@"Paste lyrics", @"doc.on.clipboard"],
         @"import":       @[@"Import from Files", @"folder"],
@@ -638,14 +717,15 @@ static NSString *NLSourceTitle(NSString *name) {
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    if (_np && indexPath.section == NLSectionSource) {
-        [self nlPickSource:_sources[indexPath.row]];
+    if (!_np || indexPath.section != NLSectionLyrics) return;
+    NSInteger lyricsRow = indexPath.row - (NSInteger)[self nlResultRows];
+    if (lyricsRow < 0) return;   // the result
+    if (lyricsRow < (NSInteger)_sources.count) {
+        [self nlPickSource:_sources[lyricsRow]];
         return;
     }
-    if (!_np || indexPath.section != NLSectionLyrics) return;
-    NSString *action = _actions[indexPath.row];
-    if ([action isEqualToString:@"search"]) [self nlSearchAgain];
-    else if ([action isEqualToString:@"removeManual"]) [self nlRemoveManual];
+    NSString *action = _actions[lyricsRow - _sources.count];
+    if ([action isEqualToString:@"removeManual"]) [self nlRemoveManual];
     else if ([action isEqualToString:@"paste"]) [self nlPaste];
     else if ([action isEqualToString:@"import"]) [self nlImport];
     else if ([action isEqualToString:@"edit"]) [self nlEdit];
@@ -656,15 +736,6 @@ static NSString *NLSourceTitle(NSString *name) {
 }
 
 #pragma mark Actions
-
-// The saved copy goes, so the app has nothing on disk and asks the sources
-// again; a song nothing was found for is simply asked about again.
-- (void)nlSearchAgain {
-    NSString *path = [self nlPath];
-    if (path && ![self nlIsManual]) [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
-    NLPostLyricsChanged();
-    [self nlStartPolling];
-}
 
 - (void)nlRemoveManual {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:NLL(@"Remove added lyrics?")

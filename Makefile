@@ -64,7 +64,7 @@ NowLyricsPrefs_FILES += prefsbundle/NLOffsetCell.m prefsbundle/NLRootListControl
                          prefsbundle/NLIslandPreviewCell.m prefsbundle/NLPreviewLines.m NLIslandStrip.m \
                          prefsbundle/NLNowPlayingController.m prefsbundle/NLLibraryController.m \
                          prefsbundle/NLLyricsEditor.m prefsbundle/NLLyricsImport.m prefsbundle/NLWaveformView.m prefsbundle/NLPlayerHeader.m prefsbundle/NLCrescendo.m prefsbundle/NLSourceOrderController.m prefsbundle/NLAppleMusicController.m \
-                         prefsbundle/NLAppleMusicAccess.m prefsbundle/NLPopUpCell.m \
+                         prefsbundle/NLAppleMusicAccess.m prefsbundle/NLPopUpCell.m prefsbundle/NLNextUp.m \
                          NLLyrics.m NLTTML.m NLLocate.m NLPlayerTint.m
 NowLyricsPrefs_CFLAGS += -fobjc-arc -Wall -DNL_VERSION=\"$(PACKAGE_VERSION)\"
 NowLyricsPrefs_FRAMEWORKS += UIKit ImageIO QuartzCore UniformTypeIdentifiers CoreImage

@@ -299,6 +299,7 @@ static void NLWriteNowPlaying(void) {
     gWrittenNowPlaying = [info copy];
 
     info[NL_NP_UPDATED] = [NSDate date];
+    info[NL_NP_STAMP] = @(CFAbsoluteTimeGetCurrent());   // to the fraction, which the date is not once written
     dispatch_async(gWriteQueue, ^{ [info writeToFile:NLNowPlayingPath() atomically:YES]; });
 }
 

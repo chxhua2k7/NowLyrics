@@ -87,6 +87,7 @@ static void NLIFileLog(NSString *format, ...) {
 // with the artwork and waveform in it; addContentSubview: puts a view there.
 @interface SBSystemApertureContainerView : UIView
 - (void)addContentSubview:(UIView *)view;
+- (UIViewController *)elementViewController;   // the element the pill shows now
 @end
 
 @interface SBSystemApertureSceneElement : NSObject
@@ -396,11 +397,35 @@ static void NLIslandRevealWhenStill(UIView *pill, int attempt) {
                      animations:^{ gClip.alpha = 1; } completion:nil];
 }
 
+// Whether the pill shows the now-playing element. Another element can take
+// the pill over while the player stays compact (Face ID's check grows it into
+// a square), and the line, which is the pill's content rather than the
+// element's, stayed at its bottom.
+static BOOL NLPillShowsNowPlaying(UIView *pill) {
+    if (!pill || ![pill respondsToSelector:@selector(elementViewController)]) return YES;
+    UIViewController *shown = [(SBSystemApertureContainerView *)pill elementViewController];
+    UIView *scene = gSceneContainer;
+    if (!shown || !scene) return YES;
+    if (![scene isDescendantOfView:pill]) return NO;
+    UIViewController *ours = nil;
+    for (UIResponder *r = scene.nextResponder; r; r = r.nextResponder) {
+        if ([r isKindOfClass:UIViewController.class]) { ours = (UIViewController *)r; break; }
+    }
+    if (!ours) return YES;
+    for (UIViewController *vc = ours; vc; vc = vc.parentViewController) {
+        if (vc == shown) return YES;
+    }
+    return NO;
+}
+
+static BOOL gShowsNowPlaying = YES;   // as last seen by the pill's layout
+
 static void NLIslandUpdate(void) {
     UIView *pill = NLPillFor(gSceneContainer);
     SBSystemApertureSceneElement *element = gElement;
     BOOL compact = [element respondsToSelector:@selector(layoutMode)] && element.layoutMode == kNLCompactLayoutMode;
-    BOOL show = gSettings.on && pill && compact && gTitle.length > 0 && !gSettings.debugNoStrip;
+    gShowsNowPlaying = NLPillShowsNowPlaying(pill);
+    BOOL show = gSettings.on && pill && compact && gShowsNowPlaying && gTitle.length > 0 && !gSettings.debugNoStrip;
     NLI_LOG_CHANGED(([NSString stringWithFormat:@"update on=%d pill=%@ mode=%ld title=%@ show=%d",
                       gSettings.on, pill ? NSStringFromClass(pill.class) : @"nil",
                       [element respondsToSelector:@selector(layoutMode)] ? (long)element.layoutMode : -1L, gTitle, show]));
@@ -572,7 +597,12 @@ static void NLIslandInvalidateHeight(void) {
 %hook SBSystemApertureContainerView
 - (void)layoutSubviews {
     %orig;
-    if ((__bridge void *)self == gAttachedPillPtr) NLIslandLayout(self);
+    if ((__bridge void *)self != gAttachedPillPtr) return;
+    NLIslandLayout(self);
+    // Another element took the pill over, or gave it back: the line goes or comes.
+    if (NLPillShowsNowPlaying(self) != gShowsNowPlaying) {
+        dispatch_async(dispatch_get_main_queue(), ^{ NLIslandUpdate(); });
+    }
 }
 %end
 

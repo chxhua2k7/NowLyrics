@@ -203,6 +203,19 @@ NLSettings *NLSettingsReload(void) {
     return gCurrent;
 }
 
+NLSettings *NLSettingsReloadPicking(NSString *trackKey, NSString *source) {
+    NSMutableDictionary *prefs = [NLReadPrefsFile() mutableCopy] ?: [NSMutableDictionary dictionary];
+    if (trackKey.length) {
+        id old = prefs[NL_TRACK_SOURCES_KEY];
+        NSMutableDictionary *sources = [old isKindOfClass:[NSDictionary class]] ? [old mutableCopy] : [NSMutableDictionary dictionary];
+        if (source.length) sources[trackKey] = source;
+        else [sources removeObjectForKey:trackKey];
+        prefs[NL_TRACK_SOURCES_KEY] = sources;
+    }
+    gCurrent = [[NLSettings alloc] initWithPrefs:prefs];
+    return gCurrent;
+}
+
 #pragma mark - Process checks
 
 // Load-time safety check, independent of user settings. The filter matches on a
