@@ -466,11 +466,18 @@ static NSArray<NLLyricLine *> *NLFetchSource(NLFetch *f, NLSource source, NSStri
             break;
         }
         case NLSourceAppleMusic: {
-            // Only Music has these, and only for what it is playing.
-            if (!NLProcessUsesContentItems() || !s.useAppleMusic) return nil;
-            NSString *raw = NLAppleMusicLyrics(f.title, 10);
+            // Music asks by its own item; another app through SpringBoard,
+            // which finds the song on Apple Music first.
+            if (!s.useAppleMusic) return nil;
+            NSString *raw = nil;
+            if (NLProcessUsesContentItems()) {
+                raw = NLAppleMusicLyrics(f.title, 10);
+            } else {
+                if (!s.useAppleMusicElsewhere) return nil;
+                raw = NLAppleMusicLyricsFromSpringBoard(f.title, f.artist, f.duration, 10, &note);
+            }
             label = @"Apple Music";
-            if (raw.length == 0) note = @"no lyrics";
+            if (raw.length == 0) { if (!note.length) note = @"no lyrics"; }
             else {
                 lines = [raw rangeOfString:@"<tt" options:NSCaseInsensitiveSearch].location != NSNotFound
                     ? NLParseTTML(raw) : NLParseLRC(raw);
@@ -512,22 +519,17 @@ static NSArray<NLLyricLine *> *NLFetchSource(NLFetch *f, NLSource source, NSStri
     return nil;
 }
 
-// The source picked for this song goes first, then Apple Music's own lyrics
-// in Music when that switch is on, then the preferred source; the rest keep
-// their default relative order: Musixmatch (best timing) -> LRCLIB (free,
-// broad) -> NetEase (Chinese tracks). Apple Music is only ever tried when
-// picked or switched on.
+// The source picked for this song goes first, then the user's order (by
+// default Apple Music in Music, Musixmatch for its timing, LRCLIB, free and
+// broad, then NetEase for Chinese tracks). A source switched off is skipped
+// when its turn comes.
 static int NLSourceOrder(NLSettings *settings, NLSource picked, NLSource order[NLSourceCount]) {
     int n = 0;
     BOOL used[NLSourceCount] = {NO};
-    NLSource wanted[] = {
-        picked,
-        settings.useAppleMusic ? NLSourceAppleMusic : NLSourceNone,
-        settings.preferredSource,
-        NLSourceMusixmatch, NLSourceLRCLIB, NLSourceNetease,
-    };
-    for (size_t i = 0; i < sizeof(wanted) / sizeof(wanted[0]); i++) {
-        NLSource s = wanted[i];
+    NSMutableArray<NSNumber *> *wanted = [NSMutableArray arrayWithObject:@(picked)];
+    [wanted addObjectsFromArray:settings.sourceOrder];
+    for (NSNumber *number in wanted) {
+        NLSource s = (NLSource)number.integerValue;
         if (s == NLSourceNone || s < 0 || s >= NLSourceCount || used[s]) continue;
         used[s] = YES;
         order[n++] = s;

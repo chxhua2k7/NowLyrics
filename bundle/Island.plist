@@ -62,7 +62,7 @@
 			<key>cell</key>
 			<string>PSSwitchCell</string>
 			<key>default</key>
-			<true/>
+			<false/>
 			<key>defaults</key>
 			<string>app.nowlyrics</string>
 			<key>iconColor</key>
@@ -80,13 +80,13 @@
 			<key>PostNotification</key>
 			<string>app.nowlyrics/ReloadPrefs</string>
 			<key>cell</key>
-			<string>PSLinkListCell</string>
+			<string>PSDefaultCell</string>
+			<key>cellClass</key>
+			<string>NLPopUpCell</string>
 			<key>default</key>
 			<string>white</string>
 			<key>defaults</key>
 			<string>app.nowlyrics</string>
-			<key>detail</key>
-			<string>PSListItemsController</string>
 			<key>iconColor</key>
 			<string>#FF9F0A</string>
 			<key>iconSymbol</key>
@@ -112,13 +112,13 @@
 			<key>PostNotification</key>
 			<string>app.nowlyrics/ReloadPrefs</string>
 			<key>cell</key>
-			<string>PSLinkListCell</string>
+			<string>PSDefaultCell</string>
+			<key>cellClass</key>
+			<string>NLPopUpCell</string>
 			<key>default</key>
 			<string>fade</string>
 			<key>defaults</key>
 			<string>app.nowlyrics</string>
-			<key>detail</key>
-			<string>PSListItemsController</string>
 			<key>iconColor</key>
 			<string>#30B0C7</string>
 			<key>iconSymbol</key>

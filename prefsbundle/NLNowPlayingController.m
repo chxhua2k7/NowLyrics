@@ -3,8 +3,10 @@
 //  "Now Playing": the lock screen's own player at the top (MediaControls'
 //  cover sheet platter: artwork, the line being sung as its title, scrubber,
 //  transport), then the song as the app really reports it and where its lyrics
-//  came from, a source picked for this song, its own offset, and search again,
-//  paste or import lyrics of its own, look at and edit the file.
+//  came from, a source picked for this song, how lines are shown (the artist
+//  field, the overall offset, the E badge: changed here, seen in the player
+//  above), its own offset, and search again, paste or import lyrics of its
+//  own, look at and edit the file.
 //
 //  The real title and the lyrics file come from the app's nowplaying.plist
 //  (the now-playing title MediaRemote has is a lyric line). After a change the
@@ -17,13 +19,10 @@
 #import <Preferences/PSSpecifier.h>
 #import <Preferences/PSTableCell.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#import "../NLIslandStrip.h"
+#import "../NLPlayerTint.h"
 #import <dlfcn.h>
 #import <objc/runtime.h>
-
-@interface NSObject (NLPlatter)
-+ (UIViewController *)coverSheetPlatterViewController;   // MRPlatterViewController, as the lock screen makes it
-- (void)setOnScreen:(BOOL)onScreen;                       // what makes it animate (the waveform) and update
-@end
 
 static const NSTimeInterval kNLRefreshInterval = 0.75;   // how often the page looks at what is playing
 
@@ -31,10 +30,28 @@ static const NSTimeInterval kNLRefreshInterval = 0.75;   // how often the page l
 typedef NS_ENUM(NSInteger, NLSection) {
     NLSectionSong = 0,
     NLSectionSource,
+    NLSectionDisplay,
     NLSectionOffset,
     NLSectionLyrics,
     NLSectionCount,
+    NLSectionNothing,   // with nothing playing: the note, then Display
 };
+
+typedef NS_ENUM(NSInteger, NLDisplayRow) {
+    NLDisplayRowArtist = 0,
+    NLDisplayRowExplicit,
+    NLDisplayRowTint,       // the player's background in the lyrics' color, here and on the lock screen / in Control Center
+    NLDisplayRowCount,
+};
+
+
+// The artist field's choices, by their preference values.
+static NSArray<NSString *> *NLArtistFieldValues(void) { return @[@"title", @"next", @"none"]; }
+
+static NSString *NLArtistFieldTitle(NSString *value) {
+    NSDictionary *titles = @{@"title": @"Track and artist", @"next": @"Next line", @"none": @"Leave alone"};
+    return NLL(titles[value] ?: titles[@"title"]);
+}
 
 // The sources a song can be pinned to, by their preference names.
 static NSArray<NSString *> *const NLSourceNames(void) {
@@ -114,7 +131,6 @@ static NSString *NLSourceTitle(NSString *name) {
         _control = [[NLOffsetControl alloc] initWithFrame:CGRectZero];
         _control.stacked = YES;
         [self.contentView addSubview:_control];
-        self.textLabel.text = NLL(@"This song’s offset");
     }
     return self;
 }
@@ -123,6 +139,9 @@ static NSString *NLSourceTitle(NSString *name) {
     [super layoutSubviews];
     CGRect content = self.contentView.bounds;
     CGFloat inset = self.contentView.layoutMargins.left;
+    CGRect icon = self.imageView.frame;
+    icon.origin.y = round((44 - icon.size.height) / 2);
+    self.imageView.frame = icon;
     CGRect title = self.textLabel.frame;
     title.origin.y = round((44 - title.size.height) / 2);
     title.size.width = MIN(title.size.width, content.size.width - inset - 84 - 12 - title.origin.x);
@@ -146,9 +165,7 @@ static NSString *NLSourceTitle(NSString *name) {
     NSTimer *_refresh;
     NSUInteger _ticks;
     BOOL _loaded;
-    UIViewController *_platter;      // the lock screen's player, nil if this iOS has none
-    UIView *_platterHost;
-    NLWaveformDriver *_waveform;     // moves its waveform, which has no audio tap here
+    NLPlayerHeader *_player;         // the lock screen's player, as the table's header
 }
 
 - (void)viewDidLoad {
@@ -162,51 +179,20 @@ static NSString *NLSourceTitle(NSString *name) {
     [self.view addSubview:_table];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(nlReload)
                                                  name:UIApplicationWillEnterForegroundNotification object:nil];
-    [self nlAddPlatter];
-}
-
-// The lock screen's now-playing platter, made the way the cover sheet makes
-// it, as the table's header. MediaRemote answers Preferences like any app.
-- (void)nlAddPlatter {
-    dlopen("/System/Library/PrivateFrameworks/MediaControls.framework/MediaControls", RTLD_NOW);
-    Class platterClass = objc_getClass("MRPlatterViewController");
-    if (![platterClass respondsToSelector:@selector(coverSheetPlatterViewController)]) return;
-    _platter = [platterClass coverSheetPlatterViewController];
-    if (!_platter) return;
-    _platterHost = [[UIView alloc] initWithFrame:CGRectMake(0, 0, _table.bounds.size.width, 220)];
-    [self addChildViewController:_platter];
-    [_platterHost addSubview:_platter.view];
-    [_platter didMoveToParentViewController:self];
-    _table.tableHeaderView = _platterHost;
+    _player = [[NLPlayerHeader alloc] initWithOwner:self table:_table];
+    __weak UITableView *table = _table;
+    [[NSNotificationCenter defaultCenter] addObserverForName:NLThemeChangedNotification object:nil queue:nil
+                                                  usingBlock:^(NSNotification *n) { NLThemeTable(table); }];
 }
 
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
-    [self nlLayoutPlatter];
+    [_player layout];
 }
 
 - (void)preferredContentSizeDidChangeForChildContentContainer:(id<UIContentContainer>)container {
     [super preferredContentSizeDidChangeForChildContentContainer:container];
-    [self nlLayoutPlatter];
-}
-
-// Inset like the table's cards, as tall as it asks to be.
-- (void)nlLayoutPlatter {
-    if (!_platter) return;
-    CGFloat inset = _table.layoutMargins.left;
-    CGFloat width = MAX(_table.bounds.size.width - inset * 2, 0);
-    CGFloat height = _platter.preferredContentSize.height;
-    if (height < 60) height = [_platter.view systemLayoutSizeFittingSize:CGSizeMake(width, UILayoutFittingCompressedSize.height)].height;
-    if (height < 60) height = 200;
-    CGRect frame = CGRectMake(inset, 16, width, height);
-    if (!CGRectEqualToRect(_platter.view.frame, frame)) _platter.view.frame = frame;
-    CGRect host = CGRectMake(0, 0, _table.bounds.size.width, height + 16);
-    if (!CGRectEqualToRect(_platterHost.frame, host)) {
-        _platterHost.frame = host;
-        _table.tableHeaderView = _platterHost;   // re-set so the table takes the new height
-    }
-    [_platter.view layoutIfNeeded];
-    [self nlSyncWaveform];
+    [_player layout];
 }
 
 - (void)dealloc {
@@ -228,30 +214,19 @@ static NSString *NLSourceTitle(NSString *name) {
 
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
-    if ([_platter respondsToSelector:@selector(setOnScreen:)]) [(id)_platter setOnScreen:YES];
+    [_player appear];
 }
 
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
     [_refresh invalidate];
     _refresh = nil;
-    [_waveform stop];
-    _waveform = nil;
-    if ([_platter respondsToSelector:@selector(setOnScreen:)]) [(id)_platter setOnScreen:NO];
-}
-
-// The platter's own waveform gets its levels from an audio tap Preferences
-// cannot have; made-up ones keep it moving while something plays, and it keeps
-// its own look.
-- (void)nlSyncWaveform {
-    if (!_platter) return;
-    if (!_waveform) _waveform = [NLWaveformDriver new];
-    [_waveform driveViewsIn:_platter.view];
-    NLNowPlayingIsPlaying(^(BOOL playing) { self->_waveform.playing = playing; });
+    [_player disappear];
 }
 
 - (void)nlTick {
-    [self nlSyncWaveform];
+    [_player tick];
+    if (_ticks % 4 == 0) NLThemeRefresh();
     if (++_ticks % 4 == 0) {
         [self nlReload];   // another app may have started playing
         return;
@@ -321,8 +296,8 @@ static NSString *NLSourceTitle(NSString *name) {
     [self nlRebuild:YES];
 }
 
-// The sources switched on on the main page (Apple Music only in Music, where it
-// can answer), and the actions that fit the lyrics in use.
+// The sources switched on under Lyrics Sources (Apple Music in other apps only
+// while it may be used there), and the actions that fit the lyrics in use.
 - (void)nlRebuild:(BOOL)reload {
     NSMutableArray<NSString *> *sources = [NSMutableArray array];
     for (NSString *name in NLSourceNames()) {
@@ -348,8 +323,9 @@ static NSString *NLSourceTitle(NSString *name) {
 
 - (BOOL)nlSourceEnabled:(NSString *)name {
     if ([name isEqualToString:@"applemusic"]) {
-        return [_bundleID isEqualToString:@"com.apple.Music"] &&
-               ([self nlBoolPref:@"useAppleMusic" fallback:NO] || [[self nlPref:@"preferredSource"] isEqual:@"applemusic"]);
+        // Music asks by its own item; other apps through SpringBoard, when allowed.
+        return NLAppleMusicVerified() && [self nlBoolPref:@"useAppleMusic" fallback:NO] &&
+               ([_bundleID isEqualToString:@"com.apple.Music"] || [self nlBoolPref:@"appleMusicOtherApps" fallback:YES]);
     }
     if ([name isEqualToString:@"musixmatch"]) return [self nlHasMusixmatch];
     if ([name isEqualToString:@"lrclib"]) return [self nlBoolPref:@"useLRCLIB" fallback:YES];
@@ -453,31 +429,88 @@ static NSString *NLSourceTitle(NSString *name) {
 }
 
 - (void)nlOffsetChanged:(NLOffsetControl *)control {
-    double value = round(control.value * 100) / 100;
+    double value = round((control.value - [self nlDefaultOffset]) * 100) / 100;
     [self nlSetTrackValue:(value == 0 ? nil : @(value)) inPref:NL_TRACK_OFFSETS_KEY];
+}
+
+#pragma mark Display
+
+- (NSString *)nlArtistField {
+    id value = [self nlPref:@"artistField"];
+    return [NLArtistFieldValues() containsObject:value] ? value : @"title";
+}
+
+// A pop-up of the three choices, its title the one in use.
+- (UIButton *)nlArtistFieldButton {
+    NSMutableArray<NSString *> *titles = [NSMutableArray array];
+    for (NSString *value in NLArtistFieldValues()) [titles addObject:NLArtistFieldTitle(value)];
+    __weak typeof(self) weakSelf = self;
+    return NLPopUpButton(titles, NLArtistFieldValues(), [self nlArtistField], ^(id value) { [weakSelf nlSetArtistField:value]; });
+}
+
+- (void)nlSetArtistField:(NSString *)value {
+    if ([value isEqualToString:[self nlArtistField]]) return;
+    [self nlSetPref:value forKey:@"artistField"];
+    [self nlReloadDisplayRow:NLDisplayRowArtist];
+}
+
+- (void)nlTintChanged:(UISwitch *)toggle {
+    [self nlSetPref:@(toggle.on) forKey:NL_PLAYER_TINT_KEY];
+    [_player layout];
+}
+
+- (void)nlExplicitChanged:(UISwitch *)toggle {
+    [self nlSetPref:@(toggle.on) forKey:@"hideExplicit"];
+}
+
+- (void)nlReloadDisplayRow:(NSInteger)row {
+    NSInteger section = [self nlSectionIndex:NLSectionDisplay];
+    if (section >= [_table numberOfSections] || row >= [_table numberOfRowsInSection:section]) return;
+    [_table reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:row inSection:section]]
+                  withRowAnimation:UITableViewRowAnimationNone];
 }
 
 #pragma mark Table
 
+// With nothing playing the page is the note and the Display settings.
+- (NLSection)nlSectionKind:(NSInteger)section {
+    if (_np) return (NLSection)section;
+    return section == 0 ? NLSectionNothing : NLSectionDisplay;
+}
+
+- (NSInteger)nlSectionIndex:(NLSection)kind {
+    if (_np) return kind;
+    return kind == NLSectionDisplay ? 1 : 0;
+}
+
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return _np ? NLSectionCount : 1;
+    if (_np) return NLSectionCount;
+    return _loaded ? 2 : 0;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    if (!_np) return _loaded ? 1 : 0;
-    if (section == NLSectionLyrics) return (NSInteger)_actions.count;
-    if (section == NLSectionSource) return (NSInteger)_sources.count;
-    return 1;
+    switch ([self nlSectionKind:section]) {
+        case NLSectionLyrics: return (NSInteger)_actions.count;
+        case NLSectionSource: return (NSInteger)_sources.count;
+        case NLSectionDisplay: return NLDisplayRowCount;
+        default: return 1;
+    }
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    return (_np && section == NLSectionSource) ? NLL(@"Lyrics source") : nil;
+    switch ([self nlSectionKind:section]) {
+        case NLSectionSource: return NLL(@"Lyrics source");
+        case NLSectionDisplay: return NLL(@"Display");
+        default: return nil;
+    }
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
-    if (!_np) return _loaded ? NLL(@"Play a song in an app NowLyrics is on for, then come back.") : nil;
-    if (section == NLSectionOffset) return NLL(@"Only for this song, on top of the offset on the main page.");
-    if (section == NLSectionSource) return NLL(@"Picks the source for this song and searches it again. Automatic follows the order on the main page.");
+    NLSection kind = [self nlSectionKind:section];
+    if (kind == NLSectionNothing) return NLL(@"Play a song in an app NowLyrics is on for, then come back.");
+    if (kind == NLSectionDisplay) return NLL(@"Player in lyrics color colors the player here, on the lock screen and in Control Center: the album color the lyrics use, or the cover blurred and darkened.");
+    if (kind == NLSectionOffset) return NLL(@"This song’s timing only; a positive offset shows its lyrics earlier. Every other song uses the default offset under Advanced.");
+    if (kind == NLSectionSource) return NLL(@"Picks the source for this song and searches it again. Automatic follows the order on the main page.");
     if (section == NLSectionLyrics) {
         return [NSString stringWithFormat:NLL(@"Added lyrics are used in %@ before any online source. LRC, word-by-word LRC and TTML work."),
                 NLAppName(_bundleID)];
@@ -486,7 +519,9 @@ static NSString *NLSourceTitle(NSString *name) {
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
-    return (_np && indexPath.section == NLSectionOffset) ? 92 : UITableViewAutomaticDimension;
+    NLSection kind = [self nlSectionKind:indexPath.section];
+    if (kind == NLSectionOffset) return 92;
+    return UITableViewAutomaticDimension;
 }
 
 // What the readout says about the lyrics: manual, cached or fetched (and from
@@ -511,7 +546,51 @@ static NSString *NLSourceTitle(NSString *name) {
     return text;
 }
 
+// The offset this song plays with: the default one (Advanced) and its own
+// together, so there is one number to look at. A change is kept as this
+// song's own, the difference from the default.
+- (double)nlDefaultOffset {
+    id value = [self nlPref:@"offset"];
+    return [value respondsToSelector:@selector(doubleValue)] ? [value doubleValue] : 0;
+}
+
+- (UITableViewCell *)nlOffsetCell {
+    NLSongOffsetCell *cell = [[NLSongOffsetCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+    cell.textLabel.text = NLL(@"Offset");
+    cell.imageView.image = NLSettingsIcon(@"clock", @"#33C759");
+    cell.control.value = [self nlDefaultOffset] + NLTrackOffset(@{NL_TRACK_OFFSETS_KEY: [self nlOffsets]}, [self nlString:NL_NP_KEY]);
+    [cell.control addTarget:self action:@selector(nlOffsetChanged:) forControlEvents:UIControlEventValueChanged];
+    return cell;
+}
+
+- (UITableViewCell *)nlDisplayCellForRow:(NSInteger)row {
+    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+    cell.selectionStyle = UITableViewCellSelectionStyleNone;
+    if (row == NLDisplayRowArtist) {
+        cell.textLabel.text = NLL(@"Artist field");
+        cell.imageView.image = NLSettingsIcon(@"text.alignleft", @"#FC9429");
+        cell.accessoryView = [self nlArtistFieldButton];
+    } else if (row == NLDisplayRowTint) {
+        cell.textLabel.text = NLL(@"Player in lyrics color");
+        cell.imageView.image = NLSettingsIcon(@"paintbrush.fill", @"#FF6482");
+        UISwitch *toggle = [UISwitch new];
+        toggle.on = [self nlBoolPref:NL_PLAYER_TINT_KEY fallback:YES];
+        [toggle addTarget:self action:@selector(nlTintChanged:) forControlEvents:UIControlEventValueChanged];
+        cell.accessoryView = toggle;
+    } else {
+        cell.textLabel.text = NLL(@"Hide explicit badge");
+        cell.imageView.image = NLSettingsIcon(@"e.square", @"#8E8E93");
+        UISwitch *toggle = [UISwitch new];
+        toggle.on = [self nlBoolPref:@"hideExplicit" fallback:NO];
+        [toggle addTarget:self action:@selector(nlExplicitChanged:) forControlEvents:UIControlEventValueChanged];
+        cell.accessoryView = toggle;
+    }
+    return cell;
+}
+
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    if ([self nlSectionKind:indexPath.section] == NLSectionDisplay) return [self nlDisplayCellForRow:indexPath.row];
+    if ([self nlSectionKind:indexPath.section] == NLSectionOffset) return [self nlOffsetCell];
     if (!_np) {
         UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
         cell.textLabel.text = NLL(@"Nothing is playing");
@@ -532,15 +611,9 @@ static NSString *NLSourceTitle(NSString *name) {
         NSString *name = _sources[indexPath.row];
         UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
         cell.textLabel.text = NLSourceTitle(name);
+        cell.imageView.image = NLSourceIcon(name);
         cell.accessoryType = [name isEqualToString:[self nlPickedSource]] ? UITableViewCellAccessoryCheckmark
                                                                            : UITableViewCellAccessoryNone;
-        return cell;
-    }
-    if (indexPath.section == NLSectionOffset) {
-        NLSongOffsetCell *cell = [[NLSongOffsetCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
-        cell.imageView.image = nil;
-        cell.control.value = NLTrackOffset(@{NL_TRACK_OFFSETS_KEY: [self nlOffsets]}, [self nlString:NL_NP_KEY]);
-        [cell.control addTarget:self action:@selector(nlOffsetChanged:) forControlEvents:UIControlEventValueChanged];
         return cell;
     }
 
@@ -576,6 +649,10 @@ static NSString *NLSourceTitle(NSString *name) {
     else if ([action isEqualToString:@"paste"]) [self nlPaste];
     else if ([action isEqualToString:@"import"]) [self nlImport];
     else if ([action isEqualToString:@"edit"]) [self nlEdit];
+}
+
+- (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {
+    NLThemeCell(cell);
 }
 
 #pragma mark Actions

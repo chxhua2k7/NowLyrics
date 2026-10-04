@@ -105,6 +105,15 @@ static const CGSize kNLExpanded = {330, 92};
 static const CGSize kNLExpandedLive = {368, 195};   // the real one on a 14 Pro: cover, line, progress, controls
 static const CGSize kNLOpenView = {371, 198};       // the open island's own view, laid out at the measured size
 static const CGFloat kNLExpandedLiveRadius = 44.5;
+// Crescendo's volume row in the open island (CRHooksDynamicIsland.x): the
+// island opens this much taller, the 24 pt slider 24 pt above its bottom,
+// 24 pt in from the sides.
+static const CGFloat kNLVolumeStrip = 40;
+static const CGFloat kNLVolumeSlider = 24;
+// The outline as SpringBoard's key line behaves: bright while the island
+// changes or is touched, then settling to a dimmer, inert line.
+static const NSTimeInterval kNLKeyLineHold = 2.5;
+static const CGFloat kNLKeyLineInert = 0.45;
 static const CGFloat kNLTopMargin = 8;   // from the top of the table to the island
 static const CGFloat kNLSensorWidth = 125;   // the line is centred under the camera at this width
 static const CGFloat kNLPressScale = 1.06;
@@ -156,25 +165,22 @@ static const NSUInteger kNLRecentLines = 20;   // not repeated until this many o
     UIViewPropertyAnimator *_pressAnimator;   // the swell under the finger, stopped when a pull takes over
     CGPoint _pressStart;
     UIImpactFeedbackGenerator *_lightTap, *_firmTap;
+    UIView *_volumeRow;        // Crescendo's slider in the open island, when it wants one there
+    UIView *_volumeHost;       // holds it over the open view, moving as it moves (not in it: see -nlLayoutVolumeRow)
+    CGFloat _volumeExtra;      // kNLVolumeStrip then, else 0
+    NSUInteger _keyLineGeneration;   // invalidates the pending settle of the outline
 }
 
-// A stand-in cover: a warm gradient with a note on it. Its album color comes
-// from the same NLColorFromArtwork() the island uses.
+// The stand-in cover: NowLyrics' own icon (the 87 px one in this bundle). Its
+// album color comes from the same NLColorFromArtwork() the island uses.
 static UIImage *NLSampleArtwork(CGFloat side) {
-    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(side, side)];
-    return [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
-        CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
-        NSArray *colors = @[(id)[UIColor colorWithRed:1.00 green:0.48 blue:0.36 alpha:1].CGColor,
-                            (id)[UIColor colorWithRed:0.86 green:0.25 blue:0.55 alpha:1].CGColor];
-        CGGradientRef gradient = CGGradientCreateWithColors(space, (__bridge CFArrayRef)colors, NULL);
-        CGContextDrawLinearGradient(context.CGContext, gradient, CGPointZero, CGPointMake(side, side), 0);
-        CGGradientRelease(gradient);
-        CGColorSpaceRelease(space);
-        UIImageSymbolConfiguration *config = [UIImageSymbolConfiguration configurationWithPointSize:side * 0.45 weight:UIImageSymbolWeightSemibold];
-        UIImage *note = [[UIImage systemImageNamed:@"music.note" withConfiguration:config]
-                         imageWithTintColor:[UIColor colorWithWhite:1 alpha:0.9] renderingMode:UIImageRenderingModeAlwaysOriginal];
-        [note drawInRect:CGRectMake((side - note.size.width) / 2, (side - note.size.height) / 2, note.size.width, note.size.height)];
-    }];
+    static UIImage *icon;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        icon = [UIImage imageNamed:@"NowLyrics" inBundle:[NSBundle bundleForClass:NLIslandPreviewCell.class]
+             compatibleWithTraitCollection:[UITraitCollection traitCollectionWithDisplayScale:3]];
+    });
+    return icon;
 }
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier specifier:(PSSpecifier *)specifier {
@@ -244,6 +250,33 @@ static UIImage *NLSampleArtwork(CGFloat side) {
                                                      name:NLIslandPreviewChangedNotification object:nil];
     }
     return self;
+}
+
+// NowLyrics' own color: that of the main switch's icon (NLSampleCoverIcon).
+UIColor *NLNowLyricsColor(void) {
+    static UIColor *color;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ color = NLColorFromArtwork(UIImagePNGRepresentation(NLSampleCoverIcon())); });
+    return color;
+}
+
+// The theme is the color of what the island shows: the album's, or NowLyrics'
+// for the sample (and for a grey cover).
+- (void)nlReportTheme {
+    NLThemeSetColor((_liveInfo && _albumColor) ? _albumColor : NLNowLyricsColor());
+}
+
+// The outline lights up, and settles again after a while.
+- (void)nlWakeKeyLine {
+    NSUInteger generation = ++_keyLineGeneration;
+    UIViewAnimationOptions options = UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction;
+    [UIView animateWithDuration:0.2 delay:0 options:options animations:^{ self->_ring.alpha = 1; } completion:nil];
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kNLKeyLineHold * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        NLIslandPreviewCell *cell = weakSelf;
+        if (!cell || cell->_keyLineGeneration != generation) return;
+        [UIView animateWithDuration:0.8 delay:0 options:options animations:^{ cell->_ring.alpha = kNLKeyLineInert; } completion:nil];
+    });
 }
 
 - (void)dealloc {
@@ -316,7 +349,8 @@ static UIImage *NLSampleArtwork(CGFloat side) {
 // Bounds and centre rather than frame, so the press transform can stay on.
 - (void)nlLayoutPill {
     BOOL live = _liveInfo != nil && _activity != nil;
-    CGSize size = _expanded ? (live ? kNLExpandedLive : kNLExpanded) : kNLCompact;
+    CGSize liveSize = CGSizeMake(kNLExpandedLive.width, kNLExpandedLive.height + _volumeExtra);
+    CGSize size = _expanded ? (live ? liveSize : kNLExpanded) : kNLCompact;
     // The closed island's top: right under the navigation bar, at the top of
     // the table (its own row below only keeps room for it to open into);
     // open, it keeps that top.
@@ -346,8 +380,9 @@ static UIImage *NLSampleArtwork(CGFloat side) {
         self->_liveArt.bounds = CGRectMake(0, 0, self->_art.frame.size.width, self->_art.frame.size.height);
         self->_liveArt.center = CGPointMake(CGRectGetMidX(self->_art.frame), CGRectGetMidY(self->_art.frame));
     };
-    if (!_collapsingLive) placeLive();
+    // The open view first: laying it out can move the cover and waveform.
     [self nlLayoutActivity:size];
+    if (!_collapsingLive) placeLive();
 
     CGFloat textX = CGRectGetMaxX(_art.frame) + 14, textW = barsRight - 30 - textX;
     // Bounds and centre here too: these carry a scale while they appear.
@@ -389,6 +424,8 @@ static UIImage *NLSampleArtwork(CGFloat side) {
         return;
     }
     [self nlApplyValues];
+    [self nlReportTheme];
+    [self nlWakeKeyLine];
     [self nlAnimateBars];
     [self nlNextLine];
     [_liveTimer invalidate];
@@ -415,6 +452,7 @@ static UIImage *NLSampleArtwork(CGFloat side) {
     _liveWanted = [values[@"islandPreviewLive"] respondsToSelector:@selector(boolValue)] ? [values[@"islandPreviewLive"] boolValue] : YES;
     _wordByWord = [values[@"islandWordByWord"] respondsToSelector:@selector(boolValue)] ? [values[@"islandWordByWord"] boolValue] : YES;
     _textColor = ([values[@"islandColor"] isEqual:@"artwork"] && _albumColor) ? _albumColor : [UIColor colorWithWhite:1 alpha:0.92];
+    _volumeExtra = NLCrescendoShows(NLCrescendoDynamicIsland) ? kNLVolumeStrip : 0;
     _lineLabel.textColor = _textColor;
     [self nlLayoutPill];
     [_strip layoutIfNeeded];
@@ -543,6 +581,7 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
             [_firmTap prepare];
             [_lightTap impactOccurred];
             [self nlSetPressed:YES];
+            [self nlWakeKeyLine];
             if (_expanded) break;   // open already: this press is a tap to close
             NSUInteger generation = ++_pressGeneration;
             __weak typeof(self) weakSelf = self;
@@ -631,6 +670,7 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
 // overshoot; the compact contents go first and the expanded ones arrive
 // growing from 85 %. Closing is the same in reverse, without the overshoot.
 - (void)nlSetExpanded:(BOOL)expanded {
+    [self nlWakeKeyLine];
     if (_expanded == expanded) return;
     _expanded = expanded;
     _quietUntil = CACurrentMediaTime() + 0.75;
@@ -648,6 +688,7 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
     // only then do the cover and waveform grow in where the closed island has
     // them.
     UIView *openView = live ? _activity.view : nil;
+    UIView *volumeHost = live ? _volumeHost : nil;
     UIView *cover = live ? _liveArt : nil, *wave = live ? _liveWave : nil;
     CGFloat closedScale = kNLCompact.width / kNLExpandedLive.width;
     CGFloat startWidth = _pill.bounds.size.width;
@@ -658,11 +699,13 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
         [self nlSetActivityMode:kNLActivityExpanded];
         [UIView performWithoutAnimation:^{
             openView.transform = NLTopScale(closedScale, kNLOpenView.height);
+            volumeHost.transform = openView.transform;
             cover.transform = CGAffineTransformIdentity;
             wave.transform = CGAffineTransformIdentity;
         }];
         [UIView animateWithDuration:0.3 delay:0 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
             openView.alpha = 1;
+            volumeHost.alpha = 1;
             cover.alpha = 1;   // if reopened before they came back
             wave.alpha = 1;
         } completion:nil];
@@ -671,6 +714,7 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
         _collapsingLive = YES;
         [UIView animateWithDuration:0.18 delay:0 options:UIViewAnimationOptionBeginFromCurrentState animations:^{
             openView.alpha = 0;
+            volumeHost.alpha = 0;
             cover.alpha = 0;
             wave.alpha = 0;
         } completion:nil];
@@ -680,6 +724,7 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
         [self nlLayoutPill];
         self->_morphing = NO;
         openView.transform = expanded ? CGAffineTransformIdentity : NLTopScale(closedScale, kNLOpenView.height);
+        volumeHost.transform = openView.transform;
         if (live && !expanded) {
             // About the island's top centre, which is at half its width in its
             // own coordinates: half the open width now, half the closed one at
@@ -884,6 +929,7 @@ static void NLDisableTaps(UIView *view) {
     if (!_activity) return;
     if (!live) {
         _activity.view.alpha = 0;
+        _volumeHost.alpha = 0;
         return;
     }
     // The waveform is the island's own too (its trailing view), moved by
@@ -940,6 +986,44 @@ static void NLDisableTaps(UIView *view) {
         }];
     }
     openView.center = CGPointMake(size.width / 2, -kNLRing + kNLOpenView.height / 2);
+    [self nlLayoutVolumeRow];
+}
+
+// Crescendo's row hangs below the open view's measured height, in the strip
+// the island grew by, and scales and fades with the open view. It sits in a
+// view of its own laid over the open view rather than in it: anything that
+// lays the open view out (adding the row, the row's volume updates) has it
+// place its cover and waveform, which live in the pill, in its own
+// coordinates, and they drifted off.
+- (void)nlLayoutVolumeRow {
+    UIView *openView = _activity.view;
+    if (_volumeExtra <= 0 || !openView) {
+        _volumeHost.hidden = YES;
+        return;
+    }
+    if (!_volumeRow) {
+        _volumeRow = NLCrescendoMakeVolumeRow(openView);
+        if (!_volumeRow) return;
+        _volumeHost = [UIView new];
+        [_volumeHost addSubview:_volumeRow];
+        [_pill insertSubview:_volumeHost aboveSubview:openView];
+        _volumeHost.alpha = openView.alpha;
+        _volumeHost.transform = openView.transform;
+    }
+    _volumeHost.hidden = NO;
+    // The open view's own place: the same bounds and centre, so its transform
+    // means the same here.
+    CGFloat bottom = kNLExpandedLive.height + _volumeExtra + kNLRing;
+    CGFloat y = bottom - kNLVolumeSlider - kNLVolumeSlider;
+    Class transport = objc_getClass("MRUNowPlayingTransportControlsView");
+    for (UIView *sub in openView.subviews) {
+        if (transport && [sub isKindOfClass:transport] && !sub.hidden) y = MAX(y, CGRectGetMaxY(sub.frame));
+    }
+    [UIView performWithoutAnimation:^{
+        self->_volumeHost.bounds = openView.bounds;
+        self->_volumeHost.center = openView.center;
+        self->_volumeRow.frame = CGRectMake(24 + kNLRing, y, kNLOpenView.width - 48 - kNLRing * 2, kNLVolumeSlider);
+    }];
 }
 
 #pragma mark Live
@@ -987,9 +1071,11 @@ static void NLDisableTaps(UIView *view) {
         [self nlLayoutPill];
         [self nlAnimateBars];
         [self nlNextLine];   // the sample lines again
+        [self nlReportTheme];
         return;
     }
     if (!wasLive) {
+        [self nlWakeKeyLine];
         _generation++;   // the sample cycle stops
         if (_expanded) [self nlSetExpanded:NO];
     }
@@ -1005,6 +1091,7 @@ static void NLDisableTaps(UIView *view) {
         _art.image = cover ?: _sampleArt;
         [self nlApplyValues];
     }
+    [self nlReportTheme];
 
     NSString *title = info[@"kMRMediaRemoteNowPlayingInfoTitle"];
     BOOL explicitTrack = NLPrefBool(info, @"kMRMediaRemoteNowPlayingInfoIsExplicitTrack", NO);

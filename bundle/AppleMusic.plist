@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>items</key>
+	<array>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>Apple’s own lyrics: the text of your region’s store (Traditional Chinese in Taiwan) and, where Apple has it, word timing. Needs an Apple Music subscription.</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>app.nowlyrics/ReloadPrefs</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>app.nowlyrics</string>
+			<key>iconApp</key>
+			<string>com.apple.Music</string>
+			<key>iconColor</key>
+			<string>#FA2D48</string>
+			<key>iconSymbol</key>
+			<string>music.note</string>
+			<key>key</key>
+			<string>useAppleMusic</string>
+			<key>label</key>
+			<string>Apple Music lyrics</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>Other apps, such as Spotify, get Apple Music lyrics through SpringBoard: the song is found on Apple Music by title, artist and length, and one that does not match goes to the next source. The test shows each step for the song playing.</string>
+			<key>label</key>
+			<string>Other apps</string>
+			<key>showIf</key>
+			<string>useAppleMusic</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>app.nowlyrics/ReloadPrefs</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>app.nowlyrics</string>
+			<key>iconColor</key>
+			<string>#1DB954</string>
+			<key>iconSymbol</key>
+			<string>square.grid.2x2</string>
+			<key>key</key>
+			<string>appleMusicOtherApps</string>
+			<key>label</key>
+			<string>Use in other apps</string>
+			<key>showIf</key>
+			<string>useAppleMusic</string>
+		</dict>
+		<dict>
+			<key>action</key>
+			<string>nlTestAppleMusic:</string>
+			<key>cell</key>
+			<string>PSButtonCell</string>
+			<key>iconColor</key>
+			<string>#FA2D48</string>
+			<key>iconSymbol</key>
+			<string>testtube.2</string>
+			<key>label</key>
+			<string>Test with the song playing</string>
+			<key>showIf</key>
+			<string>useAppleMusic</string>
+		</dict>
+	</array>
+	<key>title</key>
+	<string>Apple Music lyrics</string>
+</dict>
+</plist>

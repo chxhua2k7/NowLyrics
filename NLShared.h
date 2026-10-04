@@ -13,6 +13,21 @@
 // what it holds in memory and looks the current track up again.
 #define NL_LYRICS_CHANGED_NOTIFICATION @"app.nowlyrics/LyricsChanged"
 
+// Apple Music's lyrics asked for by SpringBoard, for the song another app
+// plays (NLAppleMusicSB.x): the request (an `id` and the catalog `adamID`) and
+// the answer (the same `id`, `ttml` or `error`, `elapsed`) go through these
+// files, each announced by a Darwin notification.
+#define NL_AM_DIR                   @"/var/mobile/Library/Caches/NowLyrics"
+#define NL_AM_REQUEST_FILE          NL_AM_DIR @"/am-request.plist"
+#define NL_AM_RESPONSE_FILE         NL_AM_DIR @"/am-response.plist"
+#define NL_AM_REQUEST_NOTIFICATION  @"app.nowlyrics/AppleMusicRequest"
+#define NL_AM_RESPONSE_NOTIFICATION @"app.nowlyrics/AppleMusicResponse"
+// The settings page asking whether there is an Apple Music subscription:
+// request `id`, `time`; answer `id`, `result` ("active", "none", "unknown"),
+// `detail`. Through the same notifications.
+#define NL_AM_CHECK_REQUEST_FILE    NL_AM_DIR @"/am-check-request.plist"
+#define NL_AM_CHECK_RESPONSE_FILE   NL_AM_DIR @"/am-check-response.plist"
+
 // How early a line may switch, so it is up when the singing starts. The island
 // looks lines up the same way the apps do.
 #define NL_LINE_MARGIN 0.15
@@ -76,7 +91,7 @@ static inline double NLPrefNum(NSDictionary *prefs, NSString *key, double fallba
 // keys to seconds (positive means lyrics appear earlier, like `offset`).
 #define NL_TRACK_OFFSETS_KEY @"trackOffsets"
 // The source picked for one song: track key → "applemusic", "musixmatch",
-// "lrclib" or "netease" (preferredSource's names). Same limit as the offsets.
+// "lrclib" or "netease" (sourceOrder's names). Same limit as the offsets.
 #define NL_TRACK_SOURCES_KEY @"trackSources"
 static const NSUInteger kNLTrackOffsetsLimit = 500;
 

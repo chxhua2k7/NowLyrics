@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>items</key>
+	<array>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>Every song starts with this offset; a positive one shows lyrics earlier. Now Playing changes one song’s offset only. Drag the slider, or tap the value to type one, e.g. 0.25 or -300ms.</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>app.nowlyrics/ReloadPrefs</string>
+			<key>cell</key>
+			<string>PSSliderCell</string>
+			<key>cellClass</key>
+			<string>NLOffsetCell</string>
+			<key>default</key>
+			<real>0.0</real>
+			<key>defaults</key>
+			<string>app.nowlyrics</string>
+			<key>height</key>
+			<integer>92</integer>
+			<key>iconColor</key>
+			<string>#33C759</string>
+			<key>iconSymbol</key>
+			<string>clock</string>
+			<key>key</key>
+			<string>offset</string>
+			<key>label</key>
+			<string>Default offset</string>
+			<key>max</key>
+			<real>3.0</real>
+			<key>min</key>
+			<real>-3.0</real>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>Diagnostics shows which source answered in the artist field. Quit app on change kills the app on every settings change. Fix Spotify Connect titles turns “Title • Artist / Playing on a device” back into the real title and artist.</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>app.nowlyrics/ReloadPrefs</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>app.nowlyrics</string>
+			<key>iconColor</key>
+			<string>#33AD9E</string>
+			<key>iconSymbol</key>
+			<string>stethoscope</string>
+			<key>key</key>
+			<string>diagnostics</string>
+			<key>label</key>
+			<string>Diagnostics</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>app.nowlyrics/ReloadPrefs</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>app.nowlyrics</string>
+			<key>iconColor</key>
+			<string>#737378</string>
+			<key>iconSymbol</key>
+			<string>xmark.circle</string>
+			<key>key</key>
+			<string>killOnChange</string>
+			<key>label</key>
+			<string>Quit app on change</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>app.nowlyrics/ReloadPrefs</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>app.nowlyrics</string>
+			<key>iconApp</key>
+			<string>com.spotify.client</string>
+			<key>iconColor</key>
+			<string>#33C759</string>
+			<key>iconSymbol</key>
+			<string>hifispeaker</string>
+			<key>key</key>
+			<string>spotifyConnect</string>
+			<key>label</key>
+			<string>Fix Spotify Connect titles</string>
+		</dict>
+	</array>
+	<key>title</key>
+	<string>Advanced</string>
+</dict>
+</plist>

@@ -23,7 +23,7 @@ Sold on Havoc as `com.c3x14n.nowlyrics`; listing material in `havoc/`.
   hooked instead and the line is written into the item itself (like AMLyrics,
   which is why the package conflicts with `com.82flex.amlyrics`).
 - **Engine**: track = title + artist; resolve manual `.lrc` → disk cache →
-  sources in preferred order; position extrapolated from the last anchor;
+  sources in the user's order (`sourceOrder`); position extrapolated from the last anchor;
   `dispatch_after` per line. Blank lines count as gaps only if the next line is
   ≥ 5 s away.
 
@@ -36,10 +36,18 @@ Sold on Havoc as `com.c3x14n.nowlyrics`; listing material in `havoc/`.
   fades and clips it with the artwork and waveform, and is laid out only from
   the pill's `layoutSubviews`, centred under the camera. Text, explicit flag and
   artwork (album color) come from `MRMediaRemoteGetNowPlayingInfo`.
-- **Apple Music lyrics** (Music only; a switch or the preferred source): by
-  the song's adam ID (the content item's `lyricsAdamID`/`storeID`) through
+- **Apple Music lyrics** (behind a switch): by the song's adam ID through
   `MPStoreLyricsMusicKitRequestOperation`, the same TTML Music's lyrics view
-  gets (storefront text, word timing). Turning it on asks about a subscription.
+  gets (storefront text, word timing). In Music the ID is the content item's
+  `lyricsAdamID`/`storeID`. Other apps (Spotify) have neither the ID nor Apple
+  Music access, so SpringBoard does it (`NLAppleMusicSB.x`): the app writes
+  `am-request.plist` in its Library/NowLyrics and posts a Darwin notification;
+  SpringBoard finds the song with Apple's public search by title, artist and
+  length (`NLAppleMusicFind.m`), asks for the lyrics and writes
+  `am-response.plist` back. Everything Apple Music stays hidden until
+  "Unlock" confirms a subscription (SpringBoard asks iTunesCloud's
+  `ICMusicSubscriptionStatusController`, then StoreKit, then tries one song's
+  lyrics); it is checked again daily, and a lapsed one locks it again.
 - **Word by word**: Apple Music, Musixmatch (`track.richsync.get`, with a token), NetEase
   (`yrc` from `/api/song/lyric/v1`) and imported TTML carry word times, stored
   as enhanced LRC (`<mm:ss.xx>`). The lock screen still shows the line; the
@@ -51,9 +59,21 @@ Sold on Havoc as `com.c3x14n.nowlyrics`; listing material in `havoc/`.
   (`NLLocate.m` maps bundle IDs from the container metadata plists), then posts
   `app.nowlyrics/LyricsChanged`; the apps drop their memory cache and look again.
   The apps re-read the settings first. Per-song offsets and picked sources live
-  in the prefs file as `trackOffsets` and `trackSources`. The Now Playing page
-  embeds the lock screen's player (MediaControls'
-  `+[MRPlatterViewController coverSheetPlatterViewController]`).
+  in the prefs file as `trackOffsets` and `trackSources`; the page shows one
+  offset (the default one under Advanced plus the song's own). The main page
+  and the Now Playing page embed the lock screen's player (MediaControls'
+  `+[MRPlatterViewController coverSheetPlatterViewController]`, `NLPlayerHeader`).
+- **Player in lyrics color** (`NLPlayerTint`, switch `playerTint`): in Control
+  Center over `-[MRUControlCenterView materialView]`; on the lock screen over the
+  player's `PLPlatterView` material, the player told from Live Activities (same
+  ActivityUIServices scene) by its notification-list group
+  `com.apple.MediaRemoteUI`. The album color the lyrics use, or the cover
+  blurred under a scrim sized from its brightest tenth; between songs the old
+  look stays until the new cover is there.
+- **Crescendo** (if installed): its switches come from its notify state
+  (`com.yves.crescendo.state`); the settings player's dormant volume row is
+  forced on (`-[MRUNowPlayingView setShowVolumeControlsView:]`) and the island
+  preview gets a `MRUNowPlayingVolumeControlsView` of its own, 40 pt taller.
 - **Island preview** (island settings page): with music, MediaControls'
   `MRUActivityNowPlayingViewController` (what MediaRemoteUI draws the island
   with): its leading/trailing views as cover and waveform, its open layout when

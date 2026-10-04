@@ -69,11 +69,15 @@ typedef NS_ENUM(NSInteger, NLSource) {
 @interface NLSettings : NSObject
 @property (nonatomic, readonly) BOOL enabled;                 // this app is switched on
 @property (nonatomic, readonly) NLArtistMode artistMode;
-@property (nonatomic, readonly) NLSource preferredSource;
+// The order the sources are tried in (NLSource numbers, each once): the
+// user's `sourceOrder` from the Lyrics Sources page, or for settings from
+// before it, Apple Music, the old `preferredSource`, then the default order.
+@property (nonatomic, readonly, copy) NSArray<NSNumber *> *sourceOrder;
 @property (nonatomic, readonly) BOOL useMusixmatch;           // NO when no credentials are set
 @property (nonatomic, readonly) BOOL useLRCLIB;
 @property (nonatomic, readonly) BOOL useNetease;
-@property (nonatomic, readonly) BOOL useAppleMusic;           // in Music, its own lyrics before the other sources
+@property (nonatomic, readonly) BOOL useAppleMusic;           // Apple Music's own lyrics: in Music by its item
+@property (nonatomic, readonly) BOOL useAppleMusicElsewhere;  // ... and in other apps through SpringBoard (appleMusicOtherApps)
 @property (nonatomic, readonly, copy) NSString *musixmatchKey;
 @property (nonatomic, readonly, copy) NSString *musixmatchToken;
 @property (nonatomic, readonly) BOOL killOnChange;
@@ -168,6 +172,11 @@ void NLPublishRestore(void);
 // not `title`, has none, or no answer came within `timeout`. Blocks; call off
 // the main queue.
 NSString *NLAppleMusicLyrics(NSString *title, NSTimeInterval timeout);
+// NLAppleMusicRemote.m: the same for the song another app plays, found on
+// Apple Music and asked for by SpringBoard (NLAppleMusicSB.x). TTML, or nil
+// with why in *note. Waits up to `timeout`; not on the main queue.
+NSString *NLAppleMusicLyricsFromSpringBoard(NSString *title, NSString *artist, NSTimeInterval duration,
+                                            NSTimeInterval timeout, NSString **note);
 
 #ifdef __cplusplus
 }

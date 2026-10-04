@@ -8,6 +8,7 @@
 
 #import <UIKit/UIKit.h>
 #import <Preferences/PSViewController.h>
+#import <Preferences/PSListController.h>
 #import "../NowLyrics.h"
 #import "../NLLocate.h"
 
@@ -52,3 +53,69 @@ NSString *NLLyricsFileText(NSString *text, NSString *title, NSString *artist);
 
 @interface NLLibraryController : PSViewController
 @end
+
+@interface NLSourceOrderController : PSViewController
+@end
+
+// The pages the main page links to for its details (Lyrics Sources, Advanced,
+// Apple Music): the plist named by the link's `subPlist`, from this bundle,
+// localized by the <name>.strings copies the Makefile puts there
+// (NLRootListController.m).
+@interface NLSubListController : PSListController
+@end
+
+// NLPlayerHeader.m: the lock screen's player as `table`'s header, behind it
+// the lyrics' color. The owner calls -layout from viewDidLayoutSubviews (and
+// when the platter's preferred size changes), -appear / -disappear, and -tick
+// while on screen.
+@interface NLPlayerHeader : NSObject
+- (instancetype)initWithOwner:(UIViewController *)owner table:(UITableView *)table;
+@property (nonatomic, readonly) BOOL available;   // NO when this iOS has no such player
+- (void)layout;
+- (void)appear;
+- (void)disappear;
+- (void)tick;
+@end
+
+// The pages' theme: the color of what the island preview shows
+// (NLIslandPreviewCell.m), the album's or NowLyrics' own. NLThemeSetColor takes
+// the raw color and posts NLThemeChangedNotification when it changed. Tint
+// follows from the navigation controller's view; switches are set per cell.
+extern NSString *const NLThemeChangedNotification;
+UIColor *NLThemeColor(void);
+void NLThemeSetColor(UIColor *color);
+void NLThemeRefresh(void);   // from the preferences and what is playing
+UIColor *NLNowLyricsColor(void);   // NLIslandPreviewCell.m
+void NLThemeCell(UITableViewCell *cell);
+void NLThemeTable(UITableView *table);
+
+// NLRootListController.m: a Settings row icon, a white SF Symbol on a rounded
+// tile of `hex` ("#RRGGBB").
+UIImage *NLSettingsIcon(NSString *symbol, NSString *hex);
+UIImage *NLSampleCoverIcon(void);
+// A row's icon as the plists give it: the installed app's (`app`), else the
+// symbol on a tile of `hex`.
+UIImage *NLRowIcon(NSString *app, NSString *symbol, NSString *hex);
+// NLSourceOrderController.m: a lyrics source's icon by its preference name
+// ("applemusic", …; "" for automatic), as Lyrics Sources shows it.
+UIImage *NLSourceIcon(NSString *name);   // the main switch's: a warm gradient with a note
+
+// NLCrescendo.m: Crescendo's volume slider in the copies of the system's
+// players on these pages, while Crescendo is installed and wants it there.
+typedef NS_ENUM(NSInteger, NLCrescendoPlace) { NLCrescendoLockScreen, NLCrescendoDynamicIsland };
+BOOL NLCrescendoShows(NLCrescendoPlace place);
+BOOL NLCrescendoSyncPlayer(UIViewController *platter);   // YES when it changed the player
+CGFloat NLCrescendoPlayerHeight(UIViewController *platter, CGFloat width);   // 0 unless forced
+UIView *NLCrescendoMakeVolumeRow(UIView *host);           // nil when this iOS lacks the parts
+
+// NLPopUpCell.m: a choice picked in place, as Settings' pop-up rows: the
+// title in use with a chevron, the others in a menu. `picked` gets a new value.
+UIButton *NLPopUpButton(NSArray<NSString *> *titles, NSArray *values, id current, void (^picked)(id value));
+
+// NLAppleMusicAccess.m: Apple Music stays hidden until SpringBoard confirms a
+// subscription (kept as `appleMusicVerified`); a lapsed one locks it again.
+typedef NS_ENUM(NSInteger, NLSubscription) { NLSubscriptionUnknown = 0, NLSubscriptionActive, NLSubscriptionNone };
+BOOL NLAppleMusicVerified(void);
+void NLCheckAppleMusicSubscription(void (^done)(NLSubscription result, NSString *detail));   // main queue
+void NLApplyAppleMusicSubscription(NLSubscription result);   // active: unlocked; none: locked, Apple Music off
+void NLRecheckAppleMusicIfDue(void (^changed)(void));        // silent; `changed` when it locked or unlocked
