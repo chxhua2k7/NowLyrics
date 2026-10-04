@@ -17,3 +17,8 @@
 // and typed divided by it (a speed as "1.0×"). nil/0 keep the current setting.
 - (void)setMinimum:(double)minimum maximum:(double)maximum step:(double)step unit:(NSString *)unit scale:(double)scale;
 @end
+
+// The tall slider row (NLOffsetCell, the "Now Playing" page's offset row):
+// `cell`'s icon and title on a 44 pt first line beside the value, `control`
+// stacked across the width, `inset` in from the sides.
+void NLLayoutStackedOffsetRow(UITableViewCell *cell, NLOffsetControl *control, CGFloat inset);

@@ -15,20 +15,6 @@ static NSString *const kNLVerifiedAtKey = @"appleMusicVerifiedAt";
 static const NSTimeInterval kNLRecheckAfter = 24 * 60 * 60;
 static const NSTimeInterval kNLCheckTimeout = 20;
 
-static id NLAccessPref(NSString *key) {
-    return CFBridgingRelease(CFPreferencesCopyAppValue((__bridge CFStringRef)key, (__bridge CFStringRef)NL_PREFS_DOMAIN));
-}
-
-static void NLAccessSet(NSDictionary<NSString *, id> *values) {
-    for (NSString *key in values) {
-        id value = values[key] == NSNull.null ? nil : values[key];
-        CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)value, (__bridge CFStringRef)NL_PREFS_DOMAIN);
-    }
-    CFPreferencesAppSynchronize((__bridge CFStringRef)NL_PREFS_DOMAIN);
-    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
-                                         (__bridge CFStringRef)NL_RELOAD_NOTIFICATION, NULL, NULL, YES);
-}
-
 // The lyrics request (MPStoreLyricsMusicKitRequestOperation) is iOS 16 and
 // later; iOS 15 has only an older one. Below that, nothing Apple Music shows,
 // whatever the subscription check would say.
@@ -40,14 +26,14 @@ BOOL NLAppleMusicAvailable(void) {
 BOOL NLAppleMusicVerified(void) {
     if (!NLAppleMusicAvailable()) return NO;
     CFPreferencesAppSynchronize((__bridge CFStringRef)NL_PREFS_DOMAIN);
-    return [NLAccessPref(kNLVerifiedKey) boolValue];
+    return [NLReadPref(nil, kNLVerifiedKey) boolValue];
 }
 
 void NLApplyAppleMusicSubscription(NLSubscription result) {
     if (result == NLSubscriptionActive) {
-        NLAccessSet(@{kNLVerifiedKey: @YES, kNLVerifiedAtKey: [NSDate date]});
+        NLWritePrefs(@{kNLVerifiedKey: @YES, kNLVerifiedAtKey: [NSDate date]});
     } else if (result == NLSubscriptionNone) {
-        NLAccessSet(@{kNLVerifiedKey: @NO, kNLVerifiedAtKey: NSNull.null, @"useAppleMusic": @NO});
+        NLWritePrefs(@{kNLVerifiedKey: @NO, kNLVerifiedAtKey: NSNull.null, @"useAppleMusic": @NO});
     }
 }
 
@@ -101,9 +87,9 @@ void NLCheckAppleMusicSubscription(void (^done)(NLSubscription result, NSString 
 void NLRecheckAppleMusicIfDue(void (^changed)(void)) {
     if (!NLAppleMusicAvailable()) return;
     BOOL verified = NLAppleMusicVerified();
-    NSDate *at = NLAccessPref(kNLVerifiedAtKey);
+    NSDate *at = NLReadPref(nil, kNLVerifiedAtKey);
     BOOL fresh = verified && [at isKindOfClass:NSDate.class] && -[at timeIntervalSinceNow] < kNLRecheckAfter;
-    BOOL onUnchecked = !verified && [NLAccessPref(@"useAppleMusic") boolValue];   // switched on before there was a check
+    BOOL onUnchecked = !verified && [NLReadPref(nil, @"useAppleMusic") boolValue];   // switched on before there was a check
     if (fresh || (!verified && !onUnchecked)) return;
     NLCheckAppleMusicSubscription(^(NLSubscription result, NSString *detail) {
         BOOL was = NLAppleMusicVerified();

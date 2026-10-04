@@ -45,6 +45,29 @@ void NLAlert(UIViewController *controller, NSString *title, NSString *message) {
     [controller presentViewController:alert animated:YES completion:nil];
 }
 
+void NLPlayingSong(void (^done)(NSString *bundleID, NSDictionary *np)) {
+    NLNowPlayingBundleID(^(NSString *playing) {
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+            NSString *bundleID = playing;
+            NSDictionary *np = NLReadNowPlaying(bundleID);
+            if (!np) {
+                NSDate *latest = nil;
+                bundleID = nil;
+                for (NSString *candidate in NLLyricsFolders()) {
+                    NSDictionary *info = NLReadNowPlaying(candidate);
+                    NSDate *updated = info[NL_NP_UPDATED];
+                    if ([updated isKindOfClass:NSDate.class] && (!latest || [updated compare:latest] == NSOrderedDescending)) {
+                        latest = updated;
+                        bundleID = candidate;
+                        np = info;
+                    }
+                }
+            }
+            dispatch_async(dispatch_get_main_queue(), ^{ done(bundleID, np); });
+        });
+    });
+}
+
 #pragma mark - Pasted and imported text
 
 NSString *NLLyricsFileText(NSString *text, NSString *title, NSString *artist) {

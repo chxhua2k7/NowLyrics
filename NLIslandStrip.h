@@ -30,3 +30,7 @@ extern const CGFloat kNLDefaultSpeed;   // marquee, pt/s
 // The most colorful bright pixel of the artwork, lifted until it reads on
 // black; nil for a grey or dark cover. Any queue.
 UIColor *NLColorFromArtwork(NSData *data);
+
+// Tells covers apart (-[NSData hash] only reads the first 80 bytes, which
+// JPEGs from the same encoder share). Never 0. Any queue.
+NSUInteger NLArtworkPrint(NSData *data);

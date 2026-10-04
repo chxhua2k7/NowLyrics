@@ -88,16 +88,21 @@ const CGFloat kNLDefaultSpeed = 30;   // pt/s, shown as 1.0×
     NSMutableAttributedString *line = [[NSMutableAttributedString alloc] initWithString:text ?: @""
         attributes:@{NSFontAttributeName: font, NSForegroundColorAttributeName: color}];
     if (!explicit || text.length == 0) return line;
-    // Drawn once per font and color, not per line.
-    static UIImage *badge;
+    // Drawn once per font and color, not per line. Word by word asks for three
+    // colors in turn (clear, dimmed, full), so each is kept; a new font, or a
+    // few album colors on, starts over.
+    static NSMutableDictionary<UIColor *, UIImage *> *badges;
     static UIFont *badgeFont;
-    static UIColor *badgeColor;
-    if (!badge || ![badgeFont isEqual:font] || ![badgeColor isEqual:color]) {
+    if (!badges || ![badgeFont isEqual:font] || badges.count >= 6) {
+        badges = [NSMutableDictionary dictionary];
+        badgeFont = font;
+    }
+    UIImage *badge = badges[color];
+    if (!badge) {
         UIImageSymbolConfiguration *config = [UIImageSymbolConfiguration configurationWithFont:font scale:UIImageSymbolScaleSmall];
         badge = [[UIImage systemImageNamed:@"e.square.fill" withConfiguration:config]
                  imageWithTintColor:[color colorWithAlphaComponent:0.7] renderingMode:UIImageRenderingModeAlwaysOriginal];
-        badgeFont = font;
-        badgeColor = color;
+        if (badge) badges[color] = badge;
     }
     if (!badge) return line;
     NSTextAttachment *attachment = [NSTextAttachment new];
@@ -317,8 +322,11 @@ static CGFloat NLLineCentre(const NLWordGeometry *g, double t) {
 
 - (void)setWordTexts:(NSArray<NSString *> *)texts starts:(NSArray<NSNumber *> *)starts ends:(NSArray<NSNumber *> *)ends
             position:(NSTimeInterval)position rate:(double)rate {
+    // Pieces equal to the ones running were checked against this line when
+    // they came (a new line clears them), so only new ones are joined.
+    BOOL running = _wordTexts && [texts isEqualToArray:_wordTexts];
     BOOL usable = texts.count && starts.count == texts.count && ends.count == texts.count &&
-                  [[texts componentsJoinedByString:@""] isEqualToString:_text ?: @""];
+                  (running || [[texts componentsJoinedByString:@""] isEqualToString:_text ?: @""]);
     if (!usable) {
         if (!_wordTexts) return;
         [self clearWords];
@@ -329,7 +337,7 @@ static CGFloat NLLineCentre(const NLWordGeometry *g, double t) {
     // Asked again with what is already running (every layout pass asks): keep
     // it, unless the clock moved differently from what is being shown.
     double projected = _wordPosition + (CACurrentMediaTime() - _wordSetAt) * _wordRate;
-    if ([texts isEqualToArray:_wordTexts] && [starts isEqualToArray:_wordStarts] && rate == _wordRate &&
+    if (running && [starts isEqualToArray:_wordStarts] && rate == _wordRate &&
         fabs(projected - position) < 0.08) return;
     _wordTexts = [texts copy];
     _wordStarts = [starts copy];
@@ -550,4 +558,19 @@ UIColor *NLColorFromArtwork(NSData *data) {
     }
     if (bestScore < 0.15) return nil;   // a grey or dark cover: stay white
     return [UIColor colorWithHue:bh saturation:MIN(bs, 0.65) brightness:MAX(bb, 0.92) alpha:1];
+}
+
+// Tells covers apart. -[NSData hash] only reads the first 80 bytes, which
+// JPEGs from the same encoder share, so the length and two samples from the
+// compressed data further in go in as well.
+NSUInteger NLArtworkPrint(NSData *data) {
+    const uint8_t *bytes = data.bytes;
+    NSUInteger length = data.length;
+    uint64_t h = 1469598103934665603ULL ^ length;   // FNV-1a
+    NSUInteger window = MIN(length, (NSUInteger)256);
+    NSUInteger starts[] = { length / 2 - MIN(length / 2, window / 2), length - window };
+    for (int k = 0; k < 2; k++) {
+        for (NSUInteger i = starts[k]; i < starts[k] + window; i++) { h ^= bytes[i]; h *= 1099511628211ULL; }
+    }
+    return (NSUInteger)h ?: 1;   // 0 means "nothing claimed"
 }

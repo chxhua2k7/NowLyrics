@@ -52,7 +52,7 @@ static BOOL gHooksInstalled = NO;
 // Dictionary path. Main queue only.
 static MPNowPlayingInfoCenter *gCenter = nil;
 static NSDictionary *gBaseInfo = nil;   // last dictionary the player gave us
-static BOOL gBypass = NO;               // set while we push our own update
+static BOOL gBypass = NO;               // set while we push our own update (main queue)
 static NSDictionary *gPushedBase = nil; // gBaseInfo as of our last push
 static NSString *gPushedTitle = nil;
 static NSString *gPushedArtist = nil;
@@ -100,6 +100,7 @@ static NSDictionary *NLCleanInfo(NSDictionary *info, NLSettings *settings) {
 // system apps are exempt.
 static void NLLiftPushThrottle(MPNowPlayingInfoCenter *center) {
     static Ivar pushDate, accessQueue;
+    static Class queueClass;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         Ivar date = class_getInstanceVariable(MPNowPlayingInfoCenter.class, "_pushDate");
@@ -109,10 +110,11 @@ static void NLLiftPushThrottle(MPNowPlayingInfoCenter *center) {
             pushDate = date;
             accessQueue = queue;
         }
+        queueClass = objc_getClass("OS_dispatch_queue");
     });
     if (!pushDate || !center) return;
     id queue = object_getIvar(center, accessQueue);
-    if (![queue isKindOfClass:objc_getClass("OS_dispatch_queue")]) return;
+    if (![queue isKindOfClass:queueClass]) return;
     dispatch_barrier_async((dispatch_queue_t)queue, ^{ object_setIvar(center, pushDate, nil); });
 }
 
@@ -442,7 +444,9 @@ static void NLHideExplicitNow(void) {
 // %orig must be alone on its line. Written as `if (x) { %orig; return; }` logos
 // swallows everything after %orig on that line, closing brace included.
 - (void)setNowPlayingInfo:(NSDictionary *)nowPlayingInfo {
-    if (!gEnabled || gBypass) {
+    // gBypass only marks our own push, which is always on the main queue; an
+    // app publishing from another thread meanwhile is still the app.
+    if (!gEnabled || (gBypass && pthread_main_np())) {
         %orig;
         return;
     }

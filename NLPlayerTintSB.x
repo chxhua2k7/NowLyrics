@@ -33,11 +33,13 @@
 
 static NSHashTable<NLPlayerTintView *> *gTints;   // every tint shown, to update together
 static BOOL gTintOn = YES;
+static CGFloat gTintClearness = 0.5;   // playerTintClear, a percentage in the prefs
 static char kNLTintKey;
 
 static void NLReadTintPrefs(void) {
     NSDictionary *prefs = NLReadPrefsFile();
     gTintOn = NLPrefBool(prefs, NL_PLAYER_TINT_KEY, YES) && NLPrefBool(prefs, @"enabled", YES);
+    gTintClearness = MIN(MAX(NLPrefNum(prefs, @"playerTintClear", 50), 0), 100) / 100;
 }
 
 // What is playing, into every tint (each skips work when its cover is the same).
@@ -71,6 +73,8 @@ static void NLPlaceTint(UIView *owner, UIView *material, CGFloat radius) {
         [material.superview insertSubview:tint aboveSubview:material];
     }
     tint.hidden = NO;
+    tint.material = material;
+    tint.clearness = gTintClearness;
     tint.frame = material.frame;
     tint.transform = material.transform;
     tint.alpha = material.alpha;
@@ -92,8 +96,8 @@ static void NLPlaceTint(UIView *owner, UIView *material, CGFloat radius) {
 @property (nonatomic, readonly) UIView *customContentView;
 @end
 
-static UIView *NLFindClass(UIView *view, NSString *name, int depth) {
-    if ([NSStringFromClass(view.class) isEqualToString:name]) return view;
+static UIView *NLFindClass(UIView *view, const char *name, int depth) {
+    if (strcmp(class_getName(view.class), name) == 0) return view;
     if (depth <= 0) return nil;
     for (UIView *sub in view.subviews) {
         UIView *found = NLFindClass(sub, name, depth - 1);
@@ -120,17 +124,17 @@ static BOOL NLIsMediaPlatter(PLPlatterView *platter) {
     UIView *content = [platter respondsToSelector:@selector(customContentView)] ? platter.customContentView : nil;
     // iOS 15: the player is a platter of the lock screen's adjunct list
     // (CSAdjunctItemView) with CoverSheet's own player view as its content.
-    if (content && NLFindClass(content, @"CSMediaControlsView", 1)) {
+    if (content && NLFindClass(content, "CSMediaControlsView", 1)) {
         objc_setAssociatedObject(platter, &kNLMediaPlatterKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         return YES;
     }
-    if (content && content.subviews.count && !NLFindClass(content, @"CSActivityItemContentView", 1) &&
-        !NLFindClass(content, @"CSActivityContentView", 1)) {
+    if (content && content.subviews.count && !NLFindClass(content, "CSActivityItemContentView", 1) &&
+        !NLFindClass(content, "CSActivityContentView", 1)) {
         objc_setAssociatedObject(platter, &kNLMediaPlatterKey, @NO, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         return NO;   // a notification or something else now
     }
     for (UIResponder *r = platter.nextResponder; r; r = r.nextResponder) {
-        if (![NSStringFromClass(r.class) isEqualToString:@"NCNotificationListSupplementaryHostingViewController"]) continue;
+        if (strcmp(class_getName(r.class), "NCNotificationListSupplementaryHostingViewController") != 0) continue;
         id configuration = [r respondsToSelector:@selector(configuration)] ? [(id)r configuration] : nil;
         NSString *group = [configuration respondsToSelector:@selector(groupingIdentifier)] ? [configuration groupingIdentifier] : nil;
         if (![group isKindOfClass:NSString.class]) break;   // no answer: as it was
@@ -229,12 +233,20 @@ static void NLTintDumpOrder(UIView *platter, UIView *material) {
 static void NLTintPrefsChanged(CFNotificationCenterRef center, void *observer, CFStringRef name,
                                const void *object, CFDictionaryRef userInfo) {
     dispatch_async(dispatch_get_main_queue(), ^{
+        BOOL wasOn = gTintOn;
         NLReadTintPrefs();
+        // While on, every now-playing change reaches the tints already, and the
+        // layout hooks keep them shown or hidden: only the switch itself needs them
+        // shown again, placed and given what is playing now.
+        BOOL switched = gTintOn != wasOn;
         for (NLPlayerTintView *tint in gTints) {
-            tint.hidden = !gTintOn;
-            [tint.superview setNeedsLayout];
+            if (switched) {
+                tint.hidden = !gTintOn;
+                [tint.superview setNeedsLayout];
+            }
+            tint.clearness = gTintClearness;
         }
-        NLRefreshTints(YES);
+        if (switched) NLRefreshTints(YES);   // returns at once when it went off
     });
 }
 

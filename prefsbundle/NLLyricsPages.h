@@ -19,6 +19,11 @@ NSString *NLL(NSString *key);
 NSString *NLAppName(NSString *bundleID);
 UIImage *NLAppIcon(NSString *bundleID);
 void NLAlert(UIViewController *controller, NSString *title, NSString *message);
+// The song on screen, from its app's nowplaying.plist (the now-playing title
+// MediaRemote has is a lyric line): the app MediaRemote names, else whichever
+// wrote its nowplaying.plist last. Looked up off the main queue, answered on
+// it; both nil when no app has one.
+void NLPlayingSong(void (^done)(NSString *bundleID, NSDictionary *np));
 
 // NLLyricsImport.m. Pasted or imported text as it should be stored: LRC
 // (word-by-word too) as given, with the track named on top when it is not;
@@ -30,7 +35,6 @@ NSString *NLLyricsFileText(NSString *text, NSString *title, NSString *artist);
 @interface NLWaveformView : UIView
 - (instancetype)initWithBars:(NSUInteger)count;
 @property (nonatomic, assign) BOOL playing;
-@property (nonatomic, strong) UIColor *barColor;
 @property (nonatomic, strong) UIImage *artwork;   // colors the bars the way the system's are; nil for plain bars
 @end
 
@@ -62,6 +66,10 @@ NSArray<NSString *> *NLSourceOrder(PSListController *controller);
 // A preference read through `controller` the way its rows read theirs, or
 // from the domain without one.
 id NLReadPref(PSListController *controller, NSString *key);
+void NLWritePref(PSListController *controller, NSString *key, id value);   // the same way
+// Straight into the domain (NSNull removes one), then one reload notice to
+// the apps.
+void NLWritePrefs(NSDictionary<NSString *, id> *values);
 
 // The pages the main page links to for its details (Lyrics Sources, Advanced,
 // Apple Music): the plist named by the link's `subPlist`, from this bundle,
@@ -76,7 +84,6 @@ id NLReadPref(PSListController *controller, NSString *key);
 // while on screen; -remove takes it off the table again.
 @interface NLPlayerHeader : NSObject
 - (instancetype)initWithOwner:(UIViewController *)owner table:(UITableView *)table;
-@property (nonatomic, readonly) BOOL available;   // NO when this iOS has no such player
 - (void)layout;
 - (void)appear;
 - (void)disappear;
@@ -99,13 +106,14 @@ void NLThemeTable(UITableView *table);
 // NLRootListController.m: a Settings row icon, a white SF Symbol on a rounded
 // tile of `hex` ("#RRGGBB").
 UIImage *NLSettingsIcon(NSString *symbol, NSString *hex);
-UIImage *NLSampleCoverIcon(void);
+UIImage *NLSampleCoverIcon(void);   // the main switch's: a warm gradient with a note
 // A row's icon as the plists give it: the installed app's (`app`), else the
 // symbol on a tile of `hex`.
 UIImage *NLRowIcon(NSString *app, NSString *symbol, NSString *hex);
 // NLSourceOrderController.m: a lyrics source's icon by its preference name
 // ("applemusic", …; "" for automatic), as Lyrics Sources shows it.
-UIImage *NLSourceIcon(NSString *name);   // the main switch's: a warm gradient with a note
+UIImage *NLSourceIcon(NSString *name);
+NSString *NLSourceTitle(NSString *name);   // the same, its title, localized
 
 // NLCrescendo.m: Crescendo's volume slider in the copies of the system's
 // players on these pages, while Crescendo is installed and wants it there.

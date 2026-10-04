@@ -29,21 +29,15 @@
             [bars addObject:bar];
         }
         _bars = bars;
-        _barColor = [UIColor colorWithWhite:1 alpha:0.8];
         [self nlApplyColor];
         [self nlRest];
     }
     return self;
 }
 
-- (void)setBarColor:(UIColor *)barColor {
-    _barColor = barColor ?: [UIColor colorWithWhite:1 alpha:0.8];
-    [self nlApplyColor];
-}
-
 - (void)nlApplyColor {
     // Through the cover the bars are only a shape: opaque, any color.
-    UIColor *color = _artwork ? UIColor.whiteColor : _barColor;
+    UIColor *color = _artwork ? UIColor.whiteColor : [UIColor colorWithWhite:1 alpha:0.8];
     for (UIView *bar in _bars) bar.backgroundColor = color;
 }
 
@@ -52,6 +46,10 @@
 static UIImage *NLBlurred(UIImage *image) {
     CGImageRef source = image.CGImage;
     if (!source) return image;
+    // Every new island preview gives its waveform the same sample cover: that
+    // one is blurred once.
+    static UIImage *lastImage, *lastBlurred;
+    if (image == lastImage) return lastBlurred;
     static CIContext *context;
     if (!context) context = [CIContext contextWithOptions:nil];
     CIImage *input = [CIImage imageWithCGImage:source];
@@ -63,6 +61,8 @@ static UIImage *NLBlurred(UIImage *image) {
     if (!cg) return image;
     UIImage *out = [UIImage imageWithCGImage:cg];
     CGImageRelease(cg);
+    lastImage = image;
+    lastBlurred = out;
     return out;
 }
 
@@ -167,6 +167,18 @@ static UIImage *NLBlurred(UIImage *image) {
 - (void)setWaveformData:(id)data;
 @end
 
+// The display link's target. A link keeps its target while it runs, so with
+// the driver itself as the target, a driver its owner let go of would run on
+// for as long as Preferences does: this one holds it weakly, and the driver's
+// -dealloc ends the link.
+@interface NLWaveformFrames : NSObject
+@property (nonatomic, weak) NLWaveformDriver *driver;
+@end
+
+@interface NLWaveformDriver ()
+- (void)nlFrame:(CADisplayLink *)link;
+@end
+
 // Each bar glides from one made-up level to the next with an ease in and out,
 // the same motion NLWaveformView makes, but written into the system's own
 // waveform views every frame, so they keep their own look: the cover
@@ -186,15 +198,20 @@ static UIImage *NLBlurred(UIImage *image) {
     [_link invalidate];
 }
 
-static void NLCollectWaveforms(UIView *view, NSHashTable<UIView *> *into) {
-    if ([NSStringFromClass(view.class) isEqualToString:@"MRUWaveformView"]) [into addObject:view];
-    for (UIView *sub in view.subviews) NLCollectWaveforms(sub, into);
+static void NLCollectWaveforms(UIView *view, Class waveformClass, NSHashTable<UIView *> *into) {
+    if (view.class == waveformClass) [into addObject:view];
+    for (UIView *sub in view.subviews) NLCollectWaveforms(sub, waveformClass, into);
 }
 
 - (void)driveViewsIn:(UIView *)root {
-    if (root) NLCollectWaveforms(root, _views);
+    // By class rather than by name: no string per view on every pass.
+    Class waveformClass = NSClassFromString(@"MRUWaveformView");
+    if (root && waveformClass) NLCollectWaveforms(root, waveformClass, _views);
+    [self nlWake];   // views found now get the levels too
     if (!_link && _views.count) {
-        _link = [CADisplayLink displayLinkWithTarget:self selector:@selector(nlFrame:)];
+        NLWaveformFrames *frames = [NLWaveformFrames new];
+        frames.driver = self;
+        _link = [CADisplayLink displayLinkWithTarget:frames selector:@selector(nlFrame:)];
         _link.preferredFrameRateRange = CAFrameRateRangeMake(30, 60, 60);
         [_link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
     }
@@ -205,15 +222,35 @@ static void NLCollectWaveforms(UIView *view, NSHashTable<UIView *> *into) {
     _link = nil;
 }
 
+// Playing again: the link runs again.
+- (void)setPlaying:(BOOL)playing {
+    _playing = playing;
+    if (playing) [self nlWake];
+}
+
+// The link again after resting (-nlFrame:). Resting, each bar would have gone
+// on with 0.3 s stretches from 0 to 0; it picks its stretch up where that
+// rhythm would be now, so the bars rise when they would have.
+- (void)nlWake {
+    if (!_link.paused) return;
+    CFTimeInterval now = CACurrentMediaTime();
+    for (int i = 0; i < 6; i++) {
+        if (_length[i] > 0) _start[i] = now - fmod(now - _start[i], _length[i]);
+    }
+    _link.paused = NO;
+}
+
 static double NLEase(double t) {
     t = MIN(MAX(t, 0), 1);
     return t * t * (3 - 2 * t);
 }
 
 - (void)nlFrame:(CADisplayLink *)link {
-    Class dataClass = NSClassFromString(@"MRUWaveformData");
+    static Class dataClass;
+    if (!dataClass) dataClass = NSClassFromString(@"MRUWaveformData");   // once MediaControls has it
     if (!dataClass) return;
     CFTimeInterval now = CACurrentMediaTime();
+    BOOL still = !_playing;   // stopped, every bar settled at 0, on every view
     NSMutableArray<NSNumber *> *amplitudes = [NSMutableArray arrayWithCapacity:6];
     for (int i = 0; i < 6; i++) {
         double t = _length[i] > 0 ? (now - _start[i]) / _length[i] : 1;
@@ -226,12 +263,26 @@ static double NLEase(double t) {
             _start[i] = now;
             _length[i] = _playing ? 0.24 + 0.14 * arc4random_uniform(1000) / 1000.0 : 0.3;
         }
+        if (level != 0 || _from[i] != 0) still = NO;   // from 0 to 0: it stays at 0
         [amplitudes addObject:@(level)];
     }
     id data = [[dataClass alloc] initWithAmplitudes:amplitudes];
     for (UIView *view in _views) {
-        if (view.window && [view respondsToSelector:@selector(setWaveformData:)]) [(id)view setWaveformData:data];
+        if (!view.window) { still = NO; continue; }
+        if ([view respondsToSelector:@selector(setWaveformData:)]) [(id)view setWaveformData:data];
     }
+    // Stopped and settled: every later frame would write these same zeros,
+    // which the views keep (their -layoutSubviews applies the data they hold
+    // again). The link rests until playing starts or -driveViewsIn: comes by.
+    if (still) link.paused = YES;
+}
+
+@end
+
+@implementation NLWaveformFrames
+
+- (void)nlFrame:(CADisplayLink *)link {
+    [self.driver nlFrame:link];
 }
 
 @end

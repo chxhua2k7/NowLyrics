@@ -123,7 +123,7 @@ static const double kNLDefaultStep = 0.1;
     NSString *sign = (_minimum < 0 && _value != 0) ? @"+" : @"";
     NSString *number = [NSString stringWithFormat:[sign stringByAppendingString:@"%.*f"], decimals, shown];
     if (_unit.length == 0) _field.text = number;
-    else if ([_unit isEqualToString:@"×"]) _field.text = [number stringByAppendingString:_unit];
+    else if ([_unit isEqualToString:@"×"] || [_unit isEqualToString:@"%"]) _field.text = [number stringByAppendingString:_unit];
     else _field.text = [NSString stringWithFormat:@"%@ %@", number, _unit];
 }
 
@@ -188,6 +188,19 @@ static const double kNLDefaultStep = 0.1;
 
 @end
 
+void NLLayoutStackedOffsetRow(UITableViewCell *cell, NLOffsetControl *control, CGFloat inset) {
+    CGRect content = cell.contentView.bounds;
+    CGRect icon = cell.imageView.frame;
+    icon.origin.y = round((44 - icon.size.height) / 2);
+    cell.imageView.frame = icon;
+    CGRect title = cell.textLabel.frame;
+    title.origin.y = round((44 - title.size.height) / 2);
+    title.size.width = MIN(title.size.width, content.size.width - inset - 84 - 12 - title.origin.x);
+    cell.textLabel.frame = title;
+    control.stacked = YES;
+    control.frame = CGRectMake(inset, 0, content.size.width - inset * 2, content.size.height - 6);
+}
+
 #pragma mark - Cell
 
 @interface PSControlTableCell (NLPrivate)
@@ -248,18 +261,7 @@ static double NLProp(PSSpecifier *specifier, NSString *key, double fallback) {
     // Tall row: icon, title and the value on a normal-looking first line, the
     // slider across the full width underneath. Short row: everything side by side.
     if (content.size.height >= 64) {
-        CGFloat line = 44;
-        CGRect icon = self.imageView.frame;
-        icon.origin.y = round((line - icon.size.height) / 2);
-        self.imageView.frame = icon;
-
-        CGRect title = self.textLabel.frame;
-        title.origin.y = round((line - title.size.height) / 2);
-        title.size.width = MIN(title.size.width, content.size.width - inset - 84 - 12 - title.origin.x);
-        self.textLabel.frame = title;
-
-        control.stacked = YES;
-        control.frame = CGRectMake(inset, 0, content.size.width - inset * 2, content.size.height - 6);
+        NLLayoutStackedOffsetRow(self, control, inset);
     } else {
         control.stacked = NO;
         CGFloat left = MAX(CGRectGetMaxX(self.textLabel.frame) + 12, 96);

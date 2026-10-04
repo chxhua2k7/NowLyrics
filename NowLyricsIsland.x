@@ -36,7 +36,6 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
-#import <dlfcn.h>
 #import "NowLyrics.h"
 #import "NLIslandStrip.h"
 #import "NLLocate.h"
@@ -131,9 +130,8 @@ static CGFloat NLIslandNum(NSDictionary *prefs, NSString *key, CGFloat fallback,
     return isnan(n) ? fallback : MIN(MAX(n, lo), hi);
 }
 
-// The file NowLyrics reads in the apps (NLShared.h).
-static NLIslandSettings NLIslandReadSettings(void) {
-    NSDictionary *prefs = NLReadPrefsFile();
+// The file NowLyrics reads in the apps (NLShared.h), as the caller read it.
+static NLIslandSettings NLIslandReadSettings(NSDictionary *prefs) {
     NLIslandSettings s = {0};
     // Independent of the main switch: with lyrics off, the now-playing title is
     // the real track title, and the strip shows that instead of a line.
@@ -250,21 +248,6 @@ static NLIslandClipView *gClip = nil;
 // a content view of fixed size instead), with no animation on the layers the
 // stillness check looks at.
 static BOOL gInWrapper = NO;
-
-// Tells covers apart. -[NSData hash] only reads the first 80 bytes, which
-// JPEGs from the same encoder share, so the length and two samples from the
-// compressed data further in go in as well.
-static NSUInteger NLArtworkPrint(NSData *data) {
-    const uint8_t *bytes = data.bytes;
-    NSUInteger length = data.length;
-    uint64_t h = 1469598103934665603ULL ^ length;   // FNV-1a
-    NSUInteger window = MIN(length, (NSUInteger)256);
-    NSUInteger starts[] = { length / 2 - MIN(length / 2, window / 2), length - window };
-    for (int k = 0; k < 2; k++) {
-        for (NSUInteger i = starts[k]; i < starts[k] + window; i++) { h ^= bytes[i]; h *= 1099511628211ULL; }
-    }
-    return (NSUInteger)h ?: 1;   // 0 means "nothing claimed"
-}
 
 #pragma mark - Updating
 
@@ -550,20 +533,13 @@ static void NLIslandUpdateWords(NSDictionary *info) {
 }
 
 static void NLIslandRefreshInfo(void) {
-    static void (*getInfo)(dispatch_queue_t, void (^)(CFDictionaryRef)) = NULL;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        void *mr = dlopen("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote", RTLD_LAZY);
-        if (mr) getInfo = (void (*)(dispatch_queue_t, void (^)(CFDictionaryRef)))dlsym(mr, "MRMediaRemoteGetNowPlayingInfo");
-    });
-    if (!getInfo || !gSettings.on) return;
+    if (!gSettings.on) return;
     // One request at a time (each answer carries the artwork across XPC); a
     // change that arrives meanwhile asks once more when the answer is in.
     static BOOL inFlight = NO, again = NO;
     if (inFlight) { again = YES; return; }
     inFlight = YES;
-    getInfo(dispatch_get_main_queue(), ^(CFDictionaryRef ref) {
-        NSDictionary *info = (__bridge NSDictionary *)ref;
+    NLNowPlayingInfo(^(NSDictionary *info) {
         id title = info[@"kMRMediaRemoteNowPlayingInfoTitle"];
         gTitle = [title isKindOfClass:NSString.class] ? title : nil;
         // Cleared by the players already when "Hide explicit badge" is on.
@@ -705,8 +681,8 @@ static NSString *NLIInsets(NSDirectionalEdgeInsets i) {
 
 static void NLIslandPrefsChanged(CFNotificationCenterRef center, void *observer,
                                  CFStringRef name, const void *object, CFDictionaryRef userInfo) {
-    NLIslandSettings now = NLIslandReadSettings();
     NSDictionary *prefs = NLReadPrefsFile();
+    NLIslandSettings now = NLIslandReadSettings(prefs);
     dispatch_async(dispatch_get_main_queue(), ^{
         gPrefs = prefs;
         BOOL heightChanged = now.on != gSettings.on;
@@ -722,8 +698,8 @@ static void NLIslandPrefsChanged(CFNotificationCenterRef center, void *observer,
 %ctor {
     @autoreleasepool {
         if (!objc_getClass("SBSystemApertureSceneElement")) return;   // no Dynamic Island support in this iOS
-        gSettings = NLIslandReadSettings();
         gPrefs = NLReadPrefsFile();
+        gSettings = NLIslandReadSettings(gPrefs);
         NLI_LOG(@"loaded on=%d fontSize=%.1f", gSettings.on, gSettings.fontSize);
         if (NLI_DEBUG_HOOKS) {
             %init(NLIDebug);

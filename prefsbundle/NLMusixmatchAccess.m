@@ -14,19 +14,6 @@ NSString *const NLMusixmatchStoreURL = @"itms-apps://apps.apple.com/app/id448278
 
 static NSString *const kNLVerifiedKey = @"musixmatchVerified";
 
-static id NLAccessPref(NSString *key) {
-    return CFBridgingRelease(CFPreferencesCopyAppValue((__bridge CFStringRef)key, (__bridge CFStringRef)NL_PREFS_DOMAIN));
-}
-
-static void NLAccessSet(NSDictionary<NSString *, id> *values) {
-    for (NSString *key in values) {
-        CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)values[key], (__bridge CFStringRef)NL_PREFS_DOMAIN);
-    }
-    CFPreferencesAppSynchronize((__bridge CFStringRef)NL_PREFS_DOMAIN);
-    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
-                                         (__bridge CFStringRef)NL_RELOAD_NOTIFICATION, NULL, NULL, YES);
-}
-
 BOOL NLMusixmatchInstalled(void) {
     return NLAppInstalled(NLMusixmatchBundleID);
 }
@@ -34,7 +21,7 @@ BOOL NLMusixmatchInstalled(void) {
 // A User Token (pasted debug info) or an API key: what the requests use.
 static BOOL NLMusixmatchHasCredentials(void) {
     for (NSString *key in @[@"musixmatchToken", @"musixmatchKey"]) {
-        id value = NLAccessPref(key);
+        id value = NLReadPref(nil, key);
         if ([value isKindOfClass:NSString.class] &&
             [value stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].length) return YES;
     }
@@ -43,12 +30,12 @@ static BOOL NLMusixmatchHasCredentials(void) {
 
 BOOL NLMusixmatchVerified(void) {
     CFPreferencesAppSynchronize((__bridge CFStringRef)NL_PREFS_DOMAIN);
-    return [NLAccessPref(kNLVerifiedKey) boolValue];
+    return [NLReadPref(nil, kNLVerifiedKey) boolValue];
 }
 
 BOOL NLUnlockMusixmatch(void) {
     if (!NLMusixmatchInstalled()) return NO;
-    NLAccessSet(@{kNLVerifiedKey: @YES, @"useMusixmatch": @YES});
+    NLWritePrefs(@{kNLVerifiedKey: @YES, @"useMusixmatch": @YES});
     return YES;
 }
 
@@ -57,14 +44,14 @@ BOOL NLUnlockMusixmatch(void) {
 // goes off.
 BOOL NLRecheckMusixmatch(void) {
     BOOL verified = NLMusixmatchVerified();
-    BOOL on = [NLAccessPref(@"useMusixmatch") boolValue];
+    BOOL on = [NLReadPref(nil, @"useMusixmatch") boolValue];
     BOOL usable = NLMusixmatchInstalled() || NLMusixmatchHasCredentials();
     if (verified && !usable) {
-        NLAccessSet(@{kNLVerifiedKey: @NO, @"useMusixmatch": @NO});
+        NLWritePrefs(@{kNLVerifiedKey: @NO, @"useMusixmatch": @NO});
         return YES;
     }
     if (!verified && on) {
-        NLAccessSet(usable ? @{kNLVerifiedKey: @YES} : @{@"useMusixmatch": @NO});
+        NLWritePrefs(usable ? @{kNLVerifiedKey: @YES} : @{@"useMusixmatch": @NO});
         return YES;
     }
     return NO;

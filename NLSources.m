@@ -615,7 +615,7 @@ NSArray<NLLyricLine *> *NLResolveLyrics(NLSettings *settings, NSString *key,
             cached = nil;
         }
         if (cached.count) {
-            NSDictionary<NSString *, NSString *> *tags = NLParseLRCHeader(disk);
+            NSDictionary<NSString *, NSString *> *tags = head ?: NLParseLRCHeader(disk);   // read already when the lines have words
             // Cached before 1.2.0: no tags, and the file name cannot be split
             // back into title and artist. Name it now, so the settings page's
             // library can list it properly.

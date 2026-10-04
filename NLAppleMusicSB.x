@@ -23,7 +23,6 @@
 //  capabilities, else whether a well-known song's lyrics can be had.
 //
 
-#import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 #import <dlfcn.h>
 #import "NLShared.h"

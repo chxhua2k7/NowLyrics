@@ -75,6 +75,7 @@ static NSArray<NLLibraryEntry *> *NLEntriesIn(NSString *folder, NSString *bundle
     UITableView *_table;
     UISearchController *_search;
     NSArray<NSString *> *_apps;                                       // bundle IDs, by name
+    NSDictionary<NSString *, NSString *> *_names;                     // bundle ID → name, as of the load
     NSDictionary<NSString *, NSMutableArray<NLLibraryEntry *> *> *_entries;
     NSArray<NSString *> *_shownApps;                                  // after the search
     NSDictionary<NSString *, NSArray<NLLibraryEntry *> *> *_shown;
@@ -115,9 +116,11 @@ static NSArray<NLLibraryEntry *> *NLEntriesIn(NSString *folder, NSString *bundle
 - (void)nlLoad {
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         NSMutableDictionary<NSString *, NSMutableArray<NLLibraryEntry *> *> *entries = [NSMutableDictionary dictionary];
-        NSDictionary<NSString *, NSString *> *folders = NLLyricsFolders();
+        // An app's page needs its own folder only, not a scan of every app's container.
+        NSString *container = self.onlyApp ? NLDataContainerForBundle(self.onlyApp) : nil;
+        NSDictionary<NSString *, NSString *> *folders = !self.onlyApp ? NLLyricsFolders()
+            : container ? @{self.onlyApp: [container stringByAppendingPathComponent:@"Library/NowLyrics"]} : @{};
         for (NSString *bundleID in folders) {
-            if (self.onlyApp && ![bundleID isEqualToString:self.onlyApp]) continue;
             NSMutableArray<NLLibraryEntry *> *list = [NSMutableArray array];
             NSArray *manual = NLEntriesIn([folders[bundleID] stringByAppendingPathComponent:@"manual"], bundleID, YES);
             NSArray *saved = NLEntriesIn(folders[bundleID], bundleID, NO);
@@ -134,6 +137,7 @@ static NSArray<NLLibraryEntry *> *NLEntriesIn(NSString *folder, NSString *bundle
         dispatch_async(dispatch_get_main_queue(), ^{
             self->_entries = entries;
             self->_apps = apps;
+            self->_names = names;
             self->_loaded = YES;
             [self nlFilter];
         });
@@ -148,7 +152,7 @@ static NSArray<NLLibraryEntry *> *NLEntriesIn(NSString *folder, NSString *bundle
     for (NSString *bundleID in _apps) {
         NSArray<NLLibraryEntry *> *list = _entries[bundleID];
         if (query.length) {
-            BOOL appMatches = [NLAppName(bundleID) localizedCaseInsensitiveContainsString:query];
+            BOOL appMatches = [_names[bundleID] localizedCaseInsensitiveContainsString:query];
             list = [list filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(NLLibraryEntry *e, NSDictionary *b) {
                 return appMatches || [e.title localizedCaseInsensitiveContainsString:query] ||
                        [e.artist localizedCaseInsensitiveContainsString:query];
@@ -193,7 +197,7 @@ static NSArray<NLLibraryEntry *> *NLEntriesIn(NSString *folder, NSString *bundle
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     if ([self nlIsButtonSection:section] || _appList || self.onlyApp || _shownApps.count == 0) return nil;
-    return NLAppName(_shownApps[section]);
+    return _names[_shownApps[section]];
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
@@ -213,7 +217,7 @@ static NSArray<NLLibraryEntry *> *NLEntriesIn(NSString *folder, NSString *bundle
 // An app row: its icon at the size Settings uses, its name, how many songs.
 - (UITableViewCell *)nlAppCell:(NSString *)bundleID {
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:nil];
-    cell.textLabel.text = NLAppName(bundleID);
+    cell.textLabel.text = _names[bundleID];
     cell.detailTextLabel.text = [NSString stringWithFormat:@"%lu", (unsigned long)_shown[bundleID].count];
     UIImage *icon = NLAppIcon(bundleID);
     if (icon) {
@@ -276,8 +280,7 @@ static NSArray<NLLibraryEntry *> *NLEntriesIn(NSString *folder, NSString *bundle
     NLLibraryEntry *entry = [self nlEntryAt:indexPath];
     if (!entry) return;
     NLLyricsEditorController *editor = [[NLLyricsEditorController alloc] initWithPath:entry.path title:entry.title];
-    __weak typeof(self) weakSelf = self;
-    editor.onChange = ^{ [weakSelf nlLoad]; };
+    // Saved or deleted, it pops: -viewWillAppear: loads the list again.
     [self.navigationController pushViewController:editor animated:YES];
 }
 

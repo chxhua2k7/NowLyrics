@@ -19,10 +19,6 @@
 #import <Preferences/PSSpecifier.h>
 #import <Preferences/PSTableCell.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
-#import "../NLIslandStrip.h"
-#import "../NLPlayerTint.h"
-#import <dlfcn.h>
-#import <objc/runtime.h>
 
 static const NSTimeInterval kNLRefreshInterval = 0.75;   // how often the page looks at what is playing
 
@@ -54,12 +50,6 @@ static NSString *NLArtistFieldTitle(NSString *value) {
 // The sources a song can be pinned to, by their preference names.
 static NSArray<NSString *> *const NLSourceNames(void) {
     return @[@"", @"applemusic", @"musixmatch", @"lrclib", @"netease"];   // "" is automatic
-}
-
-static NSString *NLSourceTitle(NSString *name) {
-    NSDictionary *titles = @{@"": @"Automatic", @"applemusic": @"Apple Music", @"musixmatch": @"Musixmatch",
-                             @"lrclib": @"LRCLIB", @"netease": @"NetEase Music"};
-    return NLL(titles[name] ?: name);
 }
 
 #pragma mark - Cells
@@ -135,16 +125,7 @@ static NSString *NLSourceTitle(NSString *name) {
 
 - (void)layoutSubviews {
     [super layoutSubviews];
-    CGRect content = self.contentView.bounds;
-    CGFloat inset = self.contentView.layoutMargins.left;
-    CGRect icon = self.imageView.frame;
-    icon.origin.y = round((44 - icon.size.height) / 2);
-    self.imageView.frame = icon;
-    CGRect title = self.textLabel.frame;
-    title.origin.y = round((44 - title.size.height) / 2);
-    title.size.width = MIN(title.size.width, content.size.width - inset - 84 - 12 - title.origin.x);
-    self.textLabel.frame = title;
-    _control.frame = CGRectMake(inset, 0, content.size.width - inset * 2, content.size.height - 6);
+    NLLayoutStackedOffsetRow(self, _control, self.contentView.layoutMargins.left);
 }
 
 @end
@@ -181,9 +162,12 @@ static NSString *NLSourceTitle(NSString *name) {
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(nlReload)
                                                  name:UIApplicationWillEnterForegroundNotification object:nil];
     _player = [[NLPlayerHeader alloc] initWithOwner:self table:_table];
-    __weak UITableView *table = _table;
-    [[NSNotificationCenter defaultCenter] addObserverForName:NLThemeChangedNotification object:nil queue:nil
-                                                  usingBlock:^(NSNotification *n) { NLThemeTable(table); }];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(nlThemeChanged)
+                                                 name:NLThemeChangedNotification object:nil];
+}
+
+- (void)nlThemeChanged {
+    NLThemeTable(_table);
 }
 
 - (void)viewDidLayoutSubviews {
@@ -240,26 +224,7 @@ static NSString *NLSourceTitle(NSString *name) {
 // The app MediaRemote says is playing; failing that (it may not know, or the
 // app has NowLyrics switched off), whichever app wrote its nowplaying.plist last.
 - (void)nlReload {
-    NLNowPlayingBundleID(^(NSString *playing) {
-        dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-            NSString *bundleID = playing;
-            NSDictionary *np = NLReadNowPlaying(bundleID);
-            if (!np) {
-                NSDate *latest = nil;
-                bundleID = nil;
-                for (NSString *candidate in NLLyricsFolders()) {
-                    NSDictionary *info = NLReadNowPlaying(candidate);
-                    NSDate *updated = info[NL_NP_UPDATED];
-                    if ([updated isKindOfClass:NSDate.class] && (!latest || [updated compare:latest] == NSOrderedDescending)) {
-                        latest = updated;
-                        bundleID = candidate;
-                        np = info;
-                    }
-                }
-            }
-            dispatch_async(dispatch_get_main_queue(), ^{ [self nlAdopt:bundleID np:np]; });
-        });
-    });
+    NLPlayingSong(^(NSString *bundleID, NSDictionary *np) { [self nlAdopt:bundleID np:np]; });
 }
 
 // Redraws only what changed: a new song rebuilds the page, new lyrics for the
@@ -267,7 +232,9 @@ static NSString *NLSourceTitle(NSString *name) {
 - (void)nlAdopt:(NSString *)bundleID np:(NSDictionary *)np {
     BOOL first = !_loaded;
     _loaded = YES;
-    if (!first && [bundleID isEqual:_bundleID] && (np == _np || [np isEqualToDictionary:_np])) return;
+    // nil and nil (nothing playing) are the same app too.
+    if (!first && (bundleID == _bundleID || [bundleID isEqual:_bundleID]) &&
+        (np == _np || [np isEqualToDictionary:_np])) return;
     BOOL sameSong = !first && _np && np && [bundleID isEqual:_bundleID] && [np[NL_NP_KEY] isEqual:_np[NL_NP_KEY]];
     _bundleID = bundleID;
     _np = np;
@@ -373,33 +340,12 @@ static NSString *NLSourceTitle(NSString *name) {
     return [parent isKindOfClass:[PSListController class]] ? (PSListController *)parent : nil;
 }
 
-- (PSSpecifier *)nlSpecifierForKey:(NSString *)key {
-    PSSpecifier *spec = [PSSpecifier preferenceSpecifierNamed:key target:[self nlRoot]
-                                                          set:@selector(setPreferenceValue:specifier:)
-                                                          get:@selector(readPreferenceValue:)
-                                                       detail:Nil cell:PSStaticTextCell edit:Nil];
-    [spec setProperty:NL_PREFS_DOMAIN forKey:@"defaults"];
-    [spec setProperty:key forKey:@"key"];
-    [spec setProperty:NL_RELOAD_NOTIFICATION forKey:@"PostNotification"];
-    return spec;
-}
-
 - (id)nlPref:(NSString *)key {
-    PSListController *root = [self nlRoot];
-    return root ? [root readPreferenceValue:[self nlSpecifierForKey:key]]
-                : CFBridgingRelease(CFPreferencesCopyAppValue((__bridge CFStringRef)key, (__bridge CFStringRef)NL_PREFS_DOMAIN));
+    return NLReadPref([self nlRoot], key);
 }
 
 - (void)nlSetPref:(id)value forKey:(NSString *)key {
-    PSListController *root = [self nlRoot];
-    if (root) {
-        [root setPreferenceValue:value specifier:[self nlSpecifierForKey:key]];
-        return;
-    }
-    CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)value, (__bridge CFStringRef)NL_PREFS_DOMAIN);
-    CFPreferencesAppSynchronize((__bridge CFStringRef)NL_PREFS_DOMAIN);
-    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
-                                         (__bridge CFStringRef)NL_RELOAD_NOTIFICATION, NULL, NULL, YES);
+    NLWritePref([self nlRoot], key, value);
 }
 
 - (NSDictionary *)nlDictionaryPref:(NSString *)key {
@@ -468,7 +414,7 @@ static NSString *NLSourceTitle(NSString *name) {
         [@{@"key": key, @"source": name ?: @"", @"stamp": @(CFAbsoluteTimeGetCurrent())}
             writeToFile:[dir stringByAppendingPathComponent:NL_LOOKUP_FILE] atomically:YES];
     }
-    CFPreferencesAppSynchronize(CFSTR("app.nowlyrics"));
+    CFPreferencesAppSynchronize((__bridge CFStringRef)NL_PREFS_DOMAIN);
     NLPostLyricsChanged();
     [self nlStartPolling];
 }
@@ -738,13 +684,14 @@ static NSString *NLSourceTitle(NSString *name) {
 #pragma mark Actions
 
 - (void)nlRemoveManual {
+    NSString *path = [self nlPath];   // the song asked about, should the next one start while the alert is up
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:NLL(@"Remove added lyrics?")
                                                                    message:NLL(@"The app looks the song up again.")
                                                             preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:NLL(@"Cancel") style:UIAlertActionStyleCancel handler:nil]];
     [alert addAction:[UIAlertAction actionWithTitle:NLL(@"Remove") style:UIAlertActionStyleDestructive
                                             handler:^(UIAlertAction *a) {
-        [[NSFileManager defaultManager] removeItemAtPath:[self nlPath] error:nil];
+        [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
         NLPostLyricsChanged();
         [self nlStartPolling];
     }]];

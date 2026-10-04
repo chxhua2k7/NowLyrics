@@ -23,7 +23,7 @@ double NLNum(id value, double fallback) {
 #pragma mark - Paths
 
 // Library/NowLyrics, without creating it.
-static NSString *NLCacheDir(void) {
+NSString *NLCacheDir(void) {
     static NSString *dir = nil;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
@@ -568,7 +568,15 @@ NSDictionary<NSString *, NSString *> *NLParseLRCHeader(NSString *lrc) {
         tag = [NSRegularExpression regularExpressionWithPattern:@"^\\s*\\[([A-Za-z][A-Za-z-]*):(.*)\\]\\s*$" options:0 error:nil];
     });
     NSMutableDictionary<NSString *, NSString *> *out = [NSMutableDictionary dictionary];
-    for (NSString *raw in [lrc componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]]) {
+    // Cut one line at a time where componentsSeparatedByCharactersInSet: would
+    // (at every newline character), so the lyrics below the header are never split.
+    NSCharacterSet *newlines = [NSCharacterSet newlineCharacterSet];
+    NSUInteger length = lrc.length;
+    for (NSUInteger from = 0; from < length; ) {
+        NSRange newline = [lrc rangeOfCharacterFromSet:newlines options:0 range:NSMakeRange(from, length - from)];
+        NSUInteger end = (newline.location == NSNotFound) ? length : newline.location;
+        NSString *raw = [lrc substringWithRange:NSMakeRange(from, end - from)];
+        from = (newline.location == NSNotFound) ? length : NSMaxRange(newline);
         if (raw.length == 0) continue;
         NSTextCheckingResult *m = [tag firstMatchInString:raw options:0 range:NSMakeRange(0, raw.length)];
         if (!m) break;   // the lyrics have started
@@ -625,9 +633,10 @@ BOOL NLWordTimesPlausible(NSArray<NLLyricLine *> *lines) {
 static NSString *NLComparableText(NSString *text) {
     NSMutableString *out = [NSMutableString string];
     NSString *lower = text.lowercaseString;
+    NSCharacterSet *keep = NSCharacterSet.alphanumericCharacterSet;
     for (NSUInteger i = 0; i < lower.length; i++) {
         unichar c = [lower characterAtIndex:i];
-        if ([NSCharacterSet.alphanumericCharacterSet characterIsMember:c]) [out appendFormat:@"%C", c];
+        if ([keep characterIsMember:c]) CFStringAppendCharacters((__bridge CFMutableStringRef)out, &c, 1);
     }
     return out;
 }

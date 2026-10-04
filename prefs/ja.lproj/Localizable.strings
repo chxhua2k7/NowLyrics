@@ -92,6 +92,7 @@
 "Every song starts with this offset; a positive one shows lyrics earlier. Now Playing changes one song’s offset only. Drag the slider, or tap the value to type one, e.g. 0.25 or -300ms." = "すべての曲はこのオフセットから始まります。正の値で歌詞が早く表示されます。「再生中」での変更はその曲だけに適用されます。スライダーをドラッグするか、数値をタップして入力します（例：0.25、-300ms）。";
 "This song’s timing only; a positive offset shows its lyrics earlier. Every other song uses the default offset under Advanced." = "この曲のタイミングだけを調整します。正の値で歌詞が早く表示されます。ほかの曲は「詳細」のデフォルトのオフセットを使います。";
 "Player over its cover" = "プレーヤーの背景をジャケットに";
+"Transparency" = "透明度";
 "Top of main page" = "メインページ上部";
 "Player" = "プレーヤー";
 "Island" = "Dynamic Island";

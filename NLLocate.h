@@ -12,7 +12,8 @@ extern "C" {
 #endif
 
 // The app's data container, e.g. /var/mobile/Containers/Data/Application/<UUID>.
-// Looked up from the container metadata once and remembered; a miss rescans.
+// Looked up from the container metadata once and remembered; a miss rescans
+// once the containers folder has changed.
 NSString *NLDataContainerForBundle(NSString *bundleID);
 
 // <container>/Library/NowLyrics for every app that has one, by bundle ID. Scans.
@@ -20,6 +21,8 @@ NSDictionary<NSString *, NSString *> *NLLyricsFolders(void);
 
 // The app's nowplaying.plist (NLShared.h's NL_NP_* keys), nil if it has none.
 NSDictionary *NLReadNowPlaying(NSString *bundleID);
+
+void *NLMediaRemote(const char *symbol);   // a MediaRemote function, NULL when this iOS lacks it
 
 // Which app MediaRemote says is playing. Calls back on the main queue, nil if
 // it does not know.
@@ -29,7 +32,8 @@ void NLNowPlayingBundleID(void (^completion)(NSString *bundleID));
 void NLNowPlayingIsPlaying(void (^completion)(BOOL playing));
 
 // The now-playing info dictionary (kMRMediaRemoteNowPlayingInfo… keys, artwork
-// included). Main queue; nil when nothing is playing.
+// included). Called and answered on the main queue; nil when nothing is
+// playing. Callers in one turn of the main queue share one request.
 void NLNowPlayingInfo(void (^completion)(NSDictionary *info));
 
 // Tells the apps their lyrics files changed (NL_LYRICS_CHANGED_NOTIFICATION).

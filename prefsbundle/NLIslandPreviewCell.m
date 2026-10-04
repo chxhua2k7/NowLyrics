@@ -88,6 +88,9 @@ static void NLStandInForHost(void) {
 }
 
 NSString *const NLIslandPreviewChangedNotification = @"NLIslandPreviewChanged";
+// The preview showing the island left the screen: another one still on it
+// (a swipe back let go halfway) takes the island up again.
+static NSString *const NLIslandPreviewFreedNotification = @"NLIslandPreviewFreed";
 NSArray<NSString *> *NLPreviewLinePool(NSBundle *bundle);   // NLPreviewLines.m
 
 @interface NSObject (NLIslandPreview)
@@ -186,7 +189,7 @@ static const NSUInteger kNLRecentLines = 20;   // not repeated until this many o
 
 // The stand-in cover: NowLyrics' own icon (the 87 px one in this bundle). Its
 // album color comes from the same NLColorFromArtwork() the island uses.
-static UIImage *NLSampleArtwork(CGFloat side) {
+static UIImage *NLSampleArtwork(void) {
     static UIImage *icon;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
@@ -194,6 +197,15 @@ static UIImage *NLSampleArtwork(CGFloat side) {
              compatibleWithTraitCollection:[UITraitCollection traitCollectionWithDisplayScale:3]];
     });
     return icon;
+}
+
+// That color, worked out once (through a PNG of the icon): the icon never
+// changes, and every new cell and every return from the live island want it.
+static UIColor *NLSampleArtworkColor(void) {
+    static UIColor *color;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ color = NLColorFromArtwork(UIImagePNGRepresentation(NLSampleArtwork())); });
+    return color;
 }
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier specifier:(PSSpecifier *)specifier {
@@ -206,7 +218,6 @@ static UIImage *NLSampleArtwork(CGFloat side) {
         _pill.backgroundColor = UIColor.blackColor;
         _pill.layer.cornerRadius = kNLCompact.height / 2;
         _pill.layer.cornerCurve = kCACornerCurveContinuous;
-        // The real island's outline, measured from a screenshot: 1.5 pt of 16 % white.
         // The real island's outline, measured from a screenshot: 1.5 pt of 16 %
         // white, around the black rather than over its edge.
         _ring = [UIView new];
@@ -218,12 +229,12 @@ static UIImage *NLSampleArtwork(CGFloat side) {
         _pill.clipsToBounds = YES;
         [self.contentView addSubview:_pill];
 
-        UIImage *art = NLSampleArtwork(64);
+        UIImage *art = NLSampleArtwork();
         _art = [[UIImageView alloc] initWithImage:art];
         _art.layer.cornerCurve = kCACornerCurveContinuous;
         _art.clipsToBounds = YES;
         [_pill addSubview:_art];
-        _albumColor = NLColorFromArtwork(UIImagePNGRepresentation(art));
+        _albumColor = NLSampleArtworkColor();
         _sampleArt = art;
 
         _wave = [[NLWaveformView alloc] initWithBars:kNLBars];
@@ -261,6 +272,8 @@ static UIImage *NLSampleArtwork(CGFloat side) {
 
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(nlValuesChanged:)
                                                      name:NLIslandPreviewChangedNotification object:nil];
+        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(nlIslandFreed)
+                                                     name:NLIslandPreviewFreedNotification object:nil];
     }
     return self;
 }
@@ -350,6 +363,9 @@ static __weak NLIslandPreviewCell *gIslandOwner;
         gIslandOwner = self;
     } else if (gIslandOwner == self) {
         gIslandOwner = nil;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [[NSNotificationCenter defaultCenter] postNotificationName:NLIslandPreviewFreedNotification object:nil];
+        });
     }
     UIView *host = table ?: self.contentView;
     if (_pill.superview == host) return;
@@ -411,16 +427,9 @@ static __weak NLIslandPreviewCell *gIslandOwner;
     _wave.center = CGPointMake(barsRight - kNLBars * 2, barsMidY);
     // Closing, the cover and waveform are moved by the close animation alone
     // (-nlSetExpanded:), and put in their closed places when it ends.
-    void (^placeLive)(void) = ^{
-        self->_liveWave.bounds = self->_wave.bounds;
-        self->_liveWave.center = self->_wave.center;
-        // Bounds and centre: closing gives it a scale for a moment.
-        self->_liveArt.bounds = CGRectMake(0, 0, self->_art.frame.size.width, self->_art.frame.size.height);
-        self->_liveArt.center = CGPointMake(CGRectGetMidX(self->_art.frame), CGRectGetMidY(self->_art.frame));
-    };
     // The open view first: laying it out can move the cover and waveform.
     [self nlLayoutActivity:size];
-    if (!_collapsingLive) placeLive();
+    if (!_collapsingLive) [self nlPlaceLiveViews];
 
     CGFloat textX = CGRectGetMaxX(_art.frame) + 14, textW = barsRight - 30 - textX;
     // Bounds and centre here too: these carry a scale while they appear.
@@ -456,6 +465,10 @@ static __weak NLIslandPreviewCell *gIslandOwner;
     if (was != hidden && _pill) [self nlScreenChanged];
 }
 
+- (void)nlIslandFreed {
+    if (!gIslandOwner && [self nlOnScreen]) [self nlScreenChanged];
+}
+
 // Another cell shows the island now: this one's goes back into its own row
 // (hidden with it) and stops.
 - (void)nlStandDown {
@@ -473,18 +486,42 @@ static __weak NLIslandPreviewCell *gIslandOwner;
     _generation++;   // stops the cycle
     [_liveTimer invalidate];
     _liveTimer = nil;
-    if (_expanded) {
+    _closeGeneration++;   // a close on its way has no last step left: done below
+    if (_expanded || _collapsingLive) {
         _expanded = NO;   // back closed next time, without animating off screen
         _titleLabel.alpha = _lineLabel.alpha = 0;
         _strip.alpha = 1;
         _pill.transform = CGAffineTransformIdentity;
         _ring.transform = CGAffineTransformIdentity;
+        // Live, the open island's own view and the cover and waveform too, as
+        // a close leaves them: it stayed up in the closed island, its line
+        // over the strip's, when the island came back.
+        if (_activity) {
+            CGAffineTransform closed = NLTopScale(kNLCompact.width / kNLExpandedLive.width, kNLOpenView.height);
+            [UIView performWithoutAnimation:^{
+                self->_activity.view.alpha = 0;
+                self->_activity.view.transform = closed;
+                self->_extrasHost.alpha = 0;
+                self->_extrasHost.transform = closed;
+                for (UIView *view in @[self->_liveArt ?: [NSNull null], self->_liveWave ?: [NSNull null]]) {
+                    if (![view isKindOfClass:UIView.class]) continue;
+                    view.transform = CGAffineTransformIdentity;
+                    view.alpha = 1;
+                }
+            }];
+            [self nlSetActivityMode:kNLActivityCompact];
+            [self nlReturnLiveViews];
+        }
         [self nlLayoutPill];
     }
 }
 
 - (void)nlScreenChanged {
     [self nlHostPill];
+    // Its waveform drawn nowhere (the page covered): the driver's display link
+    // rests until it is in a window again.
+    if (_liveWave.window) [_activityWave driveViewsIn:nil];
+    else [_activityWave stop];
     if (![self nlOnScreen]) {
         [self nlStop];
         return;
@@ -836,10 +873,7 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
                     if (![view isKindOfClass:UIView.class]) continue;
                     view.transform = CGAffineTransformIdentity;
                 }
-                self->_liveWave.bounds = self->_wave.bounds;
-                self->_liveWave.center = self->_wave.center;
-                self->_liveArt.bounds = CGRectMake(0, 0, self->_art.frame.size.width, self->_art.frame.size.height);
-                self->_liveArt.center = CGPointMake(CGRectGetMidX(self->_art.frame), CGRectGetMidY(self->_art.frame));
+                [self nlPlaceLiveViews];
                 for (UIView *view in @[cover ?: [NSNull null], wave ?: [NSNull null]]) {
                     if (![view isKindOfClass:UIView.class]) continue;
                     CGPoint c = view.center;
@@ -1022,6 +1056,15 @@ static void NLKeepLiveViewsInPlace(void) {
         }
     }];
     _collapsingLive = NO;
+}
+
+// The live cover and waveform where the sample ones are. Bounds and centre:
+// closing gives them a scale for a moment.
+- (void)nlPlaceLiveViews {
+    _liveWave.bounds = _wave.bounds;
+    _liveWave.center = _wave.center;
+    _liveArt.bounds = CGRectMake(0, 0, _art.frame.size.width, _art.frame.size.height);
+    _liveArt.center = CGPointMake(CGRectGetMidX(_art.frame), CGRectGetMidY(_art.frame));
 }
 
 // The layout the island's controller lays out for, and what its views are
@@ -1276,7 +1319,7 @@ CGFloat NLIslandPreviewMostExtraHeight(void) {
 - (NSDictionary *)nlOffsetsPrefs {
     NSMutableDictionary *prefs = [NSMutableDictionary dictionary];
     for (NSString *key in @[@"offset", NL_TRACK_OFFSETS_KEY]) {
-        id value = CFBridgingRelease(CFPreferencesCopyAppValue((__bridge CFStringRef)key, CFSTR("app.nowlyrics")));
+        id value = NLReadPref(nil, key);
         if (value) prefs[key] = value;
     }
     return prefs;
@@ -1293,7 +1336,7 @@ CGFloat NLIslandPreviewMostExtraHeight(void) {
         _liveArtworkLength = 0;
         _art.image = _sampleArt;
         _art.alpha = 1;
-        _albumColor = NLColorFromArtwork(UIImagePNGRepresentation(_sampleArt));   // the sample cover's again
+        _albumColor = NLSampleArtworkColor();   // the sample cover's again
         [self nlApplyValues];
         [self nlLayoutPill];
         [self nlAnimateBars];

@@ -30,15 +30,28 @@ static NSString *NLFold(NSString *text) {
     return out;
 }
 
-// Whether two artist fields share an artist ("A & B", "A, B", "A feat. B").
-static BOOL NLArtistsMeet(NSString *one, NSString *other) {
-    NSString *a = NLFold(one), *b = NLFold(other);
-    if (!a.length || !b.length) return NO;
-    if ([a containsString:b] || [b containsString:a]) return YES;
+// The asked-for artist's parts ("A & B", "A, B") folded, those of two letters
+// or more: the same for every search result.
+static NSArray<NSString *> *NLArtistParts(NSString *artist) {
     NSCharacterSet *separators = [NSCharacterSet characterSetWithCharactersInString:@"&,/、，;＆"];
-    for (NSString *part in [one componentsSeparatedByCharactersInSet:separators]) {
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    for (NSString *part in [artist componentsSeparatedByCharactersInSet:separators]) {
         NSString *folded = NLFold(part);
-        if (folded.length >= 2 && [b containsString:folded]) return YES;
+        if (folded.length >= 2) [parts addObject:folded];
+    }
+    return parts;
+}
+
+// Whether a result's artist field shares an artist with the asked-for one
+// ("A & B", "A, B", "A feat. B"): `wanted` is that one folded, `parts` its
+// NLArtistParts.
+static BOOL NLArtistsMeet(NSString *wanted, NSArray<NSString *> *parts, NSString *other) {
+    if (!wanted.length) return NO;
+    NSString *b = NLFold(other);
+    if (!b.length) return NO;
+    if ([wanted containsString:b] || [b containsString:wanted]) return YES;
+    for (NSString *folded in parts) {
+        if ([b containsString:folded]) return YES;
     }
     return NO;
 }
@@ -48,6 +61,8 @@ static BOOL NLArtistsMeet(NSString *one, NSString *other) {
 // longer or shorter is another version.
 static NSDictionary *NLBestMatch(NSArray *results, NSString *title, NSString *artist, NSTimeInterval duration) {
     NSString *wanted = NLFold(title);
+    NSString *wantedArtist = NLFold(artist);
+    NSArray<NSString *> *artistParts = wantedArtist.length ? NLArtistParts(artist) : @[];
     NSDictionary *best = nil;
     double bestScore = -1;
     for (NSDictionary *result in results) {
@@ -61,7 +76,7 @@ static NSDictionary *NLBestMatch(NSArray *results, NSString *title, NSString *ar
         double length = [result[@"trackTimeMillis"] respondsToSelector:@selector(doubleValue)] ? [result[@"trackTimeMillis"] doubleValue] / 1000 : 0;
         double apart = (duration > 0 && length > 0) ? fabs(duration - length) : -1;
         if (apart > 5) continue;
-        BOOL artistMeets = NLArtistsMeet(artist, result[@"artistName"]);
+        BOOL artistMeets = NLArtistsMeet(wantedArtist, artistParts, result[@"artistName"]);
         if (!artistMeets && !(apart >= 0 && apart <= 2)) continue;
         double score = titleScore * 10 + (artistMeets ? 5 : 0) + (apart >= 0 ? 5 - apart : 0);
         if (score > bestScore) {

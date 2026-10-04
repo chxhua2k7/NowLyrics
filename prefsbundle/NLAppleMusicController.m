@@ -31,29 +31,6 @@ static void NLAppleMusicAnswered(CFNotificationCenterRef center, void *observer,
     [_timeout invalidate];
 }
 
-// The song on screen, from its app's nowplaying.plist (the now-playing title
-// MediaRemote has is a lyric line): the app MediaRemote names, else whichever
-// wrote last.
-static void NLPlayingSong(void (^done)(NSString *bundleID, NSDictionary *np)) {
-    NLNowPlayingBundleID(^(NSString *playing) {
-        NSDictionary *np = NLReadNowPlaying(playing);
-        NSString *bundleID = playing;
-        if (!np) {
-            NSDate *latest = nil;
-            for (NSString *candidate in NLLyricsFolders()) {
-                NSDictionary *info = NLReadNowPlaying(candidate);
-                NSDate *updated = info[NL_NP_UPDATED];
-                if ([updated isKindOfClass:NSDate.class] && (!latest || [updated compare:latest] == NSOrderedDescending)) {
-                    latest = updated;
-                    bundleID = candidate;
-                    np = info;
-                }
-            }
-        }
-        done(bundleID, np);
-    });
-}
-
 - (void)nlSay:(NSString *)line {
     [_report addObject:line];
     _alert.message = [_report componentsJoinedByString:@"\n\n"];

@@ -135,6 +135,7 @@ BOOL NLHasWords(NSArray<NLLyricLine *> *lines);     // some line is timed word b
 BOOL NLWordTimesPlausible(NSArray<NLLyricLine *> *lines);   // NO when the words go faster than anyone sings
 BOOL NLWordLinesAgree(NSArray<NLLyricLine *> *words, NSArray<NLLyricLine *> *timed);   // same lines at about the same times
 void NLMarkChorus(NSArray<NLLyricLine *> *lines);   // sets chorus/chorusStart; leaves them NO when nothing repeats
+NSString *NLCacheDir(void);                         // Library/NowLyrics, without creating it
 NSString *NLCachePath(NSString *key);
 NSString *NLNowPlayingPath(void);                   // Library/NowLyrics/nowplaying.plist
 NSArray<NLLyricLine *> *NLManualLyrics(NSString *title, NSString *artist, NSString **outPath);

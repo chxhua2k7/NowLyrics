@@ -108,21 +108,20 @@ static NSString *NLAttr(NSDictionary *attributes, NSString *name) {
 }
 
 - (void)finishLine {
-    NSCharacterSet *space = [NSCharacterSet whitespaceAndNewlineCharacterSet];
     // Collapse the XML's line breaks and indentation into single spaces.
     for (NLLyricWord *word in _words) {
         word.text = [word.text stringByReplacingOccurrencesOfString:@"\\s+" withString:@" "
                                                             options:NSRegularExpressionSearch
                                                               range:NSMakeRange(0, word.text.length)];
     }
-    NSString *plain = [[[_lineText componentsSeparatedByCharactersInSet:space]
-                        filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"length > 0"]] componentsJoinedByString:@" "];
     if (_words.count) {
         // The words' own text decides the line, as NLParseLRC does.
         NLLyricLine *line = NLLineFromWords(_words, _line.start, _line.end);
         if (line) [_lines addObject:line];
     } else {
-        _line.text = plain;
+        NSCharacterSet *space = [NSCharacterSet whitespaceAndNewlineCharacterSet];
+        _line.text = [[[_lineText componentsSeparatedByCharactersInSet:space]
+                       filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"length > 0"]] componentsJoinedByString:@" "];
         if (_line.text.length) [_lines addObject:_line];
     }
     _line = nil;

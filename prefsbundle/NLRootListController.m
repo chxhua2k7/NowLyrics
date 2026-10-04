@@ -146,6 +146,7 @@ BOOL NLAppInstalled(NSString *bundleID) {
 }
 
 UIImage *NLRowIcon(NSString *app, NSString *symbol, NSString *hex) {
+    // An app that is not installed would get the system's blank placeholder.
     if ([app isKindOfClass:[NSString class]] && NLAppInstalled(app)) {
         UIImage *icon = [UIImage _applicationIconImageForBundleIdentifier:app format:0 scale:UIScreen.mainScreen.scale];
         if (icon) return icon;
@@ -155,22 +156,17 @@ UIImage *NLRowIcon(NSString *app, NSString *symbol, NSString *hex) {
 
 static void NLApplyIcon(PSSpecifier *specifier) {
     if ([specifier propertyForKey:PSIconImageKey]) return;   // drawn already, or a real image from the plist
-    // `iconApp`: the installed app's own icon (the 29 pt "small" format), so the
-    // row matches what the user sees on the home screen. Falls back to the symbol.
     if ([[specifier propertyForKey:@"iconDrawn"] isEqual:@"sampleCover"]) {
         [specifier setProperty:NLSampleCoverIcon() forKey:PSIconImageKey];
         return;
     }
-    NSString *app = [specifier propertyForKey:@"iconApp"];
-    // An app that is not installed would get the system's blank placeholder.
-    if ([app isKindOfClass:[NSString class]] && NLAppInstalled(app)) {
-        UIImage *icon = [UIImage _applicationIconImageForBundleIdentifier:app format:0 scale:UIScreen.mainScreen.scale];
-        if (icon) { [specifier setProperty:icon forKey:PSIconImageKey]; return; }
-    }
+    // `iconApp`: the installed app's own icon (the 29 pt "small" format), so the
+    // row matches what the user sees on the home screen. Falls back to the symbol.
     NSString *symbol = [specifier propertyForKey:@"iconSymbol"];
-    UIColor *color = NLColorFromHex([specifier propertyForKey:@"iconColor"]);
-    if (![symbol isKindOfClass:[NSString class]] || !color) return;
-    [specifier setProperty:NLTileIcon(symbol, color) forKey:PSIconImageKey];
+    // No symbol name, no tile (NLRowIcon would draw a plain one).
+    UIImage *icon = NLRowIcon([specifier propertyForKey:@"iconApp"], symbol,
+                              [symbol isKindOfClass:NSString.class] ? [specifier propertyForKey:@"iconColor"] : nil);
+    if (icon) [specifier setProperty:icon forKey:PSIconImageKey];
 }
 
 #pragma mark - Rows that follow a switch
@@ -214,7 +210,7 @@ static BOOL NLSpecifierWanted(PSListController *controller, NSArray<PSSpecifier 
         id value = [key isEqualToString:@"nlAppleMusicAvailable"] ? @(NLAppleMusicAvailable())
                  : [key isEqualToString:@"nlHeaderIsland"] ? @([NLPageHeader(controller) isEqualToString:@"island"])
                  : control ? [controller readPreferenceValue:control]
-                           : CFBridgingRelease(CFPreferencesCopyAppValue((__bridge CFStringRef)key, CFSTR("app.nowlyrics")));
+                           : NLReadPref(nil, key);
         if (![value respondsToSelector:@selector(boolValue)]) value = [control propertyForKey:@"default"];
         if ([value boolValue] == [rule hasPrefix:@"!"]) return NO;
     }
@@ -404,7 +400,8 @@ static NSDictionary *NLIslandPreviewValues(PSListController *controller, NSArray
 // would give this page that page's title.
 - (NSDictionary *)nlIslandPreviewValues {
     if (!_islandItems) {
-        NSString *path = [self.bundle pathForResource:@"Island" ofType:@"plist"];
+        // This bundle's: the page's own bundle is PreferenceLoader's folder.
+        NSString *path = [[NSBundle bundleForClass:NLIslandListController.class] pathForResource:@"Island" ofType:@"plist"];
         id items = path ? [NSDictionary dictionaryWithContentsOfFile:path][@"items"] : nil;
         _islandItems = [items isKindOfClass:NSArray.class] ? items : @[];
     }
@@ -681,12 +678,7 @@ static BOOL NLSameRows(NSArray<PSSpecifier *> *a, NSArray<PSSpecifier *> *b) {
     __weak typeof(self) weakSelf = self;
     NLCheckAppleMusicSubscription(^(NLSubscription result, NSString *detail) {
         NLApplyAppleMusicSubscription(result);
-        if (result == NLSubscriptionActive) {
-            CFPreferencesSetAppValue(CFSTR("useAppleMusic"), kCFBooleanTrue, CFSTR("app.nowlyrics"));
-            CFPreferencesAppSynchronize(CFSTR("app.nowlyrics"));
-            CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
-                                                 CFSTR("app.nowlyrics/ReloadPrefs"), NULL, NULL, YES);
-        }
+        if (result == NLSubscriptionActive) NLWritePrefs(@{@"useAppleMusic": @YES});
         [weakSelf nlRefreshLockedRows];
         alert.message = result == NLSubscriptionActive
             ? NLL(@"Subscription confirmed. Apple Music lyrics are unlocked and on, in Music and in other apps such as Spotify.")
@@ -717,18 +709,17 @@ static BOOL NLSameRows(NSArray<PSSpecifier *> *a, NSArray<PSSpecifier *> *b) {
 
 // The Apple Music and Musixmatch rows on Lyrics Sources: on or off, as Settings
 // shows a page's state beside its link; read again on coming back from it.
-static NSString *NLSwitchState(CFStringRef key) {
-    CFPreferencesAppSynchronize(CFSTR("app.nowlyrics"));
-    id on = CFBridgingRelease(CFPreferencesCopyAppValue(key, CFSTR("app.nowlyrics")));
-    return [on boolValue] ? NLL(@"On") : NLL(@"Off");
+static NSString *NLSwitchState(NSString *key) {
+    CFPreferencesAppSynchronize((__bridge CFStringRef)NL_PREFS_DOMAIN);
+    return [NLReadPref(nil, key) boolValue] ? NLL(@"On") : NLL(@"Off");
 }
 
 - (NSString *)nlAppleMusicState:(PSSpecifier *)specifier {
-    return NLSwitchState(CFSTR("useAppleMusic"));
+    return NLSwitchState(@"useAppleMusic");
 }
 
 - (NSString *)nlMusixmatchState:(PSSpecifier *)specifier {
-    return NLSwitchState(CFSTR("useMusixmatch"));
+    return NLSwitchState(@"useMusixmatch");
 }
 
 - (void)viewWillAppear:(BOOL)animated {

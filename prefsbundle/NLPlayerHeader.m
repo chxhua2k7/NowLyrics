@@ -20,10 +20,6 @@
 - (void)setOnScreen:(BOOL)onScreen;                       // what makes it animate (the waveform) and update
 @end
 
-static id NLAppPref(NSString *key) {
-    return CFBridgingRelease(CFPreferencesCopyAppValue((__bridge CFStringRef)key, (__bridge CFStringRef)NL_PREFS_DOMAIN));
-}
-
 @implementation NLPlayerHeader {
     __weak UIViewController *_owner;
     __weak UITableView *_table;
@@ -65,8 +61,7 @@ static id NLAppPref(NSString *key) {
     // the next refresh.
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        void *mr = dlopen("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote", RTLD_LAZY);
-        void (*registerFor)(dispatch_queue_t) = mr ? (void (*)(dispatch_queue_t))dlsym(mr, "MRMediaRemoteRegisterForNowPlayingNotifications") : NULL;
+        void (*registerFor)(dispatch_queue_t) = (void (*)(dispatch_queue_t))NLMediaRemote("MRMediaRemoteRegisterForNowPlayingNotifications");
         if (registerFor) registerFor(dispatch_get_main_queue());
     });
     __weak typeof(self) weakSelf = self;
@@ -90,12 +85,10 @@ static id NLAppPref(NSString *key) {
     if (_nextUpObserver) [[NSNotificationCenter defaultCenter] removeObserver:_nextUpObserver];
 }
 
-- (BOOL)available { return _platter != nil; }
-
 // Behind the player, while the switch is on: the cover blurred and darkened
 // (NLPlayerTintView). Off: its own material.
 - (BOOL)tintWanted {
-    id on = NLAppPref(NL_PLAYER_TINT_KEY);
+    id on = NLReadPref(nil, NL_PLAYER_TINT_KEY);
     return ![on respondsToSelector:@selector(boolValue)] || [on boolValue];
 }
 
@@ -115,6 +108,9 @@ static id NLAppPref(NSString *key) {
     UIView *material = nil;
     @try { material = [_platter valueForKey:@"backgroundView"]; } @catch (NSException *e) { material = nil; }
     _tint.hidden = ![self tintWanted];
+    id clear = NLReadPref(nil, @"playerTintClear");
+    _tint.clearness = MIN(MAX([clear respondsToSelector:@selector(doubleValue)] ? [clear doubleValue] : 50, 0), 100) / 100;
+    _tint.material = [material isKindOfClass:UIView.class] ? material : nil;
     if ([material isKindOfClass:UIView.class] && material.superview) {
         material.alpha = 1;
         UIView *container = material.superview;
@@ -237,11 +233,17 @@ void NLThemeSetColor(UIColor *color) {
     [[NSNotificationCenter defaultCenter] postNotificationName:NLThemeChangedNotification object:nil];
 }
 
+// The cover the theme's color was last taken from, and that color: refreshes
+// bring the same cover back (every few seconds, and with each line NowLyrics
+// publishes as the title), and decoding it is the costly part.
+static NSData *gThemeArtwork;
+static UIColor *gThemeArtworkColor;
+
 // What the island preview shows, without it on screen: what is playing, when
 // its "Preview what's playing" switch is on and the cover has a color;
 // NowLyrics' sample otherwise.
 void NLThemeRefresh(void) {
-    id live = NLAppPref(@"islandPreviewLive");
+    id live = NLReadPref(nil, @"islandPreviewLive");
     if (![live respondsToSelector:@selector(boolValue)] || ![live boolValue]) {
         NLThemeSetColor(NLNowLyricsColor());
         return;
@@ -250,7 +252,11 @@ void NLThemeRefresh(void) {
         NSData *artwork = info[@"kMRMediaRemoteNowPlayingInfoArtworkData"];
         id title = info[@"kMRMediaRemoteNowPlayingInfoTitle"];
         BOOL usable = [title isKindOfClass:NSString.class] && [title length] && [artwork isKindOfClass:NSData.class] && artwork.length;
-        UIColor *color = usable ? NLColorFromArtwork(artwork) : nil;
+        if (usable && ![artwork isEqual:gThemeArtwork]) {
+            gThemeArtwork = artwork;
+            gThemeArtworkColor = NLColorFromArtwork(artwork);
+        }
+        UIColor *color = usable ? gThemeArtworkColor : nil;
         NLThemeSetColor(color ?: NLNowLyricsColor());
     });
 }

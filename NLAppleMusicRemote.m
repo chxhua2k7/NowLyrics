@@ -7,18 +7,7 @@
 //
 
 #import "NowLyrics.h"
-#import "NLShared.h"
 #import <notify.h>
-
-static NSString *NLRemoteFolder(void) {
-    static NSString *folder;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        folder = [NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES).firstObject
-                  stringByAppendingPathComponent:@"NowLyrics"];
-    });
-    return folder;
-}
 
 NSString *NLAppleMusicLyricsFromSpringBoard(NSString *title, NSString *artist, NSTimeInterval duration,
                                             NSTimeInterval timeout, NSString **note) {
@@ -33,8 +22,9 @@ NSString *NLAppleMusicLyricsFromSpringBoard(NSString *title, NSString *artist, N
         answers = [NSMutableDictionary dictionary];
         int token = 0;
         notify_register_dispatch(NL_AM_RESPONSE_NOTIFICATION.UTF8String, &token, queue, ^(int t) {
+            if (waiting.count == 0) return;   // nothing of ours waiting: not worth reading the file
             NSDictionary *answer = [NSDictionary dictionaryWithContentsOfFile:
-                                    [NLRemoteFolder() stringByAppendingPathComponent:@"am-response.plist"]];
+                                    [NLCacheDir() stringByAppendingPathComponent:@"am-response.plist"]];
             NSString *answered = answer[@"id"];
             dispatch_semaphore_t sleeper = [answered isKindOfClass:NSString.class] ? waiting[answered] : nil;
             if (!sleeper) return;   // another app's answer, or one given up on
@@ -47,7 +37,7 @@ NSString *NLAppleMusicLyricsFromSpringBoard(NSString *title, NSString *artist, N
     NSString *requestID = NSUUID.UUID.UUIDString;
     dispatch_semaphore_t done = dispatch_semaphore_create(0);
     dispatch_sync(queue, ^{ waiting[requestID] = done; });
-    NSString *folder = NLRemoteFolder();
+    NSString *folder = NLCacheDir();
     [[NSFileManager defaultManager] createDirectoryAtPath:folder withIntermediateDirectories:YES attributes:nil error:nil];
     NSDictionary *request = @{@"id": requestID, @"title": title ?: @"", @"artist": artist ?: @"",
                               @"duration": @(duration), @"time": [NSDate date]};

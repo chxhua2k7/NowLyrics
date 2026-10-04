@@ -41,6 +41,11 @@ UIImage *NLSourceIcon(NSString *name) {
     return NLRowIcon(info[@"app"], info[@"symbol"], info[@"color"]);
 }
 
+NSString *NLSourceTitle(NSString *name) {
+    NSDictionary *info = NLSourceInfo(name);
+    return NLL(info ? info[@"title"] : name.length ? name : @"Automatic");
+}
+
 #pragma mark Preferences
 
 // A preference through `controller`, the way its own rows read and write it;
@@ -59,6 +64,21 @@ static PSSpecifier *NLPrefSpecifier(PSListController *controller, NSString *key)
 id NLReadPref(PSListController *controller, NSString *key) {
     return controller ? [controller readPreferenceValue:NLPrefSpecifier(controller, key)]
                       : CFBridgingRelease(CFPreferencesCopyAppValue((__bridge CFStringRef)key, (__bridge CFStringRef)NL_PREFS_DOMAIN));
+}
+
+void NLWritePrefs(NSDictionary<NSString *, id> *values) {
+    for (NSString *key in values) {
+        id value = values[key] == NSNull.null ? nil : values[key];
+        CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)value, (__bridge CFStringRef)NL_PREFS_DOMAIN);
+    }
+    CFPreferencesAppSynchronize((__bridge CFStringRef)NL_PREFS_DOMAIN);
+    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
+                                         (__bridge CFStringRef)NL_RELOAD_NOTIFICATION, NULL, NULL, YES);
+}
+
+void NLWritePref(PSListController *controller, NSString *key, id value) {
+    if (controller) [controller setPreferenceValue:value specifier:NLPrefSpecifier(controller, key)];
+    else NLWritePrefs(@{key: value ?: NSNull.null});
 }
 
 // The saved order, completed as NLSettings completes it (an old preferred
@@ -114,15 +134,7 @@ NSArray<NSString *> *NLSourceOrder(PSListController *controller) {
 }
 
 - (void)nlSetPref:(id)value forKey:(NSString *)key {
-    PSListController *parent = [self nlParent];
-    if (parent) {
-        [parent setPreferenceValue:value specifier:NLPrefSpecifier(parent, key)];
-        return;
-    }
-    CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)value, (__bridge CFStringRef)NL_PREFS_DOMAIN);
-    CFPreferencesAppSynchronize((__bridge CFStringRef)NL_PREFS_DOMAIN);
-    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
-                                         (__bridge CFStringRef)NL_RELOAD_NOTIFICATION, NULL, NULL, YES);
+    NLWritePref([self nlParent], key, value);
 }
 
 - (BOOL)nlIsOn:(NSDictionary *)info {

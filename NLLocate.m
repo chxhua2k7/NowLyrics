@@ -9,46 +9,76 @@
 
 static NSString *const kNLContainersRoot = @"/var/mobile/Containers/Data/Application";
 
+// The folder's modification date, which every container made, removed or
+// moved in it changes.
+static NSDate *NLContainersRootDate(void) {
+    return [[NSFileManager defaultManager] attributesOfItemAtPath:kNLContainersRoot error:nil].fileModificationDate;
+}
+
 // bundle ID → container, from each container's metadata plist (what
 // MobileContainerManager itself keeps there). No private API involved.
-static NSDictionary<NSString *, NSString *> *NLScanContainers(void) {
+// `outDate` gets the folder's date from before the scan, or nil when the
+// folder could not be listed or some container had no metadata (yet), so
+// that a miss scans again.
+static NSDictionary<NSString *, NSString *> *NLScanContainers(NSDate **outDate) {
     NSFileManager *fm = [NSFileManager defaultManager];
+    NSDate *date = NLContainersRootDate();
+    NSArray<NSString *> *uuids = [fm contentsOfDirectoryAtPath:kNLContainersRoot error:nil];
+    if (!uuids) date = nil;
     NSMutableDictionary<NSString *, NSString *> *map = [NSMutableDictionary dictionary];
-    for (NSString *uuid in [fm contentsOfDirectoryAtPath:kNLContainersRoot error:nil]) {
+    for (NSString *uuid in uuids) {
         NSString *dir = [kNLContainersRoot stringByAppendingPathComponent:uuid];
         NSDictionary *meta = [NSDictionary dictionaryWithContentsOfFile:
                               [dir stringByAppendingPathComponent:@".com.apple.mobile_container_manager.metadata.plist"]];
         id identifier = meta[@"MCMMetadataIdentifier"];
         if ([identifier isKindOfClass:[NSString class]]) map[identifier] = dir;
+        else date = nil;
     }
+    *outDate = date;
     return map;
 }
 
 static NSDictionary<NSString *, NSString *> *gContainers = nil;
-static NSLock *gContainersLock = nil;
+static NSDate *gContainersDate = nil;   // the folder's date at the last scan that read every container
+
+// Guards the two above, which the main queue reads while NLLyricsFolders
+// scans on others: one lock, made once for both functions.
+static NSLock *NLContainersLock(void) {
+    static NSLock *lock = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ lock = [NSLock new]; });
+    return lock;
+}
 
 NSString *NLDataContainerForBundle(NSString *bundleID) {
     if (bundleID.length == 0) return nil;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{ gContainersLock = [NSLock new]; });
-    [gContainersLock lock];
+    NSLock *lock = NLContainersLock();
+    [lock lock];
     NSString *dir = gContainers[bundleID];
     // An app installed (or reinstalled, which moves it) since the last scan.
-    if (!dir || ![[NSFileManager defaultManager] fileExistsAtPath:dir]) {
-        gContainers = NLScanContainers();
+    // One without a container at all (installed by the jailbreak, a system
+    // app keeping its data elsewhere) is looked for again only once the
+    // folder has changed, not on every ask.
+    BOOL rescan = dir ? ![[NSFileManager defaultManager] fileExistsAtPath:dir]
+                      : !gContainersDate || ![NLContainersRootDate() isEqual:gContainersDate];
+    if (rescan) {
+        NSDate *date = nil;
+        gContainers = NLScanContainers(&date);
+        gContainersDate = date;
         dir = gContainers[bundleID];
     }
-    [gContainersLock unlock];
+    [lock unlock];
     return dir;
 }
 
 NSDictionary<NSString *, NSString *> *NLLyricsFolders(void) {
-    NSDictionary<NSString *, NSString *> *all = NLScanContainers();
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{ gContainersLock = [NSLock new]; });
-    [gContainersLock lock];
+    NSDate *date = nil;
+    NSDictionary<NSString *, NSString *> *all = NLScanContainers(&date);
+    NSLock *lock = NLContainersLock();
+    [lock lock];
     gContainers = all;
-    [gContainersLock unlock];
+    gContainersDate = date;
+    [lock unlock];
 
     NSMutableDictionary<NSString *, NSString *> *out = [NSMutableDictionary dictionary];
     BOOL isDir = NO;
@@ -66,12 +96,18 @@ NSDictionary *NLReadNowPlaying(NSString *bundleID) {
     return [NSDictionary dictionaryWithContentsOfFile:path];
 }
 
+void *NLMediaRemote(const char *symbol) {
+    static void *mr = NULL;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ mr = dlopen("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote", RTLD_LAZY); });
+    return mr ? dlsym(mr, symbol) : NULL;
+}
+
 void NLNowPlayingBundleID(void (^completion)(NSString *bundleID)) {
     static void (*getDisplayID)(dispatch_queue_t, void (^)(CFStringRef)) = NULL;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        void *mr = dlopen("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote", RTLD_LAZY);
-        if (mr) getDisplayID = (void (*)(dispatch_queue_t, void (^)(CFStringRef)))dlsym(mr, "MRMediaRemoteGetNowPlayingApplicationDisplayID");
+        getDisplayID = (void (*)(dispatch_queue_t, void (^)(CFStringRef)))NLMediaRemote("MRMediaRemoteGetNowPlayingApplicationDisplayID");
     });
     if (!getDisplayID) {
         dispatch_async(dispatch_get_main_queue(), ^{ completion(nil); });
@@ -91,27 +127,41 @@ void NLNowPlayingBundleID(void (^completion)(NSString *bundleID)) {
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ finish(nil); });
 }
 
-static void *NLMediaRemote(const char *symbol) {
-    static void *mr = NULL;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{ mr = dlopen("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote", RTLD_LAZY); });
-    return mr ? dlsym(mr, symbol) : NULL;
-}
-
 void NLNowPlayingIsPlaying(void (^completion)(BOOL playing)) {
-    void (*isPlaying)(dispatch_queue_t, void (^)(Boolean)) =
-        (void (*)(dispatch_queue_t, void (^)(Boolean)))NLMediaRemote("MRMediaRemoteGetNowPlayingApplicationIsPlaying");
+    static void (*isPlaying)(dispatch_queue_t, void (^)(Boolean)) = NULL;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        isPlaying = (void (*)(dispatch_queue_t, void (^)(Boolean)))NLMediaRemote("MRMediaRemoteGetNowPlayingApplicationIsPlaying");
+    });
     if (!isPlaying) { completion(NO); return; }
     isPlaying(dispatch_get_main_queue(), ^(Boolean playing) { completion(playing); });
 }
 
+// Callers in one turn of the main queue share one request (each answer
+// carries the artwork across XPC): the island and the player tints on a
+// now-playing change in SpringBoard, the player header and the theme on the
+// settings pages. It goes out after them, so none gets an older answer.
 void NLNowPlayingInfo(void (^completion)(NSDictionary *info)) {
-    void (*getInfo)(dispatch_queue_t, void (^)(CFDictionaryRef)) =
-        (void (*)(dispatch_queue_t, void (^)(CFDictionaryRef)))NLMediaRemote("MRMediaRemoteGetNowPlayingInfo");
+    static void (*getInfo)(dispatch_queue_t, void (^)(CFDictionaryRef)) = NULL;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        getInfo = (void (*)(dispatch_queue_t, void (^)(CFDictionaryRef)))NLMediaRemote("MRMediaRemoteGetNowPlayingInfo");
+    });
     if (!getInfo) { completion(nil); return; }
-    getInfo(dispatch_get_main_queue(), ^(CFDictionaryRef info) {
-        NSDictionary *dict = (__bridge NSDictionary *)info;
-        completion(dict.count ? [dict copy] : nil);
+    static NSMutableArray<void (^)(NSDictionary *)> *waiting = nil;
+    if (waiting) {
+        [waiting addObject:[completion copy]];
+        return;
+    }
+    waiting = [NSMutableArray arrayWithObject:[completion copy]];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSArray<void (^)(NSDictionary *)> *askers = waiting;
+        waiting = nil;
+        getInfo(dispatch_get_main_queue(), ^(CFDictionaryRef info) {
+            NSDictionary *dict = (__bridge NSDictionary *)info;
+            NSDictionary *answer = dict.count ? [dict copy] : nil;
+            for (void (^done)(NSDictionary *) in askers) done(answer);
+        });
     });
 }
 
