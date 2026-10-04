@@ -5,6 +5,7 @@
 //
 
 #import "NowLyrics.h"
+#import <pthread.h>
 
 #ifndef NL_VERSION
 #error NL_VERSION comes from PACKAGE_VERSION in the Makefile
@@ -191,15 +192,28 @@ static NLSource NLSourceNamed(id name) {
 
 @end
 
+// The snapshot is swapped on the main queue, but the hooks in NowLyrics.xm
+// read it on whatever thread the app publishes from: a reader taking the old
+// one just as the swap releases it would retain a freed object.
 static NLSettings *gCurrent = nil;
+static pthread_mutex_t gCurrentMutex = PTHREAD_MUTEX_INITIALIZER;
+
+static NLSettings *NLSettingsSet(NLSettings *settings) {
+    pthread_mutex_lock(&gCurrentMutex);
+    gCurrent = settings;
+    pthread_mutex_unlock(&gCurrentMutex);
+    return settings;
+}
 
 NLSettings *NLSettingsCurrent(void) {
-    return gCurrent ?: NLSettingsReload();
+    pthread_mutex_lock(&gCurrentMutex);
+    NLSettings *current = gCurrent;
+    pthread_mutex_unlock(&gCurrentMutex);
+    return current ?: NLSettingsReload();
 }
 
 NLSettings *NLSettingsReload(void) {
-    gCurrent = [[NLSettings alloc] initWithPrefs:NLReadPrefsFile()];
-    return gCurrent;
+    return NLSettingsSet([[NLSettings alloc] initWithPrefs:NLReadPrefsFile()]);
 }
 
 NLSettings *NLSettingsReloadPicking(NSString *trackKey, NSString *source) {
@@ -211,8 +225,7 @@ NLSettings *NLSettingsReloadPicking(NSString *trackKey, NSString *source) {
         else [sources removeObjectForKey:trackKey];
         prefs[NL_TRACK_SOURCES_KEY] = sources;
     }
-    gCurrent = [[NLSettings alloc] initWithPrefs:prefs];
-    return gCurrent;
+    return NLSettingsSet([[NLSettings alloc] initWithPrefs:prefs]);
 }
 
 #pragma mark - Process checks

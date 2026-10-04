@@ -5,7 +5,8 @@
 Synced lyrics in place of the track title on the lock screen, Control Center,
 the Dynamic Island and CarPlay, for Spotify, Apple Music and any player that
 publishes now-playing info, plus an optional strip with the current line under
-the compact Dynamic Island. Sources: Musixmatch, LRCLIB, NetEase.
+the compact Dynamic Island. Sources: Apple Music (subscription needed),
+Musixmatch, LRCLIB, NetEase.
 
 Private source repo. Public page: [chxhua2k7/NowLyrics](https://github.com/chxhua2k7/NowLyrics).
 Sold on Havoc as `com.c3x14n.nowlyrics`; listing material in `havoc/`.
@@ -49,9 +50,9 @@ Sold on Havoc as `com.c3x14n.nowlyrics`; listing material in `havoc/`.
   `ICMusicSubscriptionStatusController`, then StoreKit, then tries one song's
   lyrics); it is checked again daily, and a lapsed one locks it again.
 - **Word by word**: Apple Music, Musixmatch (`track.richsync.get`, with a token), NetEase
-  (`yrc` from `/api/song/lyric/v1`) and imported TTML carry word times, stored
-  as enhanced LRC (`<mm:ss.xx>`). The lock screen still shows the line; the
-  island finds the lyrics file through the app's `nowplaying.plist`, matches
+  (`yrc` from `/api/song/lyric/v1`) and imported TTML or word-by-word LRC carry
+  word times, stored as enhanced LRC (`<mm:ss.xx>`). The lock screen still shows
+  the line; the island finds the lyrics file through the app's `nowplaying.plist`, matches
   the line by MediaRemote's position the way the app does, and moves a soft
   mask along the word times (long lines glide with the singing).
   Musixmatch has one richsync per track, timed to one cut, which need not be
@@ -164,7 +165,8 @@ checked symbol by symbol against those builds.
 
 ## Limitations
 
-Per line, not per syllable. NetEase is Simplified Chinese. Musixmatch needs the
+Word by word only in the island, and only for lyrics with word times; per line
+everywhere else. NetEase is Simplified Chinese. Musixmatch needs the
 app's token (unofficial) or an API key whose timed endpoint is usually paid.
 Matching is by strings; Apple Music relies on private API. Lyrics Island
 needs a Dynamic Island iPhone (as SpringBoardServices'
