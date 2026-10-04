@@ -4,7 +4,9 @@ export PACKAGE_VERSION := 1.2.0
 
 TARGET := iphone:clang:16.5:15.0
 
-THEOS_PACKAGE_SCHEME = rootless
+# rootless by default; `make package THEOS_PACKAGE_SCHEME=roothide THEOS=~/theos-roothide`
+# for roothide (roothide's Theos: jbroot(), libroothide, iphoneos-arm64e).
+THEOS_PACKAGE_SCHEME ?= rootless
 
 # arm64 + arm64e.
 #
@@ -26,6 +28,11 @@ THEOS_PACKAGE_SCHEME = rootless
 # there before doing anything, see NLProcessIsEligible().
 ARCHS = arm64 arm64e
 
+# Each scheme builds in its own folder (.theos/obj/rootless, .theos/obj/roothide).
+# With one shared folder, a build of the other scheme reused the last one's
+# products: the rootless settings bundle shipped linked to libroothide.
+THEOS_OBJ_DIR_NAME = obj/$(THEOS_PACKAGE_SCHEME)$(_THEOS_OBJ_DIR_EXTENSION)
+
 include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME += NowLyrics
@@ -45,7 +52,8 @@ NowLyricsIsland_FRAMEWORKS += UIKit ImageIO QuartzCore CoreImage
 include $(THEOS_MAKE_PATH)/tweak.mk
 
 # 設定頁:prefs/ 裡是 NowLyrics.plist(entry + items)和各語言的 <lang>.lproj/Localizable.strings;
-# 子頁面(歌詞上島 Island.plist、歌詞來源 Sources.plist、進階 Advanced.plist、Apple Music AppleMusic.plist)
+# 子頁面(歌詞上島 Island.plist、歌詞來源 Sources.plist、進階 Advanced.plist、Apple Music AppleMusic.plist、
+# Musixmatch Musixmatch.plist)
 # 放在 bundle/(不在 PreferenceLoader 掃描的資料夾裡),各自的 <名稱>.strings 在 stage 時
 # 從同一份 Localizable.strings 複製進 bundle;
 # PreferenceLoader 會遞迴掃描 Preferences/ 底下所有 .plist,plist 所在的資料夾就是它的
@@ -64,7 +72,7 @@ NowLyricsPrefs_FILES += prefsbundle/NLOffsetCell.m prefsbundle/NLRootListControl
                          prefsbundle/NLIslandPreviewCell.m prefsbundle/NLPreviewLines.m NLIslandStrip.m \
                          prefsbundle/NLNowPlayingController.m prefsbundle/NLLibraryController.m \
                          prefsbundle/NLLyricsEditor.m prefsbundle/NLLyricsImport.m prefsbundle/NLWaveformView.m prefsbundle/NLPlayerHeader.m prefsbundle/NLCrescendo.m prefsbundle/NLSourceOrderController.m prefsbundle/NLAppleMusicController.m \
-                         prefsbundle/NLAppleMusicAccess.m prefsbundle/NLPopUpCell.m prefsbundle/NLNextUp.m \
+                         prefsbundle/NLAppleMusicAccess.m prefsbundle/NLMusixmatchAccess.m prefsbundle/NLPopUpCell.m prefsbundle/NLNextUp.m \
                          NLLyrics.m NLTTML.m NLLocate.m NLPlayerTint.m
 NowLyricsPrefs_CFLAGS += -fobjc-arc -Wall -DNL_VERSION=\"$(PACKAGE_VERSION)\"
 NowLyricsPrefs_FRAMEWORKS += UIKit ImageIO QuartzCore UniformTypeIdentifiers CoreImage
@@ -80,7 +88,17 @@ internal-stage::
 	$(ECHO_NOTHING)sed "s/__VERSION__/$(PACKAGE_VERSION)/g" bundle/Info.plist > "$(THEOS_STAGING_DIR)/Library/PreferenceBundles/NowLyricsPrefs.bundle/Info.plist"$(ECHO_END)
 	$(ECHO_NOTHING)for lproj in prefs/*.lproj; do \
 		mkdir -p "$(THEOS_STAGING_DIR)/Library/PreferenceBundles/NowLyricsPrefs.bundle/$$(basename $$lproj)"; \
-		for page in Island Sources Advanced AppleMusic; do \
+		for page in Island Sources Advanced AppleMusic Musixmatch; do \
 			cp "$$lproj/Localizable.strings" "$(THEOS_STAGING_DIR)/Library/PreferenceBundles/NowLyricsPrefs.bundle/$$(basename $$lproj)/$$page.strings"; \
 		done; \
 	done$(ECHO_END)
+
+# roothide: the package's own paths are jbroot-based (its dpkg and Sileo
+# resolve them in the jailbreak's root), so the icon loses /var/jb.
+ifeq ($(THEOS_PACKAGE_SCHEME),roothide)
+NowLyrics_LDFLAGS += -lroothide
+NowLyricsIsland_LDFLAGS += -lroothide
+NowLyricsPrefs_LDFLAGS += -lroothide
+before-package:: $(THEOS_STAGING_DIR)/DEBIAN/control
+	$(ECHO_NOTHING)sed -i '' 's#file:///var/jb/#file:///#' "$(THEOS_STAGING_DIR)/DEBIAN/control"$(ECHO_END)
+endif

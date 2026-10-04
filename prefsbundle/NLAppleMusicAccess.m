@@ -29,7 +29,16 @@ static void NLAccessSet(NSDictionary<NSString *, id> *values) {
                                          (__bridge CFStringRef)NL_RELOAD_NOTIFICATION, NULL, NULL, YES);
 }
 
+// The lyrics request (MPStoreLyricsMusicKitRequestOperation) is iOS 16 and
+// later; iOS 15 has only an older one. Below that, nothing Apple Music shows,
+// whatever the subscription check would say.
+BOOL NLAppleMusicAvailable(void) {
+    if (@available(iOS 16.0, *)) return YES;
+    return NO;
+}
+
 BOOL NLAppleMusicVerified(void) {
+    if (!NLAppleMusicAvailable()) return NO;
     CFPreferencesAppSynchronize((__bridge CFStringRef)NL_PREFS_DOMAIN);
     return [NLAccessPref(kNLVerifiedKey) boolValue];
 }
@@ -90,6 +99,7 @@ void NLCheckAppleMusicSubscription(void (^done)(NLSubscription result, NSString 
 }
 
 void NLRecheckAppleMusicIfDue(void (^changed)(void)) {
+    if (!NLAppleMusicAvailable()) return;
     BOOL verified = NLAppleMusicVerified();
     NSDate *at = NLAccessPref(kNLVerifiedAtKey);
     BOOL fresh = verified && [at isKindOfClass:NSDate.class] && -[at timeIntervalSinceNow] < kNLRecheckAfter;

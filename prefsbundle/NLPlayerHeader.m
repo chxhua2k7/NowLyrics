@@ -2,7 +2,7 @@
 //  NLPlayerHeader.m
 //  The lock screen's own player as a table's header (MediaControls' cover
 //  sheet platter: artwork, the line being sung as its title, scrubber,
-//  transport), behind it the lyrics' color; shown on the main page and the
+//  transport), behind it its cover blurred; shown on the main page and the
 //  "Now Playing" page.
 //
 //  And the pages' theme: the color of what the island preview shows, the
@@ -30,7 +30,7 @@ static id NLAppPref(NSString *key) {
     UIViewController *_platter;
     UIView *_host;
     NLWaveformDriver *_waveform;     // moves its waveform, which has no audio tap here
-    NLPlayerTintView *_tint;         // the platter's background, in the lyrics' color (NLPlayerTint.h)
+    NLPlayerTintView *_tint;         // the platter's background, from its cover (NLPlayerTint.h)
     BOOL _tintedOnce;                // shown once: changes fade after that
     id _infoObserver;                // MediaRemote's now-playing changes
     id _nextUpObserver;              // NextUp 3's next track changes
@@ -53,7 +53,7 @@ static id NLAppPref(NSString *key) {
     [_platter didMoveToParentViewController:owner];
     table.tableHeaderView = _host;
 
-    // Its material background gives way to the lyrics' color (see -refreshTint).
+    // Its material background gives way to its cover blurred (see -refreshTint).
     _tint = [NLPlayerTintView new];
     [_platter.view insertSubview:_tint atIndex:0];
     // Before the page is shown: Crescendo's row and the color in place from the
@@ -92,8 +92,8 @@ static id NLAppPref(NSString *key) {
 
 - (BOOL)available { return _platter != nil; }
 
-// Behind the player, while the switch is on: the lyrics' color, or the
-// cover blurred and darkened (NLPlayerTintView). Off: its own material.
+// Behind the player, while the switch is on: the cover blurred and darkened
+// (NLPlayerTintView). Off: its own material.
 - (BOOL)tintWanted {
     id on = NLAppPref(NL_PLAYER_TINT_KEY);
     return ![on respondsToSelector:@selector(boolValue)] || [on boolValue];
@@ -101,11 +101,10 @@ static id NLAppPref(NSString *key) {
 
 - (void)refreshTint {
     if (!_tint) return;
-    BOOL album = [NLAppPref(@"islandColor") isEqual:@"artwork"];
     NLNowPlayingInfo(^(NSDictionary *info) {
         BOOL animated = self->_tintedOnce;
         self->_tintedOnce = YES;
-        [self->_tint showNowPlaying:info albumLyrics:album animated:animated];
+        [self->_tint showNowPlaying:info animated:animated];
     });
 }
 
@@ -168,6 +167,22 @@ static id NLAppPref(NSString *key) {
     [_waveform stop];
     _waveform = nil;
     if ([_platter respondsToSelector:@selector(setOnScreen:)]) [(id)_platter setOnScreen:NO];
+}
+
+// The page's top shows something else now: the player leaves the table and
+// its owner.
+- (void)remove {
+    [self disappear];
+    if (_platter) {
+        [_platter willMoveToParentViewController:nil];
+        [_platter.view removeFromSuperview];
+        [_platter removeFromParentViewController];
+    }
+    UITableView *table = _table;
+    if (table.tableHeaderView == _host) table.tableHeaderView = nil;
+    _platter = nil;
+    _tint = nil;
+    _host = nil;
 }
 
 // The platter's own waveform gets its levels from an audio tap Preferences

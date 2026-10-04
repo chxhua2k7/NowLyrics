@@ -2,7 +2,7 @@ While a song plays, NowLyrics puts the line being sung **in place of the track t
 
 ## Features
 
-- **Lyrics in the island** — optional: a strip with the current line at the bottom of the compact Dynamic Island, which grows down to the status bar's edge. White or album color, fade or scroll-up line changes, adjustable size; long lines scroll. A live preview on its settings page shows every change at once.
+- **Lyrics Island** — optional: a strip with the current line at the bottom of the compact Dynamic Island, which grows down to the status bar's edge. White or album color, fade or scroll-up line changes, adjustable size; long lines scroll. A live preview on its settings page shows every change at once.
 - **Hide explicit badge** — drops the "E" that would follow the lyric line on explicit tracks.
 - **Artist field** — keep the credit (`Track — Artist`), show the next lyric line, or leave it alone.
 - **Offset slider** — −3 s to +3 s, applied as you drag; or type an exact value such as `0.25` or `-300ms`.
@@ -36,7 +36,7 @@ Cannot be installed alongside **AMLyrics** — both rewrite the same Apple Music
 
 - Lyrics are line-synced (LRC); word-by-word lyrics are not available from these sources.
 - Inside Apple Music the lyric line also appears in Music's own now-playing views.
-- Lyrics in the island needs an iPhone with the Dynamic Island; verified on iOS 16.5.1, 18.6.2 and 26.1.
+- Lyrics Island needs an iPhone with the Dynamic Island; verified on iOS 16.5.1, 18.6.2 and 26.1.
 
 Only the track title, artist, album and duration are sent to the lyrics services; your Musixmatch token is stored on the device and sent only to Musixmatch. No accounts, no analytics.
 

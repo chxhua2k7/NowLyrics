@@ -27,7 +27,7 @@ Sold on Havoc as `com.c3x14n.nowlyrics`; listing material in `havoc/`.
   `dispatch_after` per line. Blank lines count as gaps only if the next line is
   ≥ 5 s away.
 
-- **Lyrics in the island** (`NowLyricsIsland.x`, SpringBoard only, off by
+- **Lyrics Island** (`NowLyricsIsland.x`, SpringBoard only, off by
   default): the now-playing element's compact frame is grown through
   `-[SBSystemApertureSceneElement preferredEdgeOutsetsForLayoutMode:…]` until it
   ends on the top safe-area line, measured from the fixed sensor region. The
@@ -70,14 +70,19 @@ Sold on Havoc as `com.c3x14n.nowlyrics`; listing material in `havoc/`.
   in the prefs file as `trackOffsets` and `trackSources`; the page shows one
   offset (the default one under Advanced plus the song's own). The main page
   and the Now Playing page embed the lock screen's player (MediaControls'
-  `+[MRPlatterViewController coverSheetPlatterViewController]`, `NLPlayerHeader`).
-- **Player in lyrics color** (`NLPlayerTint`, switch `playerTint`): in Control
+  `+[MRPlatterViewController coverSheetPlatterViewController]`, `NLPlayerHeader`);
+  on the main page Advanced › Top of main page (`pageHeader`) swaps it for the
+  island preview or nothing. Lyrics Sources lists the sources in the order they
+  are tried (`source` on their plist rows). Musixmatch, like Apple Music, sits
+  behind an unlock: the Musixmatch app installed (`musixmatchVerified`); with
+  the app gone it stays while a User Token or API key is saved.
+- **Player over its cover** (`NLPlayerTint`, switch `playerTint`): in Control
   Center over `-[MRUControlCenterView materialView]`; on the lock screen over the
   player's `PLPlatterView` material, the player told from Live Activities (same
   ActivityUIServices scene) by its notification-list group
-  `com.apple.MediaRemoteUI`. The album color the lyrics use, or the cover
-  blurred under a scrim sized from its brightest tenth; between songs the old
-  look stays until the new cover is there.
+  `com.apple.MediaRemoteUI`. The cover blurred under a scrim sized from its
+  brightest tenth, whatever color the lyrics are; between songs the old look
+  stays until the new cover is there.
 - **Crescendo** (if installed): its switches come from its notify state
   (`com.yves.crescendo.state`); the settings player's dormant volume row is
   forced on (`-[MRUNowPlayingView setShowVolumeControlsView:]`) and the island
@@ -111,16 +116,24 @@ lyrics file, its source and whether it has word times.
 
 ```bash
 make package FINALPACKAGE=1   # release; plain `make package` = debug with NSLog
+make package FINALPACKAGE=1 THEOS=~/theos-roothide THEOS_PACKAGE_SCHEME=roothide   # roothide, iphoneos-arm64e
 ```
 
 - Theos + Xcode on a Mac, rootless, `ARCHS = arm64 arm64e`. The arm64e slice
   makes Apple Music work and only Xcode's toolchain produces one that passes
   pointer authentication.
+- roothide needs roothide's Theos; its packages link libroothide and find
+  jailbreak files through `jbroot()` (`NLJBPath()` in `NLShared.h`). Each scheme
+  builds in its own `.theos/obj/<scheme>`, so the two never mix. Not yet run on
+  a roothide jailbreak.
 - Version lives only in the Makefile's `PACKAGE_VERSION` (package, `NL_VERSION`
   define, `bundle/Info.plist` filled at stage time).
 - Runtime deps: PreferenceLoader, AltList. Install with `sudo dpkg -i`, then
   respring once (Apply on the settings page) so SpringBoard loads
   NowLyricsIsland; the lyrics themselves only need the player relaunched.
+- iOS 18 and later rewrote Settings in Swift: PreferenceLoader 2.2.6 shows no
+  tweak pages there. With dhinakg's 2.2.8 (https://dhinakg.github.io/repo/)
+  NowLyrics is at the bottom of Settings › General.
 
 ## Layout
 
@@ -137,19 +150,31 @@ make package FINALPACKAGE=1   # release; plain `make package` = debug with NSLog
 ## Testing
 
 iPhone 14 Pro / iOS 16.5.1 for everything; vphone-cli VMs (iOS 26.1, 18.6.2)
-for injection and the Spotify path only (their Settings never shows the page).
-The island strip is verified on the 14 Pro (16.5.1) and in the 18.6.2 and 26.1
-VMs; its animation work was checked frame by frame on screen recordings. On
-iOS 17+ it hangs in the element's own view: there the container's content views
-assert a single subview, so `addContentSubview:` would replace the element.
+for the Spotify path, the island, the lock screen and Control Center, and,
+with PreferenceLoader 2.2.8, the settings page (no Apple Music there, and no
+Settings page with the old 2.2.6). The island strip is verified on the 14 Pro
+(16.5.1) and in the 18.6.2 and 26.1 VMs; its animation work was checked frame
+by frame on screen recordings. On iOS 17+ it hangs in the element's own view:
+there the container's content views assert a single subview, so
+`addContentSubview:` would replace the element. iOS 17+ also resizes the
+island by laying that view out step by step (26 springs past its size and
+widens it again a moment later), so the line waits until the view has stopped
+moving on screen before it fades in. Private API used on 18.5 and 26.1 was
+checked symbol by symbol against those builds.
 
 ## Limitations
 
 Per line, not per syllable. NetEase is Simplified Chinese. Musixmatch needs the
 app's token (unofficial) or an API key whose timed endpoint is usually paid.
-Matching is by strings; Apple Music relies on private API. Lyrics in the island
-needs a Dynamic Island iPhone and rests on SpringBoard internals checked on
-16.5.1, 18.6.2 and 26.1; other versions may need adjusting.
+Matching is by strings; Apple Music relies on private API. Lyrics Island
+needs a Dynamic Island iPhone (as SpringBoardServices'
+`SBSIsSystemApertureAvailable` says, so iOS 16 iPhones given the island
+through MobileGestalt count; the settings page says so on others) and rests on
+SpringBoard internals checked on 16.5.1, 18.6.2 and 26.1; other versions may
+need adjusting. Player over its cover: lock screen and Control Center on 16
+and 18; on 26 the lock screen's player is glass, which shows what is behind it
+over the tint, and Control Center's media module already takes the cover's
+colors, so it stays as the system draws it.
 
 ## License
 

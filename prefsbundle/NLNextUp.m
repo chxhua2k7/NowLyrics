@@ -20,7 +20,7 @@
 #import <objc/message.h>
 #import <notify.h>
 
-static NSString *const kNLNextUpDylib = @"/var/jb/Library/MobileSubstrate/DynamicLibraries/NextUp3.dylib";
+#define kNLNextUpDylib NLJBPath(@"/Library/MobileSubstrate/DynamicLibraries/NextUp3.dylib")
 
 // NextUp's NUPrefs.h: bit 63 = published; value bit n, and bit n + 32 when the
 // publishing build knew that key.
@@ -48,6 +48,8 @@ BOOL NLNextUpInstalled(void) {
 void NLNextUpLoad(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
+        // Its rows here were made against iOS 16's player and island.
+        if (@available(iOS 16.0, *)) {} else return;
         if (!NLNextUpInstalled()) return;
         dlopen("/System/Library/PrivateFrameworks/MediaControls.framework/MediaControls", RTLD_NOW);
         dlopen(kNLNextUpDylib.fileSystemRepresentation, RTLD_NOW);

@@ -3,7 +3,6 @@
 //
 
 #import "NLPlayerTint.h"
-#import "NLIslandStrip.h"
 #import <CoreImage/CoreImage.h>
 
 // White text needs the background no brighter than this (relative luminance)
@@ -113,10 +112,8 @@ static const NSUInteger kNLNothing = NSUIntegerMax;
     UIView *_scrim;
     BOOL _shown;                 // something from showNowPlaying: is on screen
     NSUInteger _shownPrint;      // ... from this artwork (0: none, kNLNothing: nothing playing)
-    BOOL _shownAlbum;
     BOOL _pending;               // a change is waiting or being worked out
     NSUInteger _pendingPrint;
-    BOOL _pendingAlbum;
     NSUInteger _generation;      // invalidates a pending change
     NLRGB _seen;                 // roughly what the look shows, to skip changes nobody would see
 }
@@ -154,26 +151,25 @@ static const NSUInteger kNLNothing = NSUIntegerMax;
     if (!_shown) _stage.alpha = clears ? 0 : 1;   // until it is given something: clear, or the coral
 }
 
-- (void)showNowPlaying:(NSDictionary *)info albumLyrics:(BOOL)albumLyrics animated:(BOOL)animated {
+- (void)showNowPlaying:(NSDictionary *)info animated:(BOOL)animated {
     id title = info[@"kMRMediaRemoteNowPlayingInfoTitle"];
     BOOL song = [title isKindOfClass:NSString.class] && [title length];
     NSData *artwork = song ? info[@"kMRMediaRemoteNowPlayingInfoArtworkData"] : nil;
     if (![artwork isKindOfClass:NSData.class] || artwork.length == 0) artwork = nil;
     // Nothing playing is a song without a cover here, unless this one clears then.
     NSUInteger print = (!song && _clearsWhenNothingPlays) ? kNLNothing : artwork ? NLTintPrint(artwork) : 0;
-    if (_shown && print == _shownPrint && albumLyrics == _shownAlbum) {
+    if (_shown && print == _shownPrint) {
         // What shows already: a change on its way (a moment without a cover,
         // a placeholder, a moment with nothing between songs) is called off.
         _generation++;
         _pending = NO;
         return;
     }
-    if (_pending && print == _pendingPrint && albumLyrics == _pendingAlbum) return;   // on its way already
+    if (_pending && print == _pendingPrint) return;   // on its way already
 
     NSUInteger generation = ++_generation;
     _pending = YES;
     _pendingPrint = print;
-    _pendingAlbum = albumLyrics;
     BOOL first = !_shown;
     BOOL fade = animated && !first;
     NSTimeInterval wait = (first || artwork) ? 0 : kNLMissingGrace;
@@ -182,7 +178,6 @@ static const NSUInteger kNLNothing = NSUIntegerMax;
         self->_pending = NO;
         self->_shown = YES;
         self->_shownPrint = print;
-        self->_shownAlbum = albumLyrics;
     };
     void (^work)(void) = ^{
         if (print == kNLNothing) {   // nothing to color by: the system's own look
@@ -192,13 +187,10 @@ static const NSUInteger kNLNothing = NSUIntegerMax;
         }
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
             UIColor *solid = nil;
-            UIImage *cover = nil;
             CGFloat scrim = 0;
             NLRGB seen = {0, 0, 0};
-            UIColor *lyrics = (artwork && albumLyrics) ? NLColorFromArtwork(artwork) : nil;
-            if (lyrics) solid = NLDeepened(lyrics);
-            else if (artwork) cover = NLBlurredCover(artwork, &scrim, &seen);
-            if (!solid && !cover) solid = NLCoral();
+            UIImage *cover = artwork ? NLBlurredCover(artwork, &scrim, &seen) : nil;
+            if (!cover) solid = NLCoral();
             if (solid) seen = NLRGBOf(solid);
             dispatch_async(dispatch_get_main_queue(), ^{
                 if (generation != self->_generation) return;

@@ -7,6 +7,17 @@
 
 #import <Foundation/Foundation.h>
 
+// A file of the jailbreak, by its path inside the jailbreak's root: under
+// /var/jb on rootless, under the randomly named root roothide gives each
+// jailbreak (jbroot(), from roothide's Theos, which also answers for rootless
+// builds). Without that header, rootless.
+#if __has_include(<roothide.h>)
+#include <roothide.h>
+static inline NSString *NLJBPath(NSString *path) { return jbroot(path); }
+#else
+static inline NSString *NLJBPath(NSString *path) { return [@"/var/jb" stringByAppendingString:path]; }
+#endif
+
 #define NL_PREFS_DOMAIN         @"app.nowlyrics"
 #define NL_RELOAD_NOTIFICATION  @"app.nowlyrics/ReloadPrefs"
 // The settings page wrote, replaced or deleted lyrics files: each app drops
@@ -73,7 +84,7 @@ static inline NSDictionary *NLReadPrefsFile(void) {
     NSMutableArray<NSString *> *candidates = [NSMutableArray array];
     if (library) [candidates addObject:[library stringByAppendingPathComponent:@"Preferences"]];
     [candidates addObject:@"/var/mobile/Library/Preferences"];
-    [candidates addObject:@"/var/jb/var/mobile/Library/Preferences"];
+    [candidates addObject:NLJBPath(@"/var/mobile/Library/Preferences")];
     for (NSString *dir in candidates) {
         NSString *path = [dir stringByAppendingPathComponent:name];
         NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:path];

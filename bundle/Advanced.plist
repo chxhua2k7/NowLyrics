@@ -39,8 +39,44 @@
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>app.nowlyrics/ReloadPrefs</string>
+			<key>cell</key>
+			<string>PSDefaultCell</string>
+			<key>cellClass</key>
+			<string>NLPopUpCell</string>
+			<key>default</key>
+			<string>player</string>
+			<key>defaults</key>
+			<string>app.nowlyrics</string>
+			<key>iconColor</key>
+			<string>#5E5CE6</string>
+			<key>iconSymbol</key>
+			<string>rectangle.topthird.inset.filled|rectangle.inset.filled</string>
+			<key>key</key>
+			<string>pageHeader</string>
+			<key>label</key>
+			<string>Top of main page</string>
+			<key>validTitles</key>
+			<array>
+				<string>Player</string>
+				<string>Island</string>
+				<string>Hidden</string>
+			</array>
+			<key>validValues</key>
+			<array>
+				<string>player</string>
+				<string>island</string>
+				<string>none</string>
+			</array>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Colors the now-playing player in Settings, on the lock screen and in Control Center: the album color the lyrics use, or the cover blurred and darkened.</string>
+			<string>Colors the now-playing player in Settings, on the lock screen and in Control Center: its cover, blurred and darkened.</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -58,7 +94,7 @@
 			<key>key</key>
 			<string>playerTint</string>
 			<key>label</key>
-			<string>Player in lyrics color</string>
+			<string>Player over its cover</string>
 		</dict>
 		<dict>
 			<key>cell</key>

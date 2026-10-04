@@ -7,6 +7,7 @@
 //
 
 #import "NowLyrics.h"
+#import <objc/runtime.h>
 #import <sys/sysctl.h>
 
 static const NSTimeInterval kNLDurationTolerance = 8.0;   // max track-length mismatch when matching
@@ -507,6 +508,9 @@ static NSArray<NLLyricLine *> *NLFetchSource(NLFetch *f, NLSource source, NSStri
             // Music asks by its own item; another app through SpringBoard,
             // which finds the song on Apple Music first.
             if (!s.useAppleMusic) return nil;
+            // The request is iOS 16 and later; without it SpringBoard can only
+            // answer "no" after a search.
+            if (!objc_getClass("MPStoreLyricsMusicKitRequestOperation")) return nil;
             NSString *raw = nil;
             if (NLProcessUsesContentItems()) {
                 raw = NLAppleMusicLyrics(f.title, 10);

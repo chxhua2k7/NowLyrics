@@ -36,14 +36,13 @@ static NSString *const kNLDeniedBundles[] = {
 };
 
 // Only real apps: the system ones in /Applications and everything installed
-// through the App Store or a jailbreak. Daemons and services that happen to
-// link MediaPlayer (sosd, for one) live elsewhere and are not worth a hook.
+// through the App Store or a jailbreak (its /Applications, NLJBPath).
+// Daemons and services that happen to link MediaPlayer (sosd, for one) live
+// elsewhere and are not worth a hook.
 static NSString *const kNLAppRoots[] = {
     @"/Applications/",
     @"/private/var/containers/Bundle/Application/",
     @"/var/containers/Bundle/Application/",
-    @"/private/var/jb/Applications/",
-    @"/var/jb/Applications/",
     nil,
 };
 
@@ -230,9 +229,11 @@ BOOL NLProcessIsEligible(void) {
 
     if ([main.bundlePath hasPrefix:@"/System/Library/CoreServices/"]) return NO;
 
-    BOOL underAppRoot = NO;
-    for (int i = 0; kNLAppRoots[i]; i++) {
-        if ([main.bundlePath hasPrefix:kNLAppRoots[i]]) { underAppRoot = YES; break; }
+    NSString *jailbreakApps = NLJBPath(@"/Applications/");
+    BOOL underAppRoot = [main.bundlePath hasPrefix:jailbreakApps] ||
+                        [main.bundlePath hasPrefix:[@"/private" stringByAppendingString:jailbreakApps]];
+    for (int i = 0; !underAppRoot && kNLAppRoots[i]; i++) {
+        if ([main.bundlePath hasPrefix:kNLAppRoots[i]]) underAppRoot = YES;
     }
     if (!underAppRoot) return NO;
 

@@ -15,12 +15,14 @@
 #import <Preferences/PSControlTableCell.h>
 #import <Preferences/PSSpecifier.h>
 #import <dlfcn.h>
-#import <rootless.h>
+#import "../NLShared.h"
 #import "NLOffsetControl.h"
 
 __attribute__((constructor))
 static void NLLoadAltList(void) {
-    dlopen(ROOT_PATH("/Library/Frameworks/AltList.framework/AltList"), RTLD_NOW);
+    @autoreleasepool {
+        dlopen(NLJBPath(@"/Library/Frameworks/AltList.framework/AltList").fileSystemRepresentation, RTLD_NOW);
+    }
 }
 
 // Used when a row names no range: the lyrics offset row's seconds, ±3, tenths.

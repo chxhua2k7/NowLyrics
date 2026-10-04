@@ -48,11 +48,14 @@ English: [README.md](README.md)
   App 先重讀設定再清掉記憶體快取、找一次。每首偏移和每首指定的來源存在設定檔的 `trackOffsets`、
   `trackSources`(曲目 key → 秒 / 來源名);頁面上只顯示一個偏移(「進階」的預設偏移加上這首的)。
   主頁和「正在播放」頁最上面嵌入鎖定畫面的播放器
-  (MediaControls 的 `+[MRPlatterViewController coverSheetPlatterViewController]`,`NLPlayerHeader`)。
-- **播放器用歌詞顏色**(`NLPlayerTint`,開關 `playerTint`):控制中心蓋在
+  (MediaControls 的 `+[MRPlatterViewController coverSheetPlatterViewController]`,`NLPlayerHeader`);
+  主頁可在「進階 › 主頁頂端」(`pageHeader`)換成島預覽或隱藏。「歌詞來源」頁照嘗試順序列出來源
+  (plist 列上的 `source`)。Musixmatch 跟 Apple Music 一樣要先解鎖:有安裝 Musixmatch App
+  (`musixmatchVerified`);App 刪掉後,有存 User Token 或 API Key 就繼續用。
+- **播放器用封面背景**(`NLPlayerTint`,開關 `playerTint`):控制中心蓋在
   `-[MRUControlCenterView materialView]` 上;鎖定畫面蓋在播放器 `PLPlatterView` 的毛玻璃上,
   靠通知列表的群組 `com.apple.MediaRemoteUI` 和即時動態(同樣是 ActivityUIServices 的 scene)分開。
-  用歌詞的專輯顏色,或把封面模糊、依最亮的一成加深;換歌時封面還沒到就維持原本的樣子。
+  把封面模糊、依最亮的一成加深(不管歌詞是什麼顏色);換歌時封面還沒到就維持原本的樣子。
 - **Crescendo**(有裝時):開關從它的 notify state(`com.yves.crescendo.state`)讀;設定頁播放器裡
   休眠的音量列強制打開(`-[MRUNowPlayingView setShowVolumeControlsView:]`),歌詞上島的預覽另外放一條
   `MRUNowPlayingVolumeControlsView`,展開時高 40 pt。
@@ -76,12 +79,17 @@ English: [README.md](README.md)
 
 ```bash
 make package FINALPACKAGE=1   # 正式版;單純 `make package` 是帶 NSLog 的 DEBUG 版
+make package FINALPACKAGE=1 THEOS=~/theos-roothide THEOS_PACKAGE_SCHEME=roothide   # roothide,iphoneos-arm64e
 ```
 
 - Mac 上的 Theos + Xcode,rootless,`ARCHS = arm64 arm64e`。arm64e slice 是 Apple Music 能用的關鍵,
   只有 Xcode 的工具鏈編出來的能過指標驗證。
+- roothide 要用 roothide 版的 Theos;套件會連結 libroothide,越獄的檔案用 `jbroot()` 找(`NLShared.h` 的 `NLJBPath()`)。
+  兩種方案各自編在 `.theos/obj/<scheme>`,不會混在一起。還沒在 roothide 越獄上實際跑過。
 - 版本號只在 Makefile 的 `PACKAGE_VERSION`(套件版本、`NL_VERSION` 定義、stage 時填入 `bundle/Info.plist`)。
 - 執行期相依:PreferenceLoader、AltList。`sudo dpkg -i` 安裝後 respring 一次(設定頁的「套用」),SpringBoard 才會載入 NowLyricsIsland;歌詞本身只要播放器重開。
+- iOS 18 起「設定」改用 Swift 重寫,PreferenceLoader 2.2.6 在那裡掛不出 tweak 頁面。裝 dhinakg 的 2.2.8
+  (https://dhinakg.github.io/repo/)後,NowLyrics 在「設定 › 一般」最下面。
 
 ## 結構
 
@@ -97,15 +105,21 @@ make package FINALPACKAGE=1   # 正式版;單純 `make package` 是帶 NSLog 的
 
 ## 測試
 
-iPhone 14 Pro / iOS 16.5.1 測全部;vphone-cli VM(iOS 26.1、18.6.2)只測注入和 Spotify 路徑
-(VM 的設定 App 掛不出設定頁)。歌詞上島在 14 Pro(16.5.1)與 18.6.2、26.1 的 VM 上驗證過,動畫是用螢幕錄影逐格檢查的。
+iPhone 14 Pro / iOS 16.5.1 測全部;vphone-cli VM(iOS 26.1、18.6.2)測 Spotify 路徑、島、鎖定畫面、控制中心,
+裝 PreferenceLoader 2.2.8 後也測設定頁(VM 沒有 Apple Music;舊的 2.2.6 掛不出設定頁)。歌詞上島在 14 Pro(16.5.1)
+與 18.6.2、26.1 的 VM 上驗證過,動畫是用螢幕錄影逐格檢查的。
 iOS 17 以上改掛在元件自己的 view:那裡容器的內容 view 規定只能有一個子 view,`addContentSubview:` 會把元件換掉。
+17 以上島變大小是一步步重排那個 view(26 會先回彈,過一下再變寬),所以歌詞等它在螢幕上停住才淡入。
+18.5 與 26.1 用到的私有 API 逐一對過該版的符號。
 
 ## 限制
 
 逐行不逐字。網易雲是簡體。Musixmatch 要 App 的 token(非官方)或 API key(帶時間軸的端點通常要付費)。
-比對靠字串;Apple Music 依賴私有 API。歌詞上島需要有動態島的 iPhone,依賴在 16.5.1、18.6.2、26.1
-確認過的 SpringBoard 內部實作,其他版本可能需要調整。
+比對靠字串;Apple Music 依賴私有 API。歌詞上島需要有動態島的 iPhone(依 SpringBoardServices 的
+`SBSIsSystemApertureAvailable` 判斷,所以 iOS 16 用 MobileGestalt 開出動態島的 iPhone 也算;其他機型設定頁會說明),
+依賴在 16.5.1、18.6.2、26.1 確認過的 SpringBoard 內部實作,其他版本可能需要調整。播放器用封面背景:16 與 18 的
+鎖定畫面和控制中心;26 的鎖定畫面播放器是玻璃,會把背後的畫面蓋在顏色上,控制中心的媒體模組本來就取封面顏色,
+所以維持系統原樣。
 
 ## 授權
 

@@ -18,6 +18,12 @@
 //  ("com.yves.crescendo.state") when Settings has published one, else its
 //  preferences.
 //
+//  iOS 17 and later have this themselves (Accessibility > Audio & Visual >
+//  Always Show Volume Control, -[MRUserSettings alwaysShowVolumeControls]):
+//  the players these pages copy read it and show the row on their own, and
+//  the island has none either way (26.1: only MRULockscreenViewController and
+//  MRUNowPlayingViewController read it). Nothing is forced there.
+//
 
 #import "NLLyricsPages.h"
 #import <notify.h>
@@ -42,7 +48,7 @@
 - (void)updatePreferredContentSize;
 @end
 
-static NSString *const kNLCrescendoDylib = @"/var/jb/Library/MobileSubstrate/DynamicLibraries/Crescendo.dylib";
+#define kNLCrescendoDylib NLJBPath(@"/Library/MobileSubstrate/DynamicLibraries/Crescendo.dylib")
 
 // Crescendo's CRPrefs.h: bit 63 = published; value bit n, and bit n + 32 when
 // the publishing build knew that key.
@@ -61,6 +67,7 @@ static BOOL NLCrescendoPref(NSString *key, uint64_t bit, BOOL fallback) {
 }
 
 BOOL NLCrescendoShows(NLCrescendoPlace place) {
+    if (@available(iOS 17.0, *)) return NO;   // the system's own setting, see the top
     static BOOL installed;
     static dispatch_once_t once;
     dispatch_once(&once, ^{ installed = [[NSFileManager defaultManager] fileExistsAtPath:kNLCrescendoDylib]; });
@@ -117,6 +124,7 @@ static UIViewController *NLOwner(UIView *view) {
 }
 
 BOOL NLCrescendoSyncPlayer(UIViewController *platter) {
+    if (@available(iOS 17.0, *)) return NO;   // the player shows its row by the system's setting
     Class playerClass = objc_getClass("MRUNowPlayingView");
     UIView *player = playerClass && platter.isViewLoaded ? NLFindView(platter.view, playerClass) : nil;
     if (!player || ![player respondsToSelector:@selector(setShowVolumeControlsView:)]) return NO;

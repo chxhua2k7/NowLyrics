@@ -41,6 +41,39 @@ UIImage *NLSourceIcon(NSString *name) {
     return NLRowIcon(info[@"app"], info[@"symbol"], info[@"color"]);
 }
 
+#pragma mark Preferences
+
+// A preference through `controller`, the way its own rows read and write it;
+// without one, straight from the domain.
+static PSSpecifier *NLPrefSpecifier(PSListController *controller, NSString *key) {
+    PSSpecifier *spec = [PSSpecifier preferenceSpecifierNamed:key target:controller
+                                                          set:@selector(setPreferenceValue:specifier:)
+                                                          get:@selector(readPreferenceValue:)
+                                                       detail:Nil cell:PSStaticTextCell edit:Nil];
+    [spec setProperty:NL_PREFS_DOMAIN forKey:@"defaults"];
+    [spec setProperty:key forKey:@"key"];
+    [spec setProperty:NL_RELOAD_NOTIFICATION forKey:@"PostNotification"];
+    return spec;
+}
+
+id NLReadPref(PSListController *controller, NSString *key) {
+    return controller ? [controller readPreferenceValue:NLPrefSpecifier(controller, key)]
+                      : CFBridgingRelease(CFPreferencesCopyAppValue((__bridge CFStringRef)key, (__bridge CFStringRef)NL_PREFS_DOMAIN));
+}
+
+// The saved order, completed as NLSettings completes it (an old preferred
+// source goes right after Apple Music).
+NSArray<NSString *> *NLSourceOrder(PSListController *controller) {
+    id saved = NLReadPref(controller, @"sourceOrder");
+    id preferred = NLReadPref(controller, @"preferredSource");
+    NSArray *names = [saved isKindOfClass:NSArray.class] ? saved : @[@"applemusic", preferred ?: @""];
+    NSMutableArray<NSString *> *order = [NSMutableArray array];
+    for (id name in [names arrayByAddingObjectsFromArray:[NLSources() valueForKey:@"name"]]) {
+        if ([name isKindOfClass:NSString.class] && NLSourceInfo(name) && ![order containsObject:name]) [order addObject:name];
+    }
+    return order;
+}
+
 @interface NLSourceOrderController () <UITableViewDataSource, UITableViewDelegate>
 @end
 
@@ -76,27 +109,14 @@ UIImage *NLSourceIcon(NSString *name) {
     return [parent isKindOfClass:PSListController.class] ? (PSListController *)parent : nil;
 }
 
-- (PSSpecifier *)nlSpecifierForKey:(NSString *)key {
-    PSSpecifier *spec = [PSSpecifier preferenceSpecifierNamed:key target:[self nlParent]
-                                                          set:@selector(setPreferenceValue:specifier:)
-                                                          get:@selector(readPreferenceValue:)
-                                                       detail:Nil cell:PSStaticTextCell edit:Nil];
-    [spec setProperty:NL_PREFS_DOMAIN forKey:@"defaults"];
-    [spec setProperty:key forKey:@"key"];
-    [spec setProperty:NL_RELOAD_NOTIFICATION forKey:@"PostNotification"];
-    return spec;
-}
-
 - (id)nlPref:(NSString *)key {
-    PSListController *parent = [self nlParent];
-    return parent ? [parent readPreferenceValue:[self nlSpecifierForKey:key]]
-                  : CFBridgingRelease(CFPreferencesCopyAppValue((__bridge CFStringRef)key, (__bridge CFStringRef)NL_PREFS_DOMAIN));
+    return NLReadPref([self nlParent], key);
 }
 
 - (void)nlSetPref:(id)value forKey:(NSString *)key {
     PSListController *parent = [self nlParent];
     if (parent) {
-        [parent setPreferenceValue:value specifier:[self nlSpecifierForKey:key]];
+        [parent setPreferenceValue:value specifier:NLPrefSpecifier(parent, key)];
         return;
     }
     CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)value, (__bridge CFStringRef)NL_PREFS_DOMAIN);
@@ -110,19 +130,12 @@ UIImage *NLSourceIcon(NSString *name) {
     return [value respondsToSelector:@selector(boolValue)] ? [value boolValue] : [info[@"on"] boolValue];
 }
 
-// The saved order, completed as NLSettings completes it (an old preferred
-// source goes right after Apple Music).
 - (void)nlLoad {
-    id saved = [self nlPref:@"sourceOrder"];
-    id preferred = [self nlPref:@"preferredSource"];
-    NSArray *names = [saved isKindOfClass:NSArray.class] ? saved : @[@"applemusic", preferred ?: @""];
-    _order = [NSMutableArray array];
-    for (id name in [names arrayByAddingObjectsFromArray:[NLSources() valueForKey:@"name"]]) {
-        if ([name isKindOfClass:NSString.class] && NLSourceInfo(name) && ![_order containsObject:name]) [_order addObject:name];
-    }
+    _order = [NLSourceOrder([self nlParent]) mutableCopy];
     _shown = [NSMutableArray array];
     for (NSString *name in _order) {
         if ([name isEqualToString:@"applemusic"] && !NLAppleMusicVerified()) continue;   // no subscription confirmed
+        if ([name isEqualToString:@"musixmatch"] && !NLMusixmatchVerified()) continue;   // not unlocked
         if ([self nlIsOn:NLSourceInfo(name)]) [_shown addObject:name];
     }
 }

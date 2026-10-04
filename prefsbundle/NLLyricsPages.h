@@ -56,6 +56,12 @@ NSString *NLLyricsFileText(NSString *text, NSString *title, NSString *artist);
 
 @interface NLSourceOrderController : PSViewController
 @end
+// Every source's name once, in the order they are tried, read through
+// `controller` (the page that shows them), or from the domain without one.
+NSArray<NSString *> *NLSourceOrder(PSListController *controller);
+// A preference read through `controller` the way its rows read theirs, or
+// from the domain without one.
+id NLReadPref(PSListController *controller, NSString *key);
 
 // The pages the main page links to for its details (Lyrics Sources, Advanced,
 // Apple Music): the plist named by the link's `subPlist`, from this bundle,
@@ -65,9 +71,9 @@ NSString *NLLyricsFileText(NSString *text, NSString *title, NSString *artist);
 @end
 
 // NLPlayerHeader.m: the lock screen's player as `table`'s header, behind it
-// the lyrics' color. The owner calls -layout from viewDidLayoutSubviews (and
+// its cover blurred. The owner calls -layout from viewDidLayoutSubviews (and
 // when the platter's preferred size changes), -appear / -disappear, and -tick
-// while on screen.
+// while on screen; -remove takes it off the table again.
 @interface NLPlayerHeader : NSObject
 - (instancetype)initWithOwner:(UIViewController *)owner table:(UITableView *)table;
 @property (nonatomic, readonly) BOOL available;   // NO when this iOS has no such player
@@ -75,6 +81,7 @@ NSString *NLLyricsFileText(NSString *text, NSString *title, NSString *artist);
 - (void)appear;
 - (void)disappear;
 - (void)tick;
+- (void)remove;
 @end
 
 // The pages' theme: the color of what the island preview shows
@@ -117,10 +124,22 @@ UIButton *NLPopUpButton(NSArray<NSString *> *titles, NSArray *values, id current
 // NLAppleMusicAccess.m: Apple Music stays hidden until SpringBoard confirms a
 // subscription (kept as `appleMusicVerified`); a lapsed one locks it again.
 typedef NS_ENUM(NSInteger, NLSubscription) { NLSubscriptionUnknown = 0, NLSubscriptionActive, NLSubscriptionNone };
+BOOL NLAppleMusicAvailable(void);   // this iOS can ask Apple Music for lyrics (16 and later)
 BOOL NLAppleMusicVerified(void);
 void NLCheckAppleMusicSubscription(void (^done)(NLSubscription result, NSString *detail));   // main queue
 void NLApplyAppleMusicSubscription(NLSubscription result);   // active: unlocked; none: locked, Apple Music off
 void NLRecheckAppleMusicIfDue(void (^changed)(void));        // silent; `changed` when it locked or unlocked
+
+// NLMusixmatchAccess.m: Musixmatch stays behind "Unlock Musixmatch lyrics"
+// until its app is installed (`musixmatchVerified`); with the app gone it stays
+// while a User Token or API key is saved.
+extern NSString *const NLMusixmatchBundleID;
+extern NSString *const NLMusixmatchStoreURL;   // its App Store page
+BOOL NLMusixmatchInstalled(void);
+BOOL NLMusixmatchVerified(void);
+BOOL NLUnlockMusixmatch(void);    // unlocked and on; NO without the app
+BOOL NLRecheckMusixmatch(void);   // YES when it changed anything
+BOOL NLAppInstalled(NSString *bundleID);   // NLRootListController.m
 
 // NLNextUp.m: NextUp 3's Up Next row in these pages' copies of the players.
 BOOL NLNextUpInstalled(void);
@@ -133,3 +152,4 @@ void NLNextUpKeepOut(UIView *view);   // the island preview's view: none of Next
 // NLIslandPreviewCell.m: the most the open island preview grows by for the rows
 // tweaks add, which the island page keeps room for under it.
 CGFloat NLIslandPreviewMostExtraHeight(void);
+BOOL NLDeviceHasDynamicIsland(void);   // NLRootListController.m

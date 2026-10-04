@@ -1,6 +1,6 @@
 //
 //  NLIslandPreviewCell.m
-//  The top row of the "Lyrics in the island" page: a compact Dynamic Island
+//  The top row of the "Lyrics Island" page: a compact Dynamic Island
 //  drawn at its real size, singing random lines (NLPreviewLines.m) with the
 //  page's current color, line change, font size and scroll speed. The strip in
 //  it is NowLyricsIsland's own NLIslandStripView, so what it shows is what the
@@ -314,6 +314,7 @@ UIColor *NLNowLyricsColor(void) {
 - (void)layoutSubviews {
     [super layoutSubviews];
     [self nlClearBackground];
+    if (_pill.superview != self.contentView && ![self nlOnScreen]) [self nlScreenChanged];   // its row was taken away
     [self nlLayoutPill];
 }
 
@@ -334,7 +335,11 @@ UIColor *NLNowLyricsColor(void) {
 static __weak NLIslandPreviewCell *gIslandOwner;
 
 - (BOOL)nlOnScreen {
-    return self.window != nil && !self.hidden;
+    if (self.window == nil || self.hidden) return NO;
+    // A row its page took away (the main page's top set to something else)
+    // can stay in the table a while, not hidden, for the delete animation.
+    id page = self.specifier.target;
+    return ![page isKindOfClass:PSListController.class] || [(PSListController *)page indexOfSpecifier:self.specifier] != NSNotFound;
 }
 
 - (void)nlHostPill {
@@ -494,7 +499,11 @@ static __weak NLIslandPreviewCell *gIslandOwner;
     __weak typeof(self) weakSelf = self;
     _liveTimer = [NSTimer scheduledTimerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *timer) {
         NLIslandPreviewCell *cell = weakSelf;
-        if (![cell nlOnScreen]) { [timer invalidate]; return; }
+        if (![cell nlOnScreen]) {
+            [timer invalidate];
+            [cell nlScreenChanged];   // its island back into its row
+            return;
+        }
         [cell nlLiveTick];
     }];
     [self nlLiveTick];
@@ -1074,8 +1083,13 @@ static void NLDisableTaps(UIView *view) {
     // The waveform is the island's own too (its trailing view), moved by
     // made-up levels (the real ones need an audio tap), in the sample
     // waveform's place, closed at the side and open at the top right.
+    // On iOS 17 and later the trailing view only shows a waveform when
+    // MediaRemoteUI hands the controller a waveform controller (it has
+    // -setShowWaveform: then); made here it shows the route glyph or nothing,
+    // so the made-up one stays.
     if (!_liveWave && [_activity respondsToSelector:@selector(trailingView)]) {
         UIView *wave = [(id)_activity trailingView];
+        if (wave && [wave respondsToSelector:@selector(setShowWaveform:)]) wave = nil;
         if (wave) {
             _liveWave = wave;
             [UIView performWithoutAnimation:^{
@@ -1128,6 +1142,14 @@ static void NLDisableTaps(UIView *view) {
     [self nlLayoutExtraRows];
 }
 
+// NextUp's row view, when this NextUp build has what the preview calls on it.
+static Class NLNextUpRowClass(void) {
+    Class c = objc_getClass("NUNextUpRowView");
+    return ([c respondsToSelector:@selector(preferredHeightForControlCenter)] &&
+            [c instancesRespondToSelector:@selector(configureForDynamicIsland)] &&
+            [c instancesRespondToSelector:@selector(refreshFromManager)]) ? c : Nil;
+}
+
 // What the rows tweaks add to the open island can come to: NextUp's row with
 // Crescendo's slider above it, or the slider alone. The page keeps that much
 // more room under the preview for it to open into.
@@ -1135,7 +1157,7 @@ CGFloat NLIslandPreviewMostExtraHeight(void) {
     BOOL crescendo = NLCrescendoShows(NLCrescendoDynamicIsland);
     BOOL nextUp = NLNextUpShowsInIsland();
     if (nextUp) NLNextUpLoad();
-    Class rowClass = nextUp ? objc_getClass("NUNextUpRowView") : Nil;
+    Class rowClass = nextUp ? NLNextUpRowClass() : Nil;
     CGFloat height = rowClass ? [(id)rowClass preferredHeightForControlCenter] : 0;
     if (crescendo) height += rowClass ? kNLVolumeStripAboveNextUp : kNLVolumeStrip;
     return height;
@@ -1143,14 +1165,14 @@ CGFloat NLIslandPreviewMostExtraHeight(void) {
 
 // NextUp's row is there while NextUp has a next track for what plays.
 - (BOOL)nlNextUpShown {
-    return _nextUpWanted && _liveInfo && NLNextUpActive() && objc_getClass("NUNextUpRowView");
+    return _nextUpWanted && _liveInfo && NLNextUpActive() && NLNextUpRowClass();
 }
 
 // What the rows under the controls add to the open island, as on the real one:
 // NextUp's row at the bottom, Crescendo's slider above it (or alone, lower).
 - (void)nlUpdateExtraHeight {
     BOOL nextUp = [self nlNextUpShown];
-    CGFloat height = nextUp ? [(id)objc_getClass("NUNextUpRowView") preferredHeightForControlCenter] : 0;
+    CGFloat height = nextUp ? [(id)NLNextUpRowClass() preferredHeightForControlCenter] : 0;
     if (_crescendoWanted) height += nextUp ? kNLVolumeStripAboveNextUp : kNLVolumeStrip;
     _extraHeight = height;
 }
@@ -1187,7 +1209,7 @@ CGFloat NLIslandPreviewMostExtraHeight(void) {
     }
     if (_nextUpWanted && !_nextUpRow) {
         NLNextUpStart();
-        Class rowClass = objc_getClass("NUNextUpRowView");
+        Class rowClass = NLNextUpRowClass();
         if (rowClass) {
             _nextUpRow = [[rowClass alloc] initWithFrame:CGRectZero];
             [(id)_nextUpRow configureForDynamicIsland];
@@ -1206,7 +1228,7 @@ CGFloat NLIslandPreviewMostExtraHeight(void) {
     // In the open view's coordinates (its top is kNLRing above the island's),
     // at the island's width.
     BOOL nextUp = [self nlNextUpShown];
-    CGFloat rowHeight = nextUp ? [(id)objc_getClass("NUNextUpRowView") preferredHeightForControlCenter] : 0;
+    CGFloat rowHeight = nextUp ? [(id)NLNextUpRowClass() preferredHeightForControlCenter] : 0;
     CGFloat bottom = kNLExpandedLive.height + _extraHeight + kNLRing;
     CGFloat transportBottom = 0;
     Class transport = objc_getClass("MRUNowPlayingTransportControlsView");

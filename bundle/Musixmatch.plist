@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>items</key>
+	<array>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>Musixmatch’s lyrics, many timed word by word. They need a User Token from the Musixmatch app or an API key of your own.</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>app.nowlyrics/ReloadPrefs</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>app.nowlyrics</string>
+			<key>iconApp</key>
+			<string>com.musixmatch.lyrics</string>
+			<key>iconColor</key>
+			<string>#B052DE</string>
+			<key>iconSymbol</key>
+			<string>sparkles</string>
+			<key>key</key>
+			<string>useMusixmatch</string>
+			<key>label</key>
+			<string>Musixmatch lyrics</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>Paste the debug info from the Musixmatch app (Settings → Get help → Copy debug info), or use an API key of your own.</string>
+			<key>label</key>
+			<string>Musixmatch</string>
+			<key>showIf</key>
+			<string>useMusixmatch</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>app.nowlyrics/ReloadPrefs</string>
+			<key>autoCapsType</key>
+			<integer>0</integer>
+			<key>autoCorrectionType</key>
+			<integer>1</integer>
+			<key>cell</key>
+			<string>PSEditTextCell</string>
+			<key>cellClass</key>
+			<string>NLEditTextCell</string>
+			<key>defaults</key>
+			<string>app.nowlyrics</string>
+			<key>iconColor</key>
+			<string>#8F8F94</string>
+			<key>iconSymbol</key>
+			<string>person.badge.key|key.fill</string>
+			<key>key</key>
+			<string>musixmatchToken</string>
+			<key>label</key>
+			<string>User Token</string>
+			<key>placeholder</key>
+			<string>paste debug info</string>
+			<key>showIf</key>
+			<string>useMusixmatch</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>app.nowlyrics/ReloadPrefs</string>
+			<key>autoCapsType</key>
+			<integer>0</integer>
+			<key>autoCorrectionType</key>
+			<integer>1</integer>
+			<key>cell</key>
+			<string>PSEditTextCell</string>
+			<key>cellClass</key>
+			<string>NLEditTextCell</string>
+			<key>defaults</key>
+			<string>app.nowlyrics</string>
+			<key>iconColor</key>
+			<string>#8F8F94</string>
+			<key>iconSymbol</key>
+			<string>key</string>
+			<key>key</key>
+			<string>musixmatchKey</string>
+			<key>label</key>
+			<string>API Key</string>
+			<key>placeholder</key>
+			<string>your own key</string>
+			<key>showIf</key>
+			<string>useMusixmatch</string>
+		</dict>
+	</array>
+	<key>title</key>
+	<string>Musixmatch</string>
+</dict>
+</plist>

@@ -340,9 +340,10 @@ static void NLPublishItem(NSString *title, NSString *artist) {
         item.trackArtistName = wantArtist;
     }
 
-    // Re-anchoring the clock is what makes MediaRemote pull the metadata again
-    // (AMLyrics does the same). The value is the one the item already
-    // extrapolates to, so the progress bar does not move.
+    // MediaRemote is told by the change notification -setTitle: and
+    // -setTrackArtistName: post. MediaPlayer drops this same-value set (16.5
+    // always, 18 and 26 once the item has been set once), so it moves
+    // nothing; it is kept as a harmless nudge.
     [item setElapsedTime:NLItemElapsed(item) playbackRate:item.playbackRate];
     gWritingItem = NO;
 }

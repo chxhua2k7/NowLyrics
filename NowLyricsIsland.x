@@ -245,6 +245,11 @@ static UIView *NLPillFor(UIView *view) {
 
 static NLIslandStripView *gStrip = nil;
 static NLIslandClipView *gClip = nil;
+// iOS 17 and later: the strip is in the element's wrapper view. The island
+// changes its size there by laying the wrapper out at each step (16.5 scales
+// a content view of fixed size instead), with no animation on the layers the
+// stillness check looks at.
+static BOOL gInWrapper = NO;
 
 // Tells covers apart. -[NSData hash] only reads the first 80 bytes, which
 // JPEGs from the same encoder share, so the length and two samples from the
@@ -346,6 +351,8 @@ static void NLIDumpLayout(UIView *host, UIView *pill) {
 }
 #endif
 
+static void NLIslandRevealWhenStill(UIView *pill, int attempt);
+
 static void NLIslandLayout(UIView *pill) {
     UIView *host = gClip.superview;
     if (!host || pill != gAttachedPill) return;
@@ -357,6 +364,19 @@ static void NLIslandLayout(UIView *pill) {
     // a bigger font only grows upwards. Measured in the content view, which is
     // the pill's size or, while scaling, its reference size.
     CGRect b = host.bounds;
+    // iOS 26 shows the island at its plain compact size first and widens it
+    // for its artwork and waveform a moment later: a line already shown
+    // there moved sideways with it. Out, and back once the island is still.
+    static CGSize laidOutSize;
+    if (gInWrapper && gClip.alpha > 0 && !CGSizeEqualToSize(laidOutSize, CGSizeZero) &&
+        (fabs(b.size.width - laidOutSize.width) > 0.5 || fabs(b.size.height - laidOutSize.height) > 0.5)) {
+        gClip.alpha = 0;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            UIView *p = gAttachedPill;
+            if (p && gClip.superview) NLIslandRevealWhenStill(p, 0);
+        });
+    }
+    laidOutSize = b.size;
     CGFloat h = MIN(NLIslandLineHeight(), CGRectGetHeight(b));
     CGFloat y = CGRectGetHeight(b) - h;
     CGFloat width = MAX(MIN(gSensorWidth, CGRectGetWidth(b)) - kNLContentGap * 2, 0);
@@ -365,6 +385,12 @@ static void NLIslandLayout(UIView *pill) {
     if (!CGRectEqualToRect(gStrip.frame, strip)) gStrip.frame = strip;
     gLaidOutFontSize = gSettings.fontSize;
     NLIslandMeasureExtra(pill);
+#ifdef NLI_FILELOG
+    CGRect inPill = [host convertRect:host.bounds toView:pill];
+    NLIFileLog(@"%.3f geo host %@ inPill %@ strip %@ sensor %.2f alpha %.2f pillAnim %lu hostAnim %lu", CACurrentMediaTime(),
+               NSStringFromCGRect(b), NSStringFromCGRect(inPill), NSStringFromCGRect(strip), gSensorWidth, gClip.alpha,
+               (unsigned long)pill.layer.animationKeys.count, (unsigned long)host.layer.animationKeys.count);
+#endif
 }
 
 static BOOL NLLayerAnimating(CALayer *layer) {
@@ -375,12 +401,36 @@ static BOOL NLLayerAnimating(CALayer *layer) {
 // island is still growing (playback just started, a collapse), its frames are
 // the final ones inside a pill that is not there yet, which read as the line
 // drifting into place. Polls the pill's layers rather than guessing a delay.
+// Where the view is on screen right now, mid-animation included.
+static CGRect NLPresentedFrame(UIView *view) {
+    CALayer *layer = view.layer.presentationLayer ?: view.layer;
+    CALayer *top = view.window.layer.presentationLayer ?: view.window.layer;
+    return top ? [layer convertRect:layer.bounds toLayer:top] : CGRectZero;
+}
+
+static BOOL NLRectsClose(CGRect a, CGRect b) {
+    return fabs(a.origin.x - b.origin.x) < 0.5 && fabs(a.origin.y - b.origin.y) < 0.5 &&
+           fabs(a.size.width - b.size.width) < 0.5 && fabs(a.size.height - b.size.height) < 0.5;
+}
+
 static BOOL gRevealPending = NO;
 static void NLIslandRevealWhenStill(UIView *pill, int attempt) {
     if (gRevealPending && attempt == 0) return;
     gRevealPending = YES;
     UIView *host = gClip.superview;
     BOOL moving = NLLayerAnimating(pill.layer) || NLLayerAnimating(host.layer) || NLLayerAnimating(pill.superview.layer);
+    if (gInWrapper) {
+        // No layer animation to go by there: still is where the island's
+        // content is on screen not changing for a few looks in a row (it
+        // springs past its size and back on iOS 26).
+        static CGRect lastSeen;
+        static int stillLooks;
+        CGRect seen = NLPresentedFrame(host);
+        if (attempt == 0 || !NLRectsClose(seen, lastSeen)) stillLooks = 0;
+        else stillLooks++;
+        lastSeen = seen;
+        moving = moving || stillLooks < 4;
+    }
     if (moving && attempt < 30) {
         __weak UIView *weakPill = pill;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.07 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
@@ -453,11 +503,16 @@ static void NLIslandUpdate(void) {
     BOOL fresh = !gClip.superview || NLPillFor(gClip.superview) != pill;
     if (fresh) {
         UIView *wrapper = NLElementWrapperView(gSceneContainer, pill);
-        BOOL canAdd = [pill respondsToSelector:@selector(addContentSubview:)];
+        // -addContentSubview: adds on 16.5 but replaces on 17 and later (it
+        // would swap the player out of the island): only where no wrapper
+        // can exist.
+        BOOL canAdd = !objc_getClass("_SBSystemApertureContainerViewRotatingContentView") &&
+                      [pill respondsToSelector:@selector(addContentSubview:)];
         if (!wrapper && !canAdd) return;   // neither layout known: stay off rather than guess
         gClip.alpha = 0;
         gAttachedPill = pill;
         gAttachedPillPtr = (__bridge void *)pill;
+        gInWrapper = wrapper != nil;
         if (wrapper) [wrapper addSubview:gClip];
         else [(SBSystemApertureContainerView *)pill addContentSubview:gClip];
         [UIView performWithoutAnimation:^{ NLIslandLayout(pill); }];
