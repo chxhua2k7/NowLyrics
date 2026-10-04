@@ -108,9 +108,6 @@
     UIView *material = nil;
     @try { material = [_platter valueForKey:@"backgroundView"]; } @catch (NSException *e) { material = nil; }
     _tint.hidden = ![self tintWanted];
-    id clear = NLReadPref(nil, @"playerTintClear");
-    _tint.clearness = MIN(MAX([clear respondsToSelector:@selector(doubleValue)] ? [clear doubleValue] : 50, 0), 100) / 100;
-    _tint.material = [material isKindOfClass:UIView.class] ? material : nil;
     if ([material isKindOfClass:UIView.class] && material.superview) {
         material.alpha = 1;
         UIView *container = material.superview;

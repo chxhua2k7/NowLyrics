@@ -97,38 +97,6 @@
 			<string>Player over its cover</string>
 		</dict>
 		<dict>
-			<key>PostNotification</key>
-			<string>app.nowlyrics/ReloadPrefs</string>
-			<key>cell</key>
-			<string>PSSliderCell</string>
-			<key>cellClass</key>
-			<string>NLOffsetCell</string>
-			<key>default</key>
-			<real>50</real>
-			<key>defaults</key>
-			<string>app.nowlyrics</string>
-			<key>height</key>
-			<integer>92</integer>
-			<key>iconColor</key>
-			<string>#64A0FF</string>
-			<key>iconSymbol</key>
-			<string>circle.lefthalf.filled</string>
-			<key>key</key>
-			<string>playerTintClear</string>
-			<key>label</key>
-			<string>Transparency</string>
-			<key>max</key>
-			<real>100</real>
-			<key>min</key>
-			<real>0</real>
-			<key>showIf</key>
-			<string>playerTint</string>
-			<key>step</key>
-			<real>5</real>
-			<key>unit</key>
-			<string>%</string>
-		</dict>
-		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>

@@ -110,10 +110,10 @@ static const CGSize kNLOpenView = {371, 198};       // the open island's own vie
 static const CGFloat kNLExpandedLiveRadius = 44.5;
 // Crescendo's volume row in the open island (CRHooksDynamicIsland.x): the
 // island opens this much taller, the 24 pt slider 24 pt above its bottom,
-// 24 pt in from the sides; above NextUp 3's row it takes less, centred
-// between the transport controls and that row.
+// 24 pt in from the sides; above NextUp 3's row it is centred between the
+// transport controls and that row, with room to keep it off the row's line.
 static const CGFloat kNLVolumeStrip = 40;
-static const CGFloat kNLVolumeStripAboveNextUp = 28;
+static const CGFloat kNLVolumeStripAboveNextUp = 44;
 static const CGFloat kNLVolumeSlider = 24;
 
 @interface NSObject (NLNextUpRow)
@@ -133,6 +133,23 @@ static const NSUInteger kNLBars = 6;
 static const NSUInteger kNLRecentLines = 20;   // not repeated until this many others came by
 
 @interface NLIslandPreviewCell : PSTableCell <UIGestureRecognizerDelegate>
+@end
+
+// The open island's extra rows hang below their host, which takes the open
+// view's geometry so they move as it moves: touches still reach them there.
+// Its empty space is the island's.
+@interface NLExtrasHostView : UIView
+@end
+
+@implementation NLExtrasHostView
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    if (self.hidden || self.alpha < 0.01 || !self.userInteractionEnabled) return nil;
+    for (UIView *sub in self.subviews.reverseObjectEnumerator) {
+        UIView *hit = [sub hitTest:[self convertPoint:point toView:sub] withEvent:event];
+        if (hit) return hit;
+    }
+    return nil;
+}
 @end
 
 
@@ -1241,7 +1258,7 @@ CGFloat NLIslandPreviewMostExtraHeight(void) {
         return;
     }
     if (!_extrasHost) {
-        _extrasHost = [UIView new];
+        _extrasHost = [NLExtrasHostView new];
         [_pill insertSubview:_extrasHost aboveSubview:openView];
         _extrasHost.alpha = openView.alpha;
         _extrasHost.transform = openView.transform;

@@ -5,7 +5,6 @@
 #import "NLPlayerTint.h"
 #import "NLIslandStrip.h"
 #import <CoreImage/CoreImage.h>
-#import <objc/runtime.h>
 
 // White text needs the background no brighter than this (relative luminance)
 // to read comfortably.
@@ -20,40 +19,6 @@ static const NSTimeInterval kNLFade = 0.25;
 
 // Looks closer than this (summed RGB difference) change without a fade.
 static const CGFloat kNLSameLook = 0.06;
-
-// At full clearness the look keeps this much of itself, and the material
-// under it this much of its blur and tint.
-static const CGFloat kNLClearestLook = 0.3;
-static const CGFloat kNLClearestMaterial = 0.2;
-
-@interface UIView (NLMaterial)
-@property (nonatomic, assign) CGFloat weighting;          // MTMaterialView: 0 none of it, 1 all of it
-@property (nonatomic, copy) NSString *groupNameBase;      // materials of one group share one backdrop
-@end
-
-static char kNLGroupKey;   // a thinned material's own group's former one
-
-// The materials of a backdrop group share its filters too: the lock screen's
-// notifications took the player's thinned blur (and lost their corners). So a
-// thinned material gets a group of its own first, and its old one back only
-// once it is whole again.
-static void NLSetWeighting(UIView *material, CGFloat weighting) {
-    if (![material respondsToSelector:@selector(setWeighting:)] || ![material respondsToSelector:@selector(weighting)]) return;
-    BOOL thin = weighting < 0.999;
-    BOOL grouped = [material respondsToSelector:@selector(groupNameBase)] && [material respondsToSelector:@selector(setGroupNameBase:)];
-    NSString *own = [NSString stringWithFormat:@"NowLyrics-%p", material];
-    BOOL alone = grouped && [material.groupNameBase isEqualToString:own];
-    if (thin && grouped && !alone) {
-        objc_setAssociatedObject(material, &kNLGroupKey, material.groupNameBase ?: (id)NSNull.null, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        material.groupNameBase = own;
-    }
-    if (fabs(material.weighting - weighting) > 0.001) material.weighting = weighting;
-    if (!thin && alone) {
-        id former = objc_getAssociatedObject(material, &kNLGroupKey);
-        material.groupNameBase = former == NSNull.null ? nil : former;
-        objc_setAssociatedObject(material, &kNLGroupKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    }
-}
 
 typedef struct { CGFloat r, g, b; } NLRGB;
 
@@ -134,7 +99,6 @@ static const NSUInteger kNLNothing = NSUIntegerMax;
     UIImageView *_cover;
     UIView *_scrim;
     BOOL _shown;                 // something from showNowPlaying: is on screen
-    BOOL _stageVisible;          // the look is up (not faded out for nothing playing)
     NSUInteger _shownPrint;      // ... from this artwork (0: none, kNLNothing: nothing playing)
     BOOL _pending;               // a change is waiting or being worked out
     NSUInteger _pendingPrint;
@@ -149,7 +113,6 @@ static const NSUInteger kNLNothing = NSUIntegerMax;
         self.layer.cornerCurve = kCACornerCurveContinuous;
         UIViewAutoresizing fill = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         _stage = [[UIView alloc] initWithFrame:self.bounds];
-        _stageVisible = YES;
         _stage.autoresizingMask = fill;
         [self addSubview:_stage];
         _base = [[UIView alloc] initWithFrame:self.bounds];
@@ -171,48 +134,9 @@ static const NSUInteger kNLNothing = NSUIntegerMax;
     return self;
 }
 
-- (void)dealloc {
-    NLSetWeighting(_material, 1);
-}
-
 - (void)setClearsWhenNothingPlays:(BOOL)clears {
     _clearsWhenNothingPlays = clears;
-    if (_shown) return;
-    _stageVisible = !clears;   // until it is given something: clear, or the coral
-    _stage.alpha = clears ? 0 : [self nlOpacity];
-    [self nlApplyMaterial];
-}
-
-- (CGFloat)nlOpacity {
-    return 1 - (1 - kNLClearestLook) * _clearness;
-}
-
-// The material as the look wants it: thinned under a look that shows, whole
-// otherwise.
-- (void)nlApplyMaterial {
-    BOOL thin = _stageVisible && !self.hidden && _clearness > 0;
-    NLSetWeighting(_material, thin ? 1 - (1 - kNLClearestMaterial) * _clearness : 1);
-}
-
-- (void)setMaterial:(UIView *)material {
-    if (material == _material) return;
-    NLSetWeighting(_material, 1);   // the one it leaves, whole again
-    _material = material;
-    [self nlApplyMaterial];
-}
-
-- (void)setClearness:(CGFloat)clearness {
-    clearness = MIN(MAX(clearness, 0), 1);
-    if (fabs(clearness - _clearness) < 0.001) return;
-    _clearness = clearness;
-    if (_stageVisible) [UIView performWithoutAnimation:^{ self->_stage.alpha = [self nlOpacity]; }];
-    [self nlApplyMaterial];
-}
-
-- (void)setHidden:(BOOL)hidden {
-    BOOL was = self.hidden;
-    [super setHidden:hidden];
-    if (was != hidden) [self nlApplyMaterial];
+    if (!_shown) _stage.alpha = clears ? 0 : 1;   // until it is given something: clear, or the coral
 }
 
 - (void)showNowPlaying:(NSDictionary *)info animated:(BOOL)animated {
@@ -259,7 +183,7 @@ static const NSUInteger kNLNothing = NSUIntegerMax;
             dispatch_async(dispatch_get_main_queue(), ^{
                 if (generation != self->_generation) return;
                 shown();
-                BOOL wasHidden = !self->_stageVisible;
+                BOOL wasHidden = self->_stage.alpha < 0.5;
                 // Coming back from nothing: the look is put in place, then faded in.
                 [self nlShowSolid:solid cover:cover scrim:scrim seen:seen fade:fade && !wasHidden];
                 [self nlSetStageVisible:YES fade:fade];
@@ -273,16 +197,9 @@ static const NSUInteger kNLNothing = NSUIntegerMax;
 }
 
 - (void)nlSetStageVisible:(BOOL)visible fade:(BOOL)fade {
-    _stageVisible = visible;
-    CGFloat alpha = visible ? [self nlOpacity] : 0;
-    if (fabs(_stage.alpha - alpha) < 0.01) {   // alpha comes back as a float
-        [self nlApplyMaterial];
-        return;
-    }
-    void (^changes)(void) = ^{
-        self->_stage.alpha = alpha;
-        [self nlApplyMaterial];
-    };
+    CGFloat alpha = visible ? 1 : 0;
+    if (_stage.alpha == alpha) return;
+    void (^changes)(void) = ^{ self->_stage.alpha = alpha; };
     if (fade && self.window) {
         [UIView animateWithDuration:kNLFade delay:0
                             options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction

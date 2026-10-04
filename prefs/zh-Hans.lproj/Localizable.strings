@@ -92,7 +92,6 @@
 "Every song starts with this offset; a positive one shows lyrics earlier. Now Playing changes one song’s offset only. Drag the slider, or tap the value to type one, e.g. 0.25 or -300ms." = "每首歌一开始都用这个偏移，正值让歌词提早出现。在“正在播放”调整的只会改那一首。拖动滑块，或点数值直接输入，例如 0.25 或 -300ms。";
 "This song’s timing only; a positive offset shows its lyrics earlier. Every other song uses the default offset under Advanced." = "只调整这首歌的时间，正值让歌词提早出现。其他歌曲用“高级”里的默认偏移。";
 "Player over its cover" = "播放器用封面背景";
-"Transparency" = "透明度";
 "Top of main page" = "主页顶端";
 "Player" = "播放器";
 "Island" = "灵动岛";

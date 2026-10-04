@@ -33,13 +33,11 @@
 
 static NSHashTable<NLPlayerTintView *> *gTints;   // every tint shown, to update together
 static BOOL gTintOn = YES;
-static CGFloat gTintClearness = 0.5;   // playerTintClear, a percentage in the prefs
 static char kNLTintKey;
 
 static void NLReadTintPrefs(void) {
     NSDictionary *prefs = NLReadPrefsFile();
     gTintOn = NLPrefBool(prefs, NL_PLAYER_TINT_KEY, YES) && NLPrefBool(prefs, @"enabled", YES);
-    gTintClearness = MIN(MAX(NLPrefNum(prefs, @"playerTintClear", 50), 0), 100) / 100;
 }
 
 // What is playing, into every tint (each skips work when its cover is the same).
@@ -73,8 +71,6 @@ static void NLPlaceTint(UIView *owner, UIView *material, CGFloat radius) {
         [material.superview insertSubview:tint aboveSubview:material];
     }
     tint.hidden = NO;
-    tint.material = material;
-    tint.clearness = gTintClearness;
     tint.frame = material.frame;
     tint.transform = material.transform;
     tint.alpha = material.alpha;
@@ -238,15 +234,12 @@ static void NLTintPrefsChanged(CFNotificationCenterRef center, void *observer, C
         // While on, every now-playing change reaches the tints already, and the
         // layout hooks keep them shown or hidden: only the switch itself needs them
         // shown again, placed and given what is playing now.
-        BOOL switched = gTintOn != wasOn;
+        if (gTintOn == wasOn) return;
         for (NLPlayerTintView *tint in gTints) {
-            if (switched) {
-                tint.hidden = !gTintOn;
-                [tint.superview setNeedsLayout];
-            }
-            tint.clearness = gTintClearness;
+            tint.hidden = !gTintOn;
+            [tint.superview setNeedsLayout];
         }
-        if (switched) NLRefreshTints(YES);   // returns at once when it went off
+        NLRefreshTints(YES);   // returns at once when it went off
     });
 }
 

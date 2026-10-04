@@ -123,7 +123,7 @@ static const double kNLDefaultStep = 0.1;
     NSString *sign = (_minimum < 0 && _value != 0) ? @"+" : @"";
     NSString *number = [NSString stringWithFormat:[sign stringByAppendingString:@"%.*f"], decimals, shown];
     if (_unit.length == 0) _field.text = number;
-    else if ([_unit isEqualToString:@"×"] || [_unit isEqualToString:@"%"]) _field.text = [number stringByAppendingString:_unit];
+    else if ([_unit isEqualToString:@"×"]) _field.text = [number stringByAppendingString:_unit];
     else _field.text = [NSString stringWithFormat:@"%@ %@", number, _unit];
 }
 

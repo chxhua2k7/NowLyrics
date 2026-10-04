@@ -4,7 +4,7 @@
 
 把同步歌詞放到曲名的位置:鎖定畫面、控制中心、動態島、CarPlay。支援 Spotify、Apple Music
 和任何會發布 now-playing 資訊的播放器;另可在縮小的動態島底部多一列顯示當前歌詞。
-來源:Musixmatch、LRCLIB、網易雲。
+來源:Apple Music(需訂閱)、Musixmatch、LRCLIB、網易雲。
 
 私人原始碼 repo。公開頁面:[chxhua2k7/NowLyrics](https://github.com/chxhua2k7/NowLyrics)。
 以 `com.c3x14n.nowlyrics` 在 Havoc 販售,上架素材在 `havoc/`。
@@ -36,7 +36,7 @@ English: [README.md](README.md)
   問 iTunesCloud 的 `ICMusicSubscriptionStatusController`,再問 StoreKit,最後實際要一首歌的歌詞;
   之後每天重新確認,訂閱過期就再鎖起來。
 - **逐字歌詞**:Apple Music、Musixmatch(有 token 時的 `track.richsync.get`)、網易雲(`/api/song/lyric/v1` 的 `yrc`)
-  與匯入的 TTML 有逐字時間,存成 enhanced LRC(`<mm:ss.xx>`)。鎖定畫面照舊一行;島從 App 的
+  與匯入的 TTML 或逐字 LRC 有逐字時間,存成 enhanced LRC(`<mm:ss.xx>`)。鎖定畫面照舊一行;島從 App 的
   `nowplaying.plist` 找到歌詞檔,用 MediaRemote 的進度和 App 一樣的方式對到這一行,遮罩照時間推進
   (柔邊、長句跟著唱到的位置平滑捲動)。Musixmatch 一首歌只有一份 richsync,對的是某一個版本,
   不一定是正在播的:逐行字幕用歌曲長度挑(`q_duration`),richsync 的 `richsync_length` 差超過 3 秒、
@@ -114,7 +114,7 @@ iOS 17 以上改掛在元件自己的 view:那裡容器的內容 view 規定只�
 
 ## 限制
 
-逐行不逐字。網易雲是簡體。Musixmatch 要 App 的 token(非官方)或 API key(帶時間軸的端點通常要付費)。
+逐字只在島上,且只限有逐字時間的歌詞;其他地方逐行。網易雲是簡體。Musixmatch 要 App 的 token(非官方)或 API key(帶時間軸的端點通常要付費)。
 比對靠字串;Apple Music 依賴私有 API。歌詞上島需要有動態島的 iPhone(依 SpringBoardServices 的
 `SBSIsSystemApertureAvailable` 判斷,所以 iOS 16 用 MobileGestalt 開出動態島的 iPhone 也算;其他機型設定頁會說明),
 依賴在 16.5.1、18.6.2、26.1 確認過的 SpringBoard 內部實作,其他版本可能需要調整。播放器用封面背景:16 與 18 的

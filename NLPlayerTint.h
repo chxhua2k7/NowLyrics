@@ -24,13 +24,4 @@
 // material), as it is until it is first given something.
 - (void)showNowPlaying:(NSDictionary *)info animated:(BOOL)animated;
 @property (nonatomic, assign) BOOL clearsWhenNothingPlays;   // the lock screen's and Control Center's
-// The system's material it lies over (an MTMaterialView), thinned with
-// `clearness` while the look shows and given back whole when the look goes or
-// this view is hidden.
-@property (nonatomic, weak) UIView *material;
-// 0 (opaque) to 1: how much of what is under the look shows through it. The
-// look grows clearer and the material under it thinner (-weighting, its blur
-// and tint), so on the lock screen and in Control Center the wallpaper behind
-// comes through.
-@property (nonatomic, assign) CGFloat clearness;
 @end

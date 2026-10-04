@@ -96,7 +96,6 @@
 "Every song starts with this offset; a positive one shows lyrics earlier. Now Playing changes one song’s offset only. Drag the slider, or tap the value to type one, e.g. 0.25 or -300ms." = "Every song starts with this offset; a positive one shows lyrics earlier. Now Playing changes one song’s offset only. Drag the slider, or tap the value to type one, e.g. 0.25 or -300ms.";
 "This song’s timing only; a positive offset shows its lyrics earlier. Every other song uses the default offset under Advanced." = "This song’s timing only; a positive offset shows its lyrics earlier. Every other song uses the default offset under Advanced.";
 "Player over its cover" = "Player over its cover";
-"Transparency" = "Transparency";
 "Top of main page" = "Top of main page";
 "Player" = "Player";
 "Island" = "Island";
