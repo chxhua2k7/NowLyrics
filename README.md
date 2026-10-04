@@ -36,11 +36,40 @@ Sold on Havoc as `com.c3x14n.nowlyrics`; listing material in `havoc/`.
   fades and clips it with the artwork and waveform, and is laid out only from
   the pill's `layoutSubviews`, centred under the camera. Text, explicit flag and
   artwork (album color) come from `MRMediaRemoteGetNowPlayingInfo`.
+- **Apple Music lyrics** (Music only; a switch or the preferred source): by
+  the song's adam ID (the content item's `lyricsAdamID`/`storeID`) through
+  `MPStoreLyricsMusicKitRequestOperation`, the same TTML Music's lyrics view
+  gets (storefront text, word timing). Turning it on asks about a subscription.
+- **Word by word**: Apple Music, Musixmatch (`track.richsync.get`, with a token), NetEase
+  (`yrc` from `/api/song/lyric/v1`) and imported TTML carry word times, stored
+  as enhanced LRC (`<mm:ss.xx>`). The lock screen still shows the line; the
+  island finds the lyrics file through the app's `nowplaying.plist`, matches
+  the line by MediaRemote's position the way the app does, and moves a soft
+  mask along the word times (long lines glide with the singing).
+- **Lyrics management** (Settings: Now Playing, Lyrics Library): Preferences is
+  not sandboxed, so it reads and writes the lyrics files in each app's container
+  (`NLLocate.m` maps bundle IDs from the container metadata plists), then posts
+  `app.nowlyrics/LyricsChanged`; the apps drop their memory cache and look again.
+  The apps re-read the settings first. Per-song offsets and picked sources live
+  in the prefs file as `trackOffsets` and `trackSources`. The Now Playing page
+  embeds the lock screen's player (MediaControls'
+  `+[MRPlatterViewController coverSheetPlatterViewController]`).
+- **Island preview** (island settings page): with music, MediaControls'
+  `MRUActivityNowPlayingViewController` (what MediaRemoteUI draws the island
+  with): its leading/trailing views as cover and waveform, its open layout when
+  opened. Preferences has no island host, so the preview answers
+  `-[UIView SBUISA_layoutMode]` and the camera layout guide for views in its
+  pill. Waveform levels need an audio tap, so they are made up
+  (`NLWaveformDriver`). It stretches when dragged and opens on a long press.
 - **Hide explicit badge** clears `MPMediaItemPropertyIsExplicit` (and Music's
   `explicitItem`) before the system sees it, so no "E" follows the lyric line.
 
-Lyrics are cached per app in `Library/NowLyrics/` (max 300 files); a hand-made
-`Library/NowLyrics/manual/Title - Artist.lrc` wins over every source.
+Lyrics are cached per app in `Library/NowLyrics/` (max 300 files; since 1.2.0
+with `[ti:]`/`[ar:]`/`[nl-source:]` tags on top, added to older files when they
+are next played); added lyrics (pasted or imported in Settings, or dropped in by
+hand) in `Library/NowLyrics/manual/Title - Artist.lrc` win over every source.
+Each app also writes `Library/NowLyrics/nowplaying.plist`: the real title, the
+lyrics file, its source and whether it has word times.
 
 ## Build and release
 
@@ -63,7 +92,9 @@ make package FINALPACKAGE=1   # release; plain `make package` = debug with NSLog
 |---|---|
 | `NowLyrics.xm` | hooks, both publishers, Connect rewrite, explicit flag, notification observers |
 | `NowLyricsIsland.x` | SpringBoard: lyrics strip under the compact Dynamic Island |
-| `NLEngine.m` / `NLSources.m` / `NLLyrics.m` / `NLSettings.m` | engine, providers, LRC + cache, settings snapshot |
+| `NLEngine.m` / `NLSources.m` / `NLLyrics.m` / `NLSettings.m` | engine, providers, LRC (word times, yrc) + cache, settings snapshot |
+| `NLIslandStrip.m` / `NLLocate.m` | the island's line strip (word mask); app containers and `nowplaying.plist` (Settings and the island) |
+| `prefsbundle/NLNowPlayingController.m`, `NLLibraryController.m`, `NLLyricsEditor.m`, `NLLyricsImport.m` | Now Playing, the library (by app), the editor, paste/import and TTML |
 | `prefs/`, `prefsbundle/`, `bundle/Island.plist` | settings page: plist + 4 languages; controller (runtime icons, Apply, version, island page), slider rows, text rows |
 | `docs/`, `havoc/` | vPhone runbook; listing text, changelog, clean-install checklist |
 

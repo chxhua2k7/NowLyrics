@@ -8,7 +8,6 @@
 //  - Row icons drawn from SF Symbols at runtime. A row names `iconSymbol` and
 //    `iconColor` and gets the 29 pt white-glyph-on-coloured-tile that Settings
 //    uses, so the page ships no PNGs and the glyphs come from the system.
-//  - The action behind the "Clear lyrics cache" button.
 //  - "Apply" in the navigation bar: after a confirmation, restarts SpringBoard
 //    through FrontBoardServices' SBSRelaunchAction (Cephei's way, nothing is
 //    spawned). Needed after install or update so NowLyricsIsland is loaded.
@@ -16,6 +15,8 @@
 //    the Makefile).
 //  - Rows that follow a switch: a plist entry with `showIf` = <key> is shown
 //    only while that switch is on (NLUpdateShownSpecifiers).
+//  - The "Now Playing" and "Lyrics Library" pages are their own controllers
+//    (NLLyricsPages.h); this one writes the per-song offsets for the first.
 //  - NLIslandListController, the "Lyrics in the island" page (with a live
 //    preview at the top, NLIslandPreviewCell.m), loaded from
 //    Island.plist inside this bundle (outside the folder PreferenceLoader scans
@@ -232,23 +233,36 @@ static void NLUpdateShownSpecifiers(PSListController *controller, NSArray<PSSpec
 }
 
 - (void)setPreferenceValue:(id)value specifier:(PSSpecifier *)specifier {
+    // Apple Music's lyrics come with a subscription only: ask before turning
+    // them on, and leave the switch off for a "no".
+    // The same for picking it as the preferred source, unless the switch
+    // already said yes; that list is on screen then, so it asks from there.
+    NSString *key = [specifier propertyForKey:@"key"];
+    BOOL turnsOn = ([key isEqual:@"useAppleMusic"] && [value boolValue]) ||
+                   ([key isEqual:@"preferredSource"] && [value isEqual:@"applemusic"] &&
+                    ![CFBridgingRelease(CFPreferencesCopyAppValue(CFSTR("useAppleMusic"), CFSTR("app.nowlyrics"))) boolValue]);
+    if (turnsOn) {
+        UIViewController *shown = self.navigationController.topViewController ?: self;
+        NLShowAlert(shown, [self nlLocalized:@"Apple Music subscription?"],
+                    [self nlLocalized:@"Apple Music’s lyrics are only there for subscribers. Do you subscribe to Apple Music?"], @[
+            [UIAlertAction actionWithTitle:[self nlLocalized:@"No"] style:UIAlertActionStyleCancel
+                                   handler:^(UIAlertAction *action) {
+                [self reloadSpecifier:specifier animated:YES];
+                if (shown != self && [shown respondsToSelector:@selector(reloadSpecifiers)]) [(PSListController *)shown reloadSpecifiers];
+            }],
+            [UIAlertAction actionWithTitle:[self nlLocalized:@"Yes, turn on"] style:UIAlertActionStyleDefault
+                                   handler:^(UIAlertAction *action) {
+                [super setPreferenceValue:value specifier:specifier];
+            }],
+        ]);
+        return;
+    }
     [super setPreferenceValue:value specifier:specifier];
     NLUpdateShownSpecifiers(self, _allSpecifiers, specifier);
 }
 
 - (NSString *)nlLocalized:(NSString *)key {
     return [self.bundle localizedStringForKey:key value:key table:nil] ?: key;
-}
-
-// "Clear lyrics cache" records the time of the tap in the preference file and
-// posts the reload notification like any other setting. Every app then deletes
-// the cached files older than that moment: at once if it is running, otherwise
-// when it is next launched.
-- (void)nlClearLyricsCache:(PSSpecifier *)specifier {
-    [self setPreferenceValue:@([[NSDate date] timeIntervalSince1970]) specifier:specifier];
-    NLShowAlert(self, [self nlLocalized:@"Lyrics cache cleared"],
-                [self nlLocalized:@"Apps that are not running clear theirs when next opened."],
-                @[[UIAlertAction actionWithTitle:[self nlLocalized:@"OK"] style:UIAlertActionStyleDefault handler:nil]]);
 }
 
 // The About group's Version row (`get = nlVersion:` in the plist).

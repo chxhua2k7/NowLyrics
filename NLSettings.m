@@ -111,25 +111,36 @@ static BOOL NLEnabledForBundle(NSString *bundleID, NSDictionary *prefs) {
 
 #pragma mark - Snapshot
 
-@implementation NLSettings
+static NLSource NLSourceNamed(id name) {
+    if ([name isEqual:@"musixmatch"]) return NLSourceMusixmatch;
+    if ([name isEqual:@"lrclib"]) return NLSourceLRCLIB;
+    if ([name isEqual:@"netease"]) return NLSourceNetease;
+    if ([name isEqual:@"applemusic"]) return NLSourceAppleMusic;
+    return NLSourceNone;
+}
+
+@implementation NLSettings {
+    NSDictionary *_prefs;   // for the per-song offsets, looked up as tracks come
+}
 
 - (instancetype)initWithPrefs:(NSDictionary *)prefs {
     if (!(self = [super init])) return nil;
+    _prefs = prefs;
 
     id artistField = prefs[@"artistField"];
     if ([artistField isEqual:@"next"]) _artistMode = NLArtistModeNextLine;
     else if ([artistField isEqual:@"none"]) _artistMode = NLArtistModeNone;
     else _artistMode = NLArtistModeTitle;
 
-    id preferred = prefs[@"preferredSource"];
-    if ([preferred isEqual:@"musixmatch"]) _preferredSource = NLSourceMusixmatch;
-    else if ([preferred isEqual:@"lrclib"]) _preferredSource = NLSourceLRCLIB;
-    else if ([preferred isEqual:@"netease"]) _preferredSource = NLSourceNetease;
-    else _preferredSource = NLSourceNone;
+    _preferredSource = NLSourceNamed(prefs[@"preferredSource"]);
 
     // Defaults match prefs/NowLyrics.plist.
     _useLRCLIB = NLPrefBool(prefs, @"useLRCLIB", YES);
     _useNetease = NLPrefBool(prefs, @"useNetease", YES);
+    // Preferring Apple Music is the switch turned on: first in Music, and the
+    // default order everywhere else, where it has nothing to say.
+    _useAppleMusic = NLPrefBool(prefs, @"useAppleMusic", NO) || _preferredSource == NLSourceAppleMusic;
+    if (_preferredSource == NLSourceAppleMusic) _preferredSource = NLSourceNone;
     _killOnChange = NLPrefBool(prefs, @"killOnChange", NO);
     _diagnostics = NLPrefBool(prefs, @"diagnostics", NO);
     _spotifyConnect = NLPrefBool(prefs, @"spotifyConnect", YES);
@@ -149,12 +160,24 @@ static BOOL NLEnabledForBundle(NSString *bundleID, NSDictionary *prefs) {
     // Only these invalidate lyrics already fetched. The offset control posts a
     // notification per change, so clearing the cache on every reload would
     // mean refetching on every nudge.
-    _sourceSignature = [NSString stringWithFormat:@"%d%d%d|%ld|%@|%@",
-                        _useMusixmatch, _useLRCLIB, _useNetease, (long)_preferredSource,
+    _sourceSignature = [NSString stringWithFormat:@"%d%d%d%d|%ld|%@|%@",
+                        _useMusixmatch, _useLRCLIB, _useNetease, _useAppleMusic, (long)_preferredSource,
                         _musixmatchKey ?: @"", _musixmatchToken ?: @""];
 
     _enabled = NLEnabledForBundle([[NSBundle mainBundle] bundleIdentifier], prefs);
     return self;
+}
+
+- (NSTimeInterval)offsetForTrack:(NSString *)key {
+    return _offset + NLTrackOffset(_prefs, key);
+}
+
+// `trackSources` maps track keys to the source picked for that song on the
+// "Now Playing" page, by the same names as `preferredSource`.
+- (NLSource)sourceForTrack:(NSString *)key {
+    id all = _prefs[NL_TRACK_SOURCES_KEY];
+    if (![all isKindOfClass:[NSDictionary class]] || key.length == 0) return NLSourceNone;
+    return NLSourceNamed(((NSDictionary *)all)[key]);
 }
 
 @end

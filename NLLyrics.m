@@ -6,6 +6,9 @@
 
 #import "NowLyrics.h"
 
+@implementation NLLyricWord
+@end
+
 @implementation NLLyricLine
 @end
 
@@ -42,7 +45,7 @@ static NSString *NLRootPath(void) {
     return NLCacheDir();
 }
 
-static NSString *NLSanitizeFilename(NSString *name) {
+NSString *NLSanitizeFilename(NSString *name) {
     static NSCharacterSet *illegal = nil;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
@@ -70,6 +73,10 @@ NSString *NLCachePath(NSString *key) {
 
     return [NLRootPath() stringByAppendingPathComponent:
             [NSString stringWithFormat:@"%@_%llx.lrc", safe, h]];
+}
+
+NSString *NLNowPlayingPath(void) {
+    return [NLRootPath() stringByAppendingPathComponent:NL_NOWPLAYING_FILE];
 }
 
 #pragma mark - Housekeeping
@@ -251,6 +258,98 @@ static BOOL NLIsCreditLine(NSString *text) {
     return NO;
 }
 
+// "mm:ss.xx" (also "mm:ss:xx" and "mm:ss") out of a match of the patterns below,
+// whose groups 1-3 are minutes, seconds and the fraction.
+static NSTimeInterval NLMatchTime(NSString *s, NSTextCheckingResult *m) {
+    double minutes = [[s substringWithRange:[m rangeAtIndex:1]] doubleValue];
+    double seconds = [[s substringWithRange:[m rangeAtIndex:2]] doubleValue];
+    double frac = 0;
+    if ([m rangeAtIndex:3].location != NSNotFound) {
+        NSString *f = [s substringWithRange:[m rangeAtIndex:3]];
+        frac = [f doubleValue] / pow(10, (double)f.length);
+    }
+    return minutes * 60 + seconds + frac;
+}
+
+// The words' texts joined, with the line's outer whitespace trimmed off the
+// first and last word so the join is exactly the line as shown. Empty pieces go.
+static NSString *NLTidyWords(NSMutableArray<NLLyricWord *> *words) {
+    NSCharacterSet *space = [NSCharacterSet whitespaceCharacterSet];
+    while (words.count) {
+        NLLyricWord *first = words.firstObject;
+        NSUInteger lead = 0;
+        while (lead < first.text.length && [space characterIsMember:[first.text characterAtIndex:lead]]) lead++;
+        first.text = [first.text substringFromIndex:lead];
+        if (first.text.length) break;
+        [words removeObjectAtIndex:0];
+    }
+    while (words.count) {
+        NLLyricWord *last = words.lastObject;
+        NSUInteger end = last.text.length;
+        while (end > 0 && [space characterIsMember:[last.text characterAtIndex:end - 1]]) end--;
+        last.text = [last.text substringToIndex:end];
+        if (last.text.length) break;
+        [words removeLastObject];
+    }
+    NSMutableString *text = [NSMutableString string];
+    for (NLLyricWord *word in words) [text appendString:word.text];
+    return text;
+}
+
+// Enhanced LRC: "<mm:ss.xx>word <mm:ss.xx>word <mm:ss.xx>", each time starting
+// the piece after it and a trailing one ending the last. Text before the first
+// time starts with the line. Returns the line's plain text; `outWords` gets the
+// timed pieces, or nil when the line has no word times.
+static NSString *NLSplitWords(NSString *body, NSTimeInterval lineStart, NSArray<NLLyricWord *> **outWords) {
+    static NSRegularExpression *re = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        re = [NSRegularExpression regularExpressionWithPattern:@"<(\\d{1,3}):(\\d{1,2})(?:[.:](\\d{1,3}))?>"
+                                                      options:0
+                                                        error:nil];
+    });
+    *outWords = nil;
+    NSArray<NSTextCheckingResult *> *tags = [re matchesInString:body options:0 range:NSMakeRange(0, body.length)];
+    if (tags.count == 0) return [body stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+
+    NSMutableArray<NLLyricWord *> *words = [NSMutableArray array];
+    NSTimeInterval start = lineStart;
+    NSUInteger cursor = 0;
+    for (NSUInteger i = 0; i <= tags.count; i++) {
+        NSUInteger until = (i < tags.count) ? tags[i].range.location : body.length;
+        NSString *piece = [body substringWithRange:NSMakeRange(cursor, until - cursor)];
+        if (piece.length) {
+            NLLyricWord *word = [NLLyricWord new];
+            word.start = start;
+            word.text = piece;
+            [words addObject:word];
+        }
+        if (i == tags.count) break;
+        start = NLMatchTime(body, tags[i]);
+        if (words.lastObject.end <= 0) words.lastObject.end = start;   // a time also ends the piece before it
+        cursor = NSMaxRange(tags[i].range);
+    }
+    NSString *text = NLTidyWords(words);
+    if (words.count) *outWords = [words copy];
+    return text;
+}
+
+// The same pieces moved by `delta` seconds, for a line sung again at another time.
+static NSArray<NLLyricWord *> *NLShiftWords(NSArray<NLLyricWord *> *words, NSTimeInterval delta) {
+    if (delta == 0 || words.count == 0) return words;
+    NSMutableArray<NLLyricWord *> *out = [NSMutableArray arrayWithCapacity:words.count];
+    for (NLLyricWord *w in words) {
+        NLLyricWord *moved = [NLLyricWord new];
+        moved.start = w.start + delta;
+        moved.end = w.end > 0 ? w.end + delta : 0;
+        moved.text = w.text;
+        [out addObject:moved];
+    }
+    return out;
+}
+
+static NSArray<NLLyricLine *> *NLFinishLines(NSMutableArray<NLLyricLine *> *out);
+
 NSArray<NLLyricLine *> *NLParseLRC(NSString *lrc) {
     if (lrc.length == 0) return nil;
 
@@ -280,26 +379,103 @@ NSArray<NLLyricLine *> *NLParseLRC(NSString *lrc) {
             [re matchesInString:raw options:0 range:NSMakeRange(0, raw.length)];
         if (matches.count == 0) continue;   // metadata lines such as [ar:] and [ti:]
 
-        NSString *text = [[raw substringFromIndex:NSMaxRange(matches.lastObject.range)]
-                          stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        NSTimeInterval first = NLMatchTime(raw, matches.firstObject);
+        NSArray<NLLyricWord *> *words = nil;
+        NSString *text = NLSplitWords([raw substringFromIndex:NSMaxRange(matches.lastObject.range)], first, &words);
         if (NLIsMetadataLine(text)) continue;
 
-        // One line may carry several timestamps when a chorus repeats.
+        // One line may carry several timestamps when a chorus repeats. Word
+        // times are written for the first; the others get them moved along.
         for (NSTextCheckingResult *m in matches) {
-            double minutes = [[raw substringWithRange:[m rangeAtIndex:1]] doubleValue];
-            double seconds = [[raw substringWithRange:[m rangeAtIndex:2]] doubleValue];
-            double frac = 0;
-            if ([m rangeAtIndex:3].location != NSNotFound) {
-                NSString *f = [raw substringWithRange:[m rangeAtIndex:3]];
-                frac = [f doubleValue] / pow(10, (double)f.length);
-            }
+            NSTimeInterval start = NLMatchTime(raw, m);
             NLLyricLine *line = [NLLyricLine new];
-            line.start = minutes * 60 + seconds + frac - tagOffset;
+            line.start = start - tagOffset;
             line.text = text;
+            if (words) {
+                line.words = NLShiftWords(words, start - first - tagOffset);
+                line.end = line.words.lastObject.end;
+            }
             [out addObject:line];
         }
     }
+    return NLFinishLines(out);
+}
 
+// NetEase's word-by-word lyrics: "[lineMs,durMs](wordMs,durMs,0)word(…)word",
+// with the credits as JSON lines ({"t":…,"c":[…]}) mixed in. Times are absolute
+// milliseconds. Pieces are kept as timed, a CJK character or a word with its space.
+NSArray<NLLyricLine *> *NLParseYRC(NSString *yrc) {
+    if (yrc.length == 0) return nil;
+    static NSRegularExpression *lineRe = nil, *wordRe = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        lineRe = [NSRegularExpression regularExpressionWithPattern:@"^\\[(\\d+),(\\d+)\\]" options:0 error:nil];
+        wordRe = [NSRegularExpression regularExpressionWithPattern:@"\\((\\d+),(\\d+),-?\\d+\\)" options:0 error:nil];
+    });
+
+    NSMutableArray<NLLyricLine *> *out = [NSMutableArray array];
+    for (NSString *raw in [yrc componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]]) {
+        NSTextCheckingResult *head = [lineRe firstMatchInString:raw options:0 range:NSMakeRange(0, raw.length)];
+        if (!head) continue;   // the JSON credit lines and blanks
+        NSString *rest = [raw substringFromIndex:NSMaxRange(head.range)];
+        NSArray<NSTextCheckingResult *> *tags = [wordRe matchesInString:rest options:0 range:NSMakeRange(0, rest.length)];
+
+        NSMutableArray<NLLyricWord *> *words = [NSMutableArray arrayWithCapacity:tags.count];
+        for (NSUInteger i = 0; i < tags.count; i++) {
+            NSUInteger from = NSMaxRange(tags[i].range);
+            NSUInteger until = (i + 1 < tags.count) ? tags[i + 1].range.location : rest.length;
+            if (until <= from) continue;
+            NLLyricWord *word = [NLLyricWord new];
+            word.start = [[rest substringWithRange:[tags[i] rangeAtIndex:1]] doubleValue] / 1000.0;
+            word.end = word.start + [[rest substringWithRange:[tags[i] rangeAtIndex:2]] doubleValue] / 1000.0;
+            word.text = [rest substringWithRange:NSMakeRange(from, until - from)];
+            [words addObject:word];
+        }
+        double start = [[raw substringWithRange:[head rangeAtIndex:1]] doubleValue] / 1000.0;
+        double length = [[raw substringWithRange:[head rangeAtIndex:2]] doubleValue] / 1000.0;
+        NLLyricLine *line = NLLineFromWords(words, start, start + length);
+        if (line) [out addObject:line];
+    }
+    return NLFinishWordLines(out);
+}
+
+NLLyricLine *NLLineFromWords(NSMutableArray<NLLyricWord *> *words, NSTimeInterval start, NSTimeInterval end) {
+    NSString *text = NLTidyWords(words);
+    if (text.length == 0 || NLIsMetadataLine(text)) return nil;
+    NLLyricLine *line = [NLLyricLine new];
+    line.start = start;
+    line.end = end > start ? end : words.lastObject.end;
+    line.text = text;
+    line.words = words;
+    return line;
+}
+
+// Word-timed formats have no blank lines, but every line says when it ends: a
+// long silence after one gets the blank that shows the track title, the way
+// the timed-line sources mark breaks, and so does the end of the song.
+NSArray<NLLyricLine *> *NLFinishWordLines(NSMutableArray<NLLyricLine *> *out) {
+    [out sortUsingComparator:^NSComparisonResult(NLLyricLine *a, NLLyricLine *b) {
+        return a.start < b.start ? NSOrderedAscending : (a.start > b.start ? NSOrderedDescending : NSOrderedSame);
+    }];
+    NSMutableArray<NLLyricLine *> *withGaps = [NSMutableArray arrayWithCapacity:out.count + 4];
+    for (NSUInteger i = 0; i < out.count; i++) {
+        NLLyricLine *line = out[i];
+        [withGaps addObject:line];
+        NSTimeInterval next = (i + 1 < out.count) ? out[i + 1].start : INFINITY;
+        if (line.end > line.start && next - line.end >= kNLMinimumGap) {
+            NLLyricLine *blank = [NLLyricLine new];
+            blank.start = line.end;
+            blank.text = @"";
+            [withGaps addObject:blank];
+        }
+    }
+    return NLFinishLines(withGaps);
+}
+
+// What every format goes through once its lines are read: sorted, the credits
+// before the first sung line dropped, and blanks kept only where they announce
+// a real break.
+static NSArray<NLLyricLine *> *NLFinishLines(NSMutableArray<NLLyricLine *> *out) {
     if (out.count == 0) return nil;
     [out sortUsingComparator:^NSComparisonResult(NLLyricLine *a, NLLyricLine *b) {
         if (a.start < b.start) return NSOrderedAscending;
@@ -336,16 +512,79 @@ NSArray<NLLyricLine *> *NLParseLRC(NSString *lrc) {
 
 // One format on disk for everything: hand-editable, and [offset:] keeps working
 // on results that did not arrive as LRC.
+static NSString *NLFormatTime(NSTimeInterval t) {
+    t = MAX(t, 0);
+    int total = (int)floor(t);
+    int cs = (int)round((t - total) * 100);
+    if (cs >= 100) { cs = 0; total += 1; }
+    return [NSString stringWithFormat:@"%02d:%02d.%02d", total / 60, total % 60, cs];
+}
+
+// Word-timed lines go out as enhanced LRC, which NLParseLRC reads back.
 NSString *NLLinesToLRC(NSArray<NLLyricLine *> *lines) {
     NSMutableString *out = [NSMutableString string];
     for (NLLyricLine *line in lines) {
-        NSTimeInterval t = MAX(line.start, 0);
-        int total = (int)floor(t);
-        int cs = (int)round((t - total) * 100);
-        if (cs >= 100) { cs = 0; total += 1; }
-        [out appendFormat:@"[%02d:%02d.%02d]%@\n", total / 60, total % 60, cs, line.text ?: @""];
+        [out appendFormat:@"[%@]", NLFormatTime(line.start)];
+        if (line.words.count) {
+            // A word that ends before the next one starts gets its own end time
+            // (a time followed by nothing); otherwise the next start ends it.
+            NSUInteger count = line.words.count;
+            for (NSUInteger i = 0; i < count; i++) {
+                NLLyricWord *word = line.words[i];
+                [out appendFormat:@"<%@>%@", NLFormatTime(word.start), word.text];
+                BOOL last = (i + 1 == count);
+                if (word.end > word.start && (last || line.words[i + 1].start - word.end > 0.005)) {
+                    [out appendFormat:@"<%@>", NLFormatTime(word.end)];
+                }
+            }
+        } else {
+            [out appendString:line.text ?: @""];
+        }
+        [out appendString:@"\n"];
     }
     return out;
+}
+
+// Header tags first, in a fixed order; a value cannot end its tag early or
+// start a new line.
+NSString *NLLinesToLRCWithHeader(NSArray<NLLyricLine *> *lines, NSDictionary<NSString *, NSString *> *header) {
+    NSMutableString *out = [NSMutableString string];
+    for (NSString *tag in @[NL_LRC_TITLE, NL_LRC_ARTIST, NL_LRC_ALBUM, NL_LRC_SOURCE]) {
+        NSString *value = header[tag];
+        if (![value isKindOfClass:[NSString class]]) continue;
+        value = [[[value componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]]
+                  componentsJoinedByString:@" "] stringByReplacingOccurrencesOfString:@"]" withString:@")"];
+        value = [value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        if (value.length) [out appendFormat:@"[%@:%@]\n", tag, value];
+    }
+    [out appendString:NLLinesToLRC(lines)];
+    return out;
+}
+
+// The tags at the top of a file, up to the first timed line. Keys are lowercased.
+NSDictionary<NSString *, NSString *> *NLParseLRCHeader(NSString *lrc) {
+    static NSRegularExpression *tag = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        tag = [NSRegularExpression regularExpressionWithPattern:@"^\\s*\\[([A-Za-z][A-Za-z-]*):(.*)\\]\\s*$" options:0 error:nil];
+    });
+    NSMutableDictionary<NSString *, NSString *> *out = [NSMutableDictionary dictionary];
+    for (NSString *raw in [lrc componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]]) {
+        if (raw.length == 0) continue;
+        NSTextCheckingResult *m = [tag firstMatchInString:raw options:0 range:NSMakeRange(0, raw.length)];
+        if (!m) break;   // the lyrics have started
+        NSString *value = [[raw substringWithRange:[m rangeAtIndex:2]]
+                           stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        if (value.length) out[[raw substringWithRange:[m rangeAtIndex:1]].lowercaseString] = value;
+    }
+    return out;
+}
+
+BOOL NLHasWords(NSArray<NLLyricLine *> *lines) {
+    for (NLLyricLine *line in lines) {
+        if (line.words.count) return YES;
+    }
+    return NO;
 }
 
 // A result with fewer than two sung lines is almost certainly an end marker or
@@ -479,26 +718,31 @@ void NLMarkChorus(NSArray<NLLyricLine *> *lines) {
 // Matching is string-based, so live takes, remasters and obscure tracks will fail
 // and no amount of tuning fixes that: the entry simply is not in the catalogue.
 // Hence a manual escape hatch: drop a .lrc into Library/NowLyrics/manual/ named
-// "Title - Artist.lrc" or "Title.lrc".
-NSArray<NLLyricLine *> *NLManualLyrics(NSString *title, NSString *artist) {
+// "Title - Artist.lrc" or "Title.lrc". The settings page saves what is pasted or
+// imported there under the first name.
+NSString *NLManualFileName(NSString *title, NSString *artist) {
+    NSString *raw = artist.length ? [NSString stringWithFormat:@"%@ - %@", title ?: @"", artist] : (title ?: @"");
+    return [NLSanitizeFilename(raw) stringByAppendingPathExtension:@"lrc"];
+}
+
+NSArray<NLLyricLine *> *NLManualLyrics(NSString *title, NSString *artist, NSString **outPath) {
     NSString *dir = [NLRootPath() stringByAppendingPathComponent:@"manual"];
     // Almost always empty: one listing instead of up to four failed opens.
     if ([[NSFileManager defaultManager] contentsOfDirectoryAtPath:dir error:nil].count == 0) return nil;
 
     NSMutableArray<NSString *> *names = [NSMutableArray array];
-    if (artist.length) [names addObject:[NSString stringWithFormat:@"%@ - %@", title, artist]];
-    if (title.length) [names addObject:title];
+    if (artist.length) [names addObject:NLManualFileName(title, artist)];
+    if (title.length) [names addObject:NLManualFileName(title, nil)];
 
-    for (NSString *raw in names) {
-        NSString *name = NLSanitizeFilename(raw);
-        if (name.length == 0) continue;
+    for (NSString *name in names) {
+        if ([name isEqualToString:@".lrc"]) continue;
         for (NSString *candidate in @[name, name.lowercaseString]) {
-            NSString *path = [dir stringByAppendingPathComponent:
-                              [candidate stringByAppendingPathExtension:@"lrc"]];
+            NSString *path = [dir stringByAppendingPathComponent:candidate];
             NSString *text = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
             NSArray<NLLyricLine *> *lines = NLParseLRC(text);
             if (lines.count) {
                 NLLog(@"using manual lyrics: %@", path);
+                if (outPath) *outPath = path;
                 return lines;
             }
         }

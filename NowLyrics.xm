@@ -35,6 +35,14 @@
 - (void)setElapsedTime:(double)elapsedTime playbackRate:(float)playbackRate;
 @end
 
+// The request Music's lyrics view makes: by the song's catalog (adam) ID,
+// through the MusicKit lyrics endpoint, as the signed-in subscriber.
+@interface NSObject (NLStoreLyrics)
+- (void)setSongAdamID:(long long)adamID;
+- (void)setResponseHandler:(void (^)(id response, NSError *error))handler;
+- (NSString *)lyricsContent;   // MPStoreLyricsResponse
+@end
+
 #pragma mark - State
 
 static BOOL gEnabled = NO;            // mirror of NLSettingsCurrent().enabled; safe to read from any thread
@@ -292,6 +300,68 @@ static void NLPublishItem(NSString *title, NSString *artist) {
     gWritingItem = NO;
 }
 
+#pragma mark - Apple Music's own lyrics
+
+// The playing song's catalog ID, from the content item; 0 if it has none (a
+// file of your own, say).
+static long long NLItemAdamID(MPNowPlayingContentItem *item) {
+    for (NSString *key in @[@"lyricsAdamID", @"storeID"]) {
+        id value = nil;
+        @try { value = [item valueForKey:key]; } @catch (NSException *e) { value = nil; }
+        long long adamID = [value respondsToSelector:@selector(longLongValue)] ? [value longLongValue] : 0;
+        if (adamID > 0) return adamID;
+    }
+    return 0;
+}
+
+// Asks the store for the song's lyrics directly. Calls back on any queue.
+static BOOL NLRequestStoreLyrics(long long adamID, void (^done)(NSString *text)) {
+    Class operationClass = objc_getClass("MPStoreLyricsMusicKitRequestOperation");
+    if (adamID <= 0 || !operationClass) return NO;
+    static NSOperationQueue *queue;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        queue = [NSOperationQueue new];
+        queue.name = @"app.nowlyrics.applemusic";
+    });
+    NSOperation *operation = [operationClass new];
+    [(id)operation setSongAdamID:adamID];
+    [(id)operation setResponseHandler:^(id response, NSError *error) {
+        NSString *text = [response respondsToSelector:@selector(lyricsContent)] ? [response lyricsContent] : nil;
+        if (error) NLLog(@"Apple Music store lyrics error: %@", error);
+        done([text isKindOfClass:[NSString class]] ? text : nil);
+    }];
+    [queue addOperation:operation];
+    return YES;
+}
+
+// Fetch queue. What Music's own lyrics view shows: the storefront's text
+// (Traditional Chinese in Taiwan) and, where Apple has it, word timing, as
+// TTML. The item is read on the main queue, where it lives; the store answers
+// on a queue of its own.
+NSString *NLAppleMusicLyrics(NSString *title, NSTimeInterval timeout) {
+    NSMutableArray<NSString *> *box = [NSMutableArray array];   // the answer, under @synchronized
+    dispatch_semaphore_t done = dispatch_semaphore_create(0);
+    dispatch_async(dispatch_get_main_queue(), ^{
+        MPNowPlayingContentItem *item = gMusicItem;
+        // The real title, not the lyric line the item shows by now.
+        NSString *real = item ? (NLItemGet(item, &kNLRealTitleKey) ?: item.title) : nil;
+        long long adamID = [real isEqualToString:title] ? NLItemAdamID(item) : 0;
+        NLLog(@"Apple Music lyrics: adam ID %lld", adamID);
+        BOOL asked = NLRequestStoreLyrics(adamID, ^(NSString *text) {
+            @synchronized (box) {
+                if (text.length) [box addObject:[text copy]];
+            }
+            dispatch_semaphore_signal(done);
+        });
+        if (!asked) dispatch_semaphore_signal(done);   // another track, or not from the catalog
+    });
+    dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeout * NSEC_PER_SEC)));
+    @synchronized (box) {
+        return box.firstObject;
+    }
+}
+
 #pragma mark - Publishing
 
 void NLPublish(NSString *title, NSString *artist) {
@@ -365,6 +435,7 @@ static void NLHideExplicitNow(void) {
     if (item && gMusicItemPtr == NULL) NLAdoptItemLater(item);
     return item;
 }
+
 
 %end
 
@@ -472,6 +543,23 @@ static void NLPrefsChanged(CFNotificationCenterRef center, void *observer,
     });
 }
 
+// The settings page changed lyrics files (added, edited, deleted, asked for a
+// new search): forget what is held in memory, so the current track is looked
+// up again on disk and, if its file is gone, online.
+static void NLLyricsChanged(CFNotificationCenterRef center, void *observer,
+                            CFStringRef name, const void *object, CFDictionaryRef userInfo) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        // The settings page often wrote a setting just before (a source picked
+        // for this song); the file on disk may only have caught up now, after
+        // the reload notification that came with it. Read it again first.
+        NLSettings *now = NLSettingsReload();
+        gEnabled = now.enabled;
+        if (!gEnabled) return;   // switching on looks the track up anyway
+        NLLog(@"lyrics files changed, looking the track up again");
+        NLEngineForgetLyrics();
+    });
+}
+
 #pragma mark - Entry point
 
 %ctor {
@@ -489,6 +577,12 @@ static void NLPrefsChanged(CFNotificationCenterRef center, void *observer,
                                         NULL,
                                         NLPrefsChanged,
                                         (__bridge CFStringRef)NL_RELOAD_NOTIFICATION,
+                                        NULL,
+                                        CFNotificationSuspensionBehaviorCoalesce);
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
+                                        NULL,
+                                        NLLyricsChanged,
+                                        (__bridge CFStringRef)NL_LYRICS_CHANGED_NOTIFICATION,
                                         NULL,
                                         CFNotificationSuspensionBehaviorCoalesce);
 

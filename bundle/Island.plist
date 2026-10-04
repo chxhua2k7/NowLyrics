@@ -7,6 +7,24 @@
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
+			<key>showIf</key>
+			<string>islandLyrics</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSDefaultCell</string>
+			<key>cellClass</key>
+			<string>NLIslandPreviewCell</string>
+			<key>height</key>
+			<integer>150</integer>
+			<key>id</key>
+			<string>islandPreview</string>
+			<key>showIf</key>
+			<string>islandLyrics</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
 			<key>footerText</key>
 			<string>Shows the current line at the bottom of the Dynamic Island while music plays; the island grows down to the status bar’s edge. Lines too long to fit scroll. With NowLyrics’ main switch off, the strip shows the track title instead.</string>
 		</dict>
@@ -31,20 +49,30 @@
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>Word by word lights a line up as it is sung, for lyrics with word times: some NetEase songs, or TTML you import.</string>
 			<key>label</key>
 			<string>Appearance</string>
 			<key>showIf</key>
 			<string>islandLyrics</string>
 		</dict>
 		<dict>
+			<key>PostNotification</key>
+			<string>app.nowlyrics/ReloadPrefs</string>
 			<key>cell</key>
-			<string>PSDefaultCell</string>
-			<key>cellClass</key>
-			<string>NLIslandPreviewCell</string>
-			<key>height</key>
-			<integer>116</integer>
-			<key>id</key>
-			<string>islandPreview</string>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>app.nowlyrics</string>
+			<key>iconColor</key>
+			<string>#FF2D55</string>
+			<key>iconSymbol</key>
+			<string>play.circle</string>
+			<key>key</key>
+			<string>islandPreviewLive</string>
+			<key>label</key>
+			<string>Preview what’s playing</string>
 			<key>showIf</key>
 			<string>islandLyrics</string>
 		</dict>
@@ -111,6 +139,26 @@
 				<string>fade</string>
 				<string>up</string>
 			</array>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>app.nowlyrics/ReloadPrefs</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>app.nowlyrics</string>
+			<key>iconColor</key>
+			<string>#FF9F0A</string>
+			<key>iconSymbol</key>
+			<string>character.cursor.ibeam</string>
+			<key>key</key>
+			<string>islandWordByWord</string>
+			<key>label</key>
+			<string>Word by word</string>
+			<key>showIf</key>
+			<string>islandLyrics</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>

@@ -1,3 +1,13 @@
+## 1.2.0
+
+- **Apple Music lyrics** in the Music app (optional, subscription needed): Apple's own text and word timing, before the other sources
+- **Now Playing** page in Settings: the lock screen's player, the song with where its lyrics came from, a **source picked for this song**, and its own **offset**
+- **Search again** for one song, **paste** lyrics or **import** them from Files (LRC, word-by-word LRC, Apple Music / AMLL TTML)
+- **Lyrics library**: every saved song by app, searchable; view, edit and delete
+- **Word by word in the island**: lines light up as they are sung, with a soft edge, and long lines glide along with the singing (Apple Music, Musixmatch, NetEase, imported TTML)
+- **Island preview** shows what is playing: the real cover, waveform and line; long-press to open it with working controls, drag it to stretch it
+- Clear lyrics cache moved into the library; lyrics you added are kept
+
 ## 1.1.1
 
 - **Island preview** on the island settings page; tap or hold it like the real island

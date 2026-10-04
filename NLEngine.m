@@ -10,7 +10,7 @@
 #import <objc/runtime.h>
 #import <pthread.h>
 
-static const NSTimeInterval kNLMargin = 0.15;        // how early a line may switch
+static const NSTimeInterval kNLMargin = NL_LINE_MARGIN;   // how early a line may switch
 static const NSTimeInterval kNLMaxFlipDelay = 8.0;   // cap on timer sleep
 static const NSUInteger kNLMemoryCacheLimit = 64;    // parsed tracks kept in memory; the disk has the rest
 
@@ -20,6 +20,7 @@ static NSMutableArray<NSString *> *gCacheOrder = nil;                 // inserti
 static NSMutableSet<NSString *> *gPending = nil;
 static NSMutableSet<NSString *> *gMissing = nil;                      // known misses, so we stop asking
 static NSMutableDictionary<NSString *, NSString *> *gStatus = nil;    // which source answered, for diagnostics
+static NSMutableDictionary<NSString *, NSString *> *gPaths = nil;     // the file each track's lyrics are in
 static pthread_mutex_t gCacheMutex = PTHREAD_MUTEX_INITIALIZER;
 static dispatch_queue_t gFetchQueue = nil;
 
@@ -34,6 +35,8 @@ static NSTimeInterval gAnchorElapsed = 0;   // virtual clock anchor
 static CFTimeInterval gAnchorHost = 0;
 static double gRate = 0;
 static dispatch_source_t gFlipTimer = nil;  // one timer, re-armed for every line
+static dispatch_queue_t gWriteQueue = nil;  // nowplaying.plist, kept off the fetch queue, which can be busy for seconds
+static NSDictionary *gWrittenNowPlaying = nil;   // what was last written, without its date
 
 void NLEngineStart(void) {
     gCache = [NSMutableDictionary dictionary];
@@ -41,6 +44,8 @@ void NLEngineStart(void) {
     gPending = [NSMutableSet set];
     gMissing = [NSMutableSet set];
     gStatus = [NSMutableDictionary dictionary];
+    gPaths = [NSMutableDictionary dictionary];
+    gWriteQueue = dispatch_queue_create("app.nowlyrics.nowplaying", DISPATCH_QUEUE_SERIAL);
     gFetchQueue = dispatch_queue_create("app.nowlyrics.fetch", DISPATCH_QUEUE_SERIAL);
     gFlipTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
     dispatch_source_set_event_handler(gFlipTimer, ^{ NLEnginePushUpdate(); });
@@ -73,9 +78,11 @@ static NSString *NLStatusForKey(NSString *key) { return NLLockedGet(gStatus, key
 // A miss is only remembered when every source actually answered. If a request
 // timed out, the next play of the same track gets another attempt instead of
 // being written off for the rest of the session.
-static void NLStoreResult(NSString *key, NSArray<NLLyricLine *> *lines, NSString *status, BOOL transient) {
+static void NLStoreResult(NSString *key, NSArray<NLLyricLine *> *lines, NSString *status, NSString *path, BOOL transient) {
     pthread_mutex_lock(&gCacheMutex);
     gStatus[key] = status;
+    if (path) gPaths[key] = path;
+    else [gPaths removeObjectForKey:key];
     if (lines.count) {
         if (!gCache[key]) [gCacheOrder addObject:key];
         gCache[key] = lines;
@@ -86,6 +93,7 @@ static void NLStoreResult(NSString *key, NSArray<NLLyricLine *> *lines, NSString
             [gCacheOrder removeObjectAtIndex:0];
             [gCache removeObjectForKey:oldest];
             [gStatus removeObjectForKey:oldest];
+            [gPaths removeObjectForKey:oldest];
         }
     } else if (!transient) {
         [gMissing addObject:key];
@@ -103,6 +111,7 @@ void NLEngineForgetLyrics(void) {
     [gCacheOrder removeAllObjects];
     [gMissing removeAllObjects];   // a previous miss no longer means anything
     [gStatus removeAllObjects];
+    [gPaths removeAllObjects];
     [gPending removeAllObjects];   // a fetch still running used the old sources
     pthread_mutex_unlock(&gCacheMutex);
 
@@ -188,7 +197,7 @@ static NLShow NLCompose(NLSettings *s, NSString **outTitle, NSString **outArtist
 
     // The offset only changes which line is shown. Adding it to the reported
     // elapsed time would skew the lock screen progress bar.
-    *outLookup = MAX(NLEnginePosition(), 0) + s.offset;
+    *outLookup = MAX(NLEnginePosition(), 0) + [s offsetForTrack:gTrackKey];
 
     NSArray<NLLyricLine *> *lines = NLCachedLines(gTrackKey);
 
@@ -262,6 +271,37 @@ void NLEnginePushUpdate(void) {
     }
 }
 
+#pragma mark - nowplaying.plist
+
+// What the settings page and the island read to learn the real track (the
+// now-playing title is a lyric line) and the lyrics file behind it. Written
+// when the current track's lyrics are asked for and again when they are in.
+// Main queue.
+static void NLWriteNowPlaying(void) {
+    NSString *key = gTrackKey;
+    if (key.length == 0) return;
+    pthread_mutex_lock(&gCacheMutex);
+    NSString *status = gStatus[key];
+    NSString *path = gPaths[key];
+    BOOL words = NLHasWords(gCache[key]);
+    pthread_mutex_unlock(&gCacheMutex);
+
+    NSMutableDictionary *info = [NSMutableDictionary dictionary];
+    info[NL_NP_KEY] = key;
+    info[NL_NP_TITLE] = gTrackTitle ?: @"";
+    info[NL_NP_ARTIST] = gTrackArtist ?: @"";
+    if (gTrackAlbum) info[NL_NP_ALBUM] = gTrackAlbum;
+    info[NL_NP_DURATION] = @(gTrackDuration);
+    if (status) info[NL_NP_STATUS] = status;
+    if (path) info[NL_NP_PATH] = path;
+    info[NL_NP_WORDS] = @(words);
+    if ([info isEqualToDictionary:gWrittenNowPlaying]) return;
+    gWrittenNowPlaying = [info copy];
+
+    info[NL_NP_UPDATED] = [NSDate date];
+    dispatch_async(gWriteQueue, ^{ [info writeToFile:NLNowPlayingPath() atomically:YES]; });
+}
+
 #pragma mark - Fetching
 
 static void NLRequestLyrics(NSString *key, NSString *title, NSString *artist,
@@ -273,6 +313,7 @@ static void NLRequestLyrics(NSString *key, NSString *title, NSString *artist,
     if (!skip) [gPending addObject:key];
     pthread_mutex_unlock(&gCacheMutex);
     if (skip) {
+        NLWriteNowPlaying();
         NLEnginePushUpdate();
         return;
     }
@@ -280,15 +321,17 @@ static void NLRequestLyrics(NSString *key, NSString *title, NSString *artist,
     // Taken here, on the main queue: a reload swaps the settings object rather
     // than mutating it, so the fetch keeps a consistent view.
     NLSettings *settings = NLSettingsCurrent();
+    NLWriteNowPlaying();   // searching: no status yet
 
     dispatch_async(gFetchQueue, ^{
         NSArray<NLLyricLine *> *lines = nil;
         NSString *source = @"error";
+        NSString *path = nil;
         BOOL transient = NO;
         // An exception on this queue has no handler and terminates the host app.
         // Missing lyrics is a small problem; taking the player down is not.
         @try {
-            lines = NLResolveLyrics(settings, key, title, artist, album, duration, &source, &transient);
+            lines = NLResolveLyrics(settings, key, title, artist, album, duration, &source, &path, &transient);
         } @catch (NSException *e) {
             NLLog(@"exception while resolving lyrics: %@ — %@", e.name, e.reason);
             lines = nil;
@@ -296,11 +339,14 @@ static void NLRequestLyrics(NSString *key, NSString *title, NSString *artist,
         NLLog(@"%@ → %lu lines (%@)", key, (unsigned long)lines.count, source);
 
         NSString *status = transient ? [source stringByAppendingString:@" (will retry)"] : (source ?: @"unknown");
-        NLStoreResult(key, lines, status, transient);
+        NLStoreResult(key, lines, status, lines.count ? path : nil, transient);
 
         // Even a total miss needs a push when diagnostics are on, so the reason
         // can be shown instead of silently doing nothing.
-        dispatch_async(dispatch_get_main_queue(), ^{ NLEnginePushUpdate(); });
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if ([key isEqualToString:gTrackKey]) NLWriteNowPlaying();
+            NLEnginePushUpdate();
+        });
     });
 }
 

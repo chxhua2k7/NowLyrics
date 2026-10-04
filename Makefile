@@ -1,6 +1,6 @@
 # 版本號只寫在這裡:也是 tweak 和設定 bundle 的 NL_VERSION(User-Agent、「關於」的版本列),
 # bundle/Info.plist 的 __VERSION__ 則在 stage 時填入。control 的 Version 由 Theos 用這個值覆蓋。
-export PACKAGE_VERSION := 1.1.1
+export PACKAGE_VERSION := 1.2.0
 
 TARGET := iphone:clang:16.5:15.0
 
@@ -30,7 +30,7 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME += NowLyrics
 
-NowLyrics_FILES += NowLyrics.xm NLSettings.m NLLyrics.m NLSources.m NLEngine.m
+NowLyrics_FILES += NowLyrics.xm NLSettings.m NLLyrics.m NLTTML.m NLSources.m NLEngine.m
 NowLyrics_CFLAGS += -fobjc-arc -Wall -DNL_VERSION=\"$(PACKAGE_VERSION)\"
 NowLyrics_FRAMEWORKS += MediaPlayer QuartzCore
 
@@ -38,7 +38,7 @@ NowLyrics_FRAMEWORKS += MediaPlayer QuartzCore
 # Separate so nothing else of the tweak runs there.
 TWEAK_NAME += NowLyricsIsland
 
-NowLyricsIsland_FILES += NowLyricsIsland.x NLIslandStrip.m
+NowLyricsIsland_FILES += NowLyricsIsland.x NLIslandStrip.m NLLyrics.m NLLocate.m
 NowLyricsIsland_CFLAGS += -fobjc-arc -Wall
 NowLyricsIsland_FRAMEWORKS += UIKit ImageIO QuartzCore
 
@@ -54,13 +54,18 @@ include $(THEOS_MAKE_PATH)/tweak.mk
 # 主類別 NLRootListController 繼承 libprefs 的 PLLocalizedListController:每一列的
 # iconSymbol / iconColor 在執行期畫成 SF Symbol 圖示(不再打包 PNG),「清除歌詞快取」的
 # 動作也在這裡。NLOffsetCell 是偏移那一列的「拉桿 + 可輸入數值」。AltList 由建構子 dlopen。
+# 「正在播放」「歌詞庫」和編輯器(NLNowPlayingController / NLLibraryController / NLLyricsEditor)
+# 直接讀寫各 App 容器裡的歌詞檔(Preferences 沒有沙盒,NLLocate.m),所以 NLLyrics.m 也編進來。
 # libprefs 由 <libprefs/prefs.h> 的 module map 自動連結(@rpath,Theos 的 rootless rpath 指到 /var/jb/usr/lib)。
 BUNDLE_NAME += NowLyricsPrefs
 
 NowLyricsPrefs_FILES += prefsbundle/NLOffsetCell.m prefsbundle/NLRootListController.m prefsbundle/NLEditTextCell.m \
-                         prefsbundle/NLIslandPreviewCell.m prefsbundle/NLPreviewLines.m NLIslandStrip.m
+                         prefsbundle/NLIslandPreviewCell.m prefsbundle/NLPreviewLines.m NLIslandStrip.m \
+                         prefsbundle/NLNowPlayingController.m prefsbundle/NLLibraryController.m \
+                         prefsbundle/NLLyricsEditor.m prefsbundle/NLLyricsImport.m prefsbundle/NLWaveformView.m \
+                         NLLyrics.m NLTTML.m NLLocate.m
 NowLyricsPrefs_CFLAGS += -fobjc-arc -Wall -DNL_VERSION=\"$(PACKAGE_VERSION)\"
-NowLyricsPrefs_FRAMEWORKS += UIKit ImageIO QuartzCore
+NowLyricsPrefs_FRAMEWORKS += UIKit ImageIO QuartzCore UniformTypeIdentifiers
 NowLyricsPrefs_PRIVATE_FRAMEWORKS += Preferences
 NowLyricsPrefs_INSTALL_PATH = /Library/PreferenceBundles
 NowLyricsPrefs_RESOURCE_DIRS = bundle

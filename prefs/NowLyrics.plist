@@ -215,7 +215,45 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>The preferred source is tried first. Musixmatch needs the token from its app (Settings → Get help → Copy debug info) or an API key. NetEase lyrics are Simplified Chinese.</string>
+			<string>Search again, add lyrics of your own or set an offset for the song that is playing. The library lists every song with lyrics saved.</string>
+			<key>label</key>
+			<string>Lyrics</string>
+			<key>showIf</key>
+			<string>enabled</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSLinkCell</string>
+			<key>detail</key>
+			<string>NLNowPlayingController</string>
+			<key>iconColor</key>
+			<string>#FF2D55</string>
+			<key>iconSymbol</key>
+			<string>waveform</string>
+			<key>label</key>
+			<string>Now Playing</string>
+			<key>showIf</key>
+			<string>enabled</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSLinkCell</string>
+			<key>detail</key>
+			<string>NLLibraryController</string>
+			<key>iconColor</key>
+			<string>#A2845E</string>
+			<key>iconSymbol</key>
+			<string>books.vertical</string>
+			<key>label</key>
+			<string>Lyrics Library</string>
+			<key>showIf</key>
+			<string>enabled</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>The preferred source is tried first. Apple Music lyrics are used first in the Music app (subscription needed). Musixmatch needs the token from its app (Settings → Get help → Copy debug info) or an API key. NetEase lyrics are Simplified Chinese.</string>
 			<key>label</key>
 			<string>Lyrics Sources</string>
 			<key>showIf</key>
@@ -248,6 +286,7 @@
 				<string>Musixmatch</string>
 				<string>LRCLIB</string>
 				<string>NetEase Music</string>
+				<string>Apple Music</string>
 			</array>
 			<key>validValues</key>
 			<array>
@@ -255,7 +294,30 @@
 				<string>musixmatch</string>
 				<string>lrclib</string>
 				<string>netease</string>
+				<string>applemusic</string>
 			</array>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>app.nowlyrics/ReloadPrefs</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>defaults</key>
+			<string>app.nowlyrics</string>
+			<key>iconApp</key>
+			<string>com.apple.Music</string>
+			<key>iconColor</key>
+			<string>#FA2D48</string>
+			<key>iconSymbol</key>
+			<string>music.note</string>
+			<key>key</key>
+			<string>useAppleMusic</string>
+			<key>label</key>
+			<string>Apple Music lyrics</string>
+			<key>showIf</key>
+			<string>enabled</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -438,26 +500,6 @@
 			<string>spotifyConnect</string>
 			<key>label</key>
 			<string>Fix Spotify Connect titles</string>
-			<key>showIf</key>
-			<string>enabled</string>
-		</dict>
-		<dict>
-			<key>PostNotification</key>
-			<string>app.nowlyrics/ReloadPrefs</string>
-			<key>action</key>
-			<string>nlClearLyricsCache:</string>
-			<key>cell</key>
-			<string>PSButtonCell</string>
-			<key>defaults</key>
-			<string>app.nowlyrics</string>
-			<key>iconColor</key>
-			<string>#E34D42</string>
-			<key>iconSymbol</key>
-			<string>trash</string>
-			<key>key</key>
-			<string>cacheClearedAt</string>
-			<key>label</key>
-			<string>Clear lyrics cache</string>
 			<key>showIf</key>
 			<string>enabled</string>
 		</dict>

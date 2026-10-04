@@ -20,6 +20,18 @@ const CGFloat kNLDefaultSpeed = 30;   // pt/s, shown as 1.0×
     CGFloat _laidOutWidth;
     NSString *_text;
     BOOL _explicit;
+    // Word by word: two copies of the line inside _label (which then draws
+    // nothing itself but keeps the size and the scrolling), the full-color one
+    // masked to what has been sung and the dimmed one to the rest, so no glyph
+    // is ever drawn twice on top of itself.
+    UILabel *_lit, *_dim;
+    CALayer *_litMask, *_dimMask;
+    NSArray<NSString *> *_wordTexts;
+    NSArray<NSNumber *> *_wordStarts, *_wordEnds;
+    UIColor *_color;
+    NSTimeInterval _wordPosition;   // the clock at _wordSetAt
+    CFTimeInterval _wordSetAt;
+    double _wordRate;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -44,22 +56,35 @@ const CGFloat kNLDefaultSpeed = 30;   // pt/s, shown as 1.0×
 // Runs on every update, so nothing is built unless something changed.
 - (void)applyFontSize:(CGFloat)size color:(UIColor *)color speed:(CGFloat)speed {
     BOOL changed = size != _fontSize || speed != _speed;
-    BOOL recolor = ![color isEqual:_label.textColor];
+    BOOL recolor = ![color isEqual:_color];
     if (!changed && !recolor) return;
     if (size != _fontSize) _label.font = [UIFont systemFontOfSize:size weight:UIFontWeightSemibold];
-    _label.textColor = color;
+    _color = color;
     _fontSize = size;
     _speed = speed;
-    if (changed || recolor) _label.attributedText = [self lineWithText:_text explicit:_explicit];
+    [self renderLine];
     if (changed) [self restartMarquee];
+}
+
+// The line into the label, or, word by word, dimmed into the label and in full
+// color into the lit copy over it.
+- (void)renderLine {
+    if (!_color) _color = UIColor.whiteColor;
+    if (_wordTexts && _lit) {
+        UIColor *dim = [_color colorWithAlphaComponent:CGColorGetAlpha(_color.CGColor) * 0.4];
+        _label.attributedText = [self lineWithText:_text explicit:_explicit color:UIColor.clearColor];
+        _dim.attributedText = [self lineWithText:_text explicit:_explicit color:dim];
+        _lit.attributedText = [self lineWithText:_text explicit:_explicit color:_color];
+    } else {
+        _label.attributedText = [self lineWithText:_text explicit:_explicit color:_color];
+    }
 }
 
 // The line, with the system's "E" after it for explicit tracks, as the
 // expanded island and the lock screen show it: the e.square.fill symbol at the
 // text's size and a little dimmer than the text.
-- (NSAttributedString *)lineWithText:(NSString *)text explicit:(BOOL)explicit {
+- (NSAttributedString *)lineWithText:(NSString *)text explicit:(BOOL)explicit color:(UIColor *)color {
     UIFont *font = _label.font;
-    UIColor *color = _label.textColor;
     NSMutableAttributedString *line = [[NSMutableAttributedString alloc] initWithString:text ?: @""
         attributes:@{NSFontAttributeName: font, NSForegroundColorAttributeName: color}];
     if (!explicit || text.length == 0) return line;
@@ -89,14 +114,16 @@ const CGFloat kNLDefaultSpeed = 30;   // pt/s, shown as 1.0×
     text = text ?: @"";
     BOOL sameLine = [text isEqualToString:old];
     if (sameLine && explicit == _explicit) return;   // sameLine below: only the badge changed, no line change animation
+    BOOL oldExplicit = _explicit, wasWords = _wordTexts != nil;
     _text = [text copy];
     _explicit = explicit;
+    if (!sameLine) [self clearWords];   // they belonged to the previous line
     if (sameLine || old.length == 0 || CGRectIsEmpty(_content.bounds)) {
         CATransition *t = [CATransition animation];
         t.type = kCATransitionFade;
         t.duration = 0.25;
         [_content.layer addAnimation:t forKey:@"line"];
-        _label.attributedText = [self lineWithText:text explicit:explicit];
+        [self renderLine];
         [self restartMarquee];
         return;
     }
@@ -110,13 +137,14 @@ const CGFloat kNLDefaultSpeed = 30;   // pt/s, shown as 1.0×
     UILabel *leaving = [UILabel new];
     leaving.textAlignment = _label.textAlignment;
     leaving.lineBreakMode = _label.lineBreakMode;
-    leaving.attributedText = _label.attributedText;
+    // Sung word by word, the line is all lit by the time it leaves.
+    leaving.attributedText = wasWords ? [self lineWithText:old explicit:oldExplicit color:_color] : _label.attributedText;
     leaving.frame = shown.frame;
     leaving.alpha = shown.opacity;
     [_content addSubview:leaving];
     CALayer *edgeFade = self.layer.mask;
 
-    _label.attributedText = [self lineWithText:text explicit:explicit];
+    [self renderLine];
     [self restartMarquee];
     // A long line fades at the strip's edges; it keeps that while it leaves,
     // even when the new line fits and needs none.
@@ -189,20 +217,32 @@ const CGFloat kNLDefaultSpeed = 30;   // pt/s, shown as 1.0×
         self.layer.mask = nil;
         _marqueeLoopDuration = 0;
         _marqueeReadDuration = 0;
+        [self applyWords];
         return;
     }
 
     // Start flush left, glide to flush right and stay there; much later, fade
     // out, go back and fade in at the start. The start hold is long enough to
     // read it; the glide eases in and out instead of starting and stopping at
-    // full speed.
-    _label.frame = CGRectMake(0, 0, textWidth, b.size.height);
+    // full speed. The label is a little wider on each side than its text (half
+    // the faded edge), so the first and last characters are not eaten by it.
     CGFloat edge = 10;
+    textWidth += round(edge * 0.5) * 2;
+    overflow = textWidth - b.size.width;
+    _label.frame = CGRectMake(0, 0, textWidth, b.size.height);
     _fade.frame = b;
     _fade.colors = @[(id)UIColor.clearColor.CGColor, (id)UIColor.blackColor.CGColor,
                      (id)UIColor.blackColor.CGColor, (id)UIColor.clearColor.CGColor];
     _fade.locations = @[@0, @(edge / b.size.width), @(1 - edge / b.size.width), @1];
     self.layer.mask = _fade;
+
+    // Word by word, the singing moves the line along instead.
+    if (_wordTexts) {
+        _marqueeLoopDuration = 0;
+        _marqueeReadDuration = 0;
+        [self applyWords];
+        return;
+    }
 
     CGFloat startX = textWidth / 2;
     CGFloat endX = startX - overflow;
@@ -235,6 +275,230 @@ const CGFloat kNLDefaultSpeed = 30;   // pt/s, shown as 1.0×
     a.repeatCount = HUGE_VALF;
     a.removedOnCompletion = NO;
     [_label.layer addAnimation:a forKey:@"marquee"];
+}
+
+#pragma mark Word by word
+
+// The timing and the layout of one line's pieces, for the two functions below.
+typedef struct {
+    NSUInteger n;
+    const double *ts, *te;   // each piece's start and end
+    const CGFloat *xs;       // n + 1 offsets across the text: piece i spans xs[i]..xs[i+1]
+    CGFloat x0;              // where the text starts in the label
+    CGFloat visible, overflow, restX;   // the strip's width, how much wider the label is, its unscrolled centre
+} NLWordGeometry;
+
+// How much of the line is lit at time t: within a piece in proportion to its
+// time, between pieces up to where the last one ended.
+static CGFloat NLLitWidth(const NLWordGeometry *g, double t) {
+    for (NSUInteger i = 0; i < g->n; i++) {
+        if (t < g->ts[i]) return g->x0 + g->xs[i];
+        if (t < g->te[i]) return g->x0 + g->xs[i] + (g->xs[i + 1] - g->xs[i]) * (t - g->ts[i]) / (g->te[i] - g->ts[i]);
+    }
+    return g->x0 + g->xs[g->n];
+}
+
+// The label's centre for a long line: still until the lit edge passes two
+// thirds of the strip, then moving to keep it there, stopping at the end.
+static CGFloat NLLineCentre(const NLWordGeometry *g, double t) {
+    if (g->overflow <= 1) return g->restX;
+    CGFloat shift = MIN(MAX(NLLitWidth(g, t) - g->visible * 0.65, 0), g->overflow);
+    return g->restX - shift;
+}
+
+- (void)clearWords {
+    _wordTexts = nil;
+    _wordStarts = _wordEnds = nil;
+    [_litMask removeAllAnimations];
+    [_dimMask removeAllAnimations];
+    [_lit removeFromSuperview];
+    [_dim removeFromSuperview];
+}
+
+- (void)setWordTexts:(NSArray<NSString *> *)texts starts:(NSArray<NSNumber *> *)starts ends:(NSArray<NSNumber *> *)ends
+            position:(NSTimeInterval)position rate:(double)rate {
+    BOOL usable = texts.count && starts.count == texts.count && ends.count == texts.count &&
+                  [[texts componentsJoinedByString:@""] isEqualToString:_text ?: @""];
+    if (!usable) {
+        if (!_wordTexts) return;
+        [self clearWords];
+        [self renderLine];
+        [self restartMarquee];
+        return;
+    }
+    // Asked again with what is already running (every layout pass asks): keep
+    // it, unless the clock moved differently from what is being shown.
+    double projected = _wordPosition + (CACurrentMediaTime() - _wordSetAt) * _wordRate;
+    if ([texts isEqualToArray:_wordTexts] && [starts isEqualToArray:_wordStarts] && rate == _wordRate &&
+        fabs(projected - position) < 0.08) return;
+    _wordTexts = [texts copy];
+    _wordStarts = [starts copy];
+    _wordEnds = [ends copy];
+    _wordPosition = position;
+    _wordSetAt = CACurrentMediaTime();
+    _wordRate = rate;
+    [self restartMarquee];   // frames first, then the words on them
+}
+
+// The lit copy's mask grows over each piece while it is sung, and a line too
+// long for the strip slides so the sung edge stays in view. Both are sampled
+// from the word times into keyframes once, so nothing runs per frame.
+- (void)applyWords {
+    [_litMask removeAllAnimations];
+    [_dimMask removeAllAnimations];
+    if (!_wordTexts) {
+        [_lit removeFromSuperview];
+        [_dim removeFromSuperview];
+        return;
+    }
+    if (!_lit) {
+        // Two masks that meet at the sung edge with a soft overlap: the lit
+        // copy's fades out to the right of it (its right end is the edge), the
+        // dimmed copy's fades in over the same stretch (its left end is there).
+        _lit = [UILabel new];
+        _dim = [UILabel new];
+        CAGradientLayer *litMask = [CAGradientLayer layer], *dimMask = [CAGradientLayer layer];
+        for (CAGradientLayer *mask in @[litMask, dimMask]) {
+            mask.startPoint = CGPointMake(0, 0.5);
+            mask.endPoint = CGPointMake(1, 0.5);
+        }
+        litMask.colors = @[(id)UIColor.blackColor.CGColor, (id)UIColor.blackColor.CGColor, (id)UIColor.clearColor.CGColor];
+        litMask.anchorPoint = CGPointMake(1, 0);
+        dimMask.colors = @[(id)UIColor.clearColor.CGColor, (id)UIColor.blackColor.CGColor, (id)UIColor.blackColor.CGColor];
+        dimMask.anchorPoint = CGPointZero;
+        _litMask = litMask;
+        _dimMask = dimMask;
+        _lit.layer.mask = _litMask;
+        _dim.layer.mask = _dimMask;
+    }
+    for (UILabel *copy in @[_dim, _lit]) {
+        // The label's own font too, not only the string's: UILabel places a
+        // single line by its font's metrics, and the default 17 pt one put
+        // these copies lower than the line they replace.
+        copy.font = _label.font;
+        copy.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        copy.textAlignment = _label.textAlignment;
+        copy.lineBreakMode = _label.lineBreakMode;
+        if (copy.superview != _label) [_label addSubview:copy];
+        copy.frame = _label.bounds;
+    }
+    [self renderLine];
+
+    // Where each piece starts and ends across the label. The line is centred
+    // when it fits; the last piece lights the explicit badge after it too.
+    CGRect lb = _label.bounds;
+    NSUInteger n = _wordTexts.count;
+    CGFloat lineWidth = ceil(_lit.attributedText.size.width);
+    CGFloat x0 = MAX(0, round((lb.size.width - lineWidth) / 2));
+    NSDictionary *attrs = @{NSFontAttributeName: _label.font};
+    CGFloat xs[n + 1];
+    double ts[n], te[n];
+    NSMutableString *prefix = [NSMutableString string];
+    xs[0] = 0;
+    for (NSUInteger i = 0; i < n; i++) {
+        [prefix appendString:_wordTexts[i]];
+        xs[i + 1] = [prefix sizeWithAttributes:attrs].width;
+        ts[i] = _wordStarts[i].doubleValue;
+        te[i] = _wordEnds[i].doubleValue;
+    }
+    xs[n] = MAX(xs[n], lineWidth);
+    double tLast = 0;
+    for (NSUInteger i = 0; i < n; i++) {
+        // An end the source left out is the next start (or a beat later).
+        if (te[i] <= ts[i]) te[i] = (i + 1 < n) ? ts[i + 1] : ts[i] + 0.6;
+        tLast = MAX(tLast, te[i]);
+    }
+    NLWordGeometry g = { .n = n, .ts = ts, .te = te, .xs = xs, .x0 = x0,
+                         .visible = _content.bounds.size.width,
+                         .overflow = lb.size.width - _content.bounds.size.width,
+                         .restX = lb.size.width / 2 };
+    CGFloat overflow = g.overflow;
+
+    double now = _wordPosition + (CACurrentMediaTime() - _wordSetAt) * _wordRate;
+    CGFloat height = lb.size.height;
+
+    // The soft edge is about a character wide. Its far side is where the lit
+    // part ends, stretched so the whole fade has passed the last character by
+    // the time the line is sung.
+    CGFloat feather = MAX(round(_label.font.pointSize * 1.2), 8);
+    CGFloat span = MAX(g.x0 + g.xs[n] - x0, 1);
+    CGFloat (^edgeAt)(double) = ^CGFloat(double t) {
+        return x0 + (NLLitWidth(&g, t) - x0) * (span + feather) / span;
+    };
+    CGFloat maskWidth = lb.size.width + feather * 2;
+    NSArray *litStops = @[@0, @((maskWidth - feather) / maskWidth), @1];
+    NSArray *dimStops = @[@0, @(feather / maskWidth), @1];
+
+    // A long line's scroll follows the sung edge, averaged over a second of
+    // song around each moment so it glides instead of stepping word by word.
+    double (^glideAt)(double) = ^double(double t) {
+        double sum = 0;
+        for (int j = -12; j <= 12; j++) sum += NLLineCentre(&g, t + j * 0.04);
+        return sum / 25;
+    };
+
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    ((CAGradientLayer *)_litMask).locations = litStops;
+    ((CAGradientLayer *)_dimMask).locations = dimStops;
+    _litMask.bounds = CGRectMake(0, 0, maskWidth, height);
+    _dimMask.bounds = CGRectMake(0, 0, maskWidth, height);
+    CGFloat edge = edgeAt(MAX(now, tLast));
+    _litMask.position = CGPointMake(edge, 0);
+    _dimMask.position = CGPointMake(edge - feather, 0);
+    [CATransaction commit];
+    if (_wordRate <= 0 || now >= tLast) {
+        // Paused or done: hold where the singing is.
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        edge = edgeAt(now);
+        _litMask.position = CGPointMake(edge, 0);
+        _dimMask.position = CGPointMake(edge - feather, 0);
+        if (overflow > 1) _label.layer.position = CGPointMake(glideAt(now), _label.layer.position.y);
+        [CATransaction commit];
+        return;
+    }
+
+    // From now to the last piece's end in steps of 40 ms of song time (the
+    // glide runs half a second longer, to settle).
+    double glideEnd = tLast + 0.5;
+    NSUInteger steps = MIN((NSUInteger)ceil((glideEnd - now) / 0.04), (NSUInteger)3000);
+    steps = MAX(steps, (NSUInteger)1);
+    NSMutableArray *litEdges = [NSMutableArray arrayWithCapacity:steps + 1];
+    NSMutableArray *dimEdges = [NSMutableArray arrayWithCapacity:steps + 1];
+    NSMutableArray *centres = [NSMutableArray arrayWithCapacity:steps + 1];
+    NSMutableArray *keyTimes = [NSMutableArray arrayWithCapacity:steps + 1];
+    for (NSUInteger k = 0; k <= steps; k++) {
+        double t = now + (glideEnd - now) * k / steps;
+        CGFloat e = edgeAt(t);
+        [litEdges addObject:@(e)];
+        [dimEdges addObject:@(e - feather)];
+        if (overflow > 1) [centres addObject:@(glideAt(t))];
+        [keyTimes addObject:@((double)k / steps)];
+    }
+    CFTimeInterval duration = (glideEnd - now) / _wordRate;
+
+    NSArray<CALayer *> *layers = @[_litMask, _dimMask];
+    NSArray<NSArray *> *values = @[litEdges, dimEdges];
+    for (NSUInteger i = 0; i < layers.count; i++) {
+        CAKeyframeAnimation *move = [CAKeyframeAnimation animationWithKeyPath:@"position.x"];
+        move.values = values[i];
+        move.keyTimes = keyTimes;
+        move.duration = duration;
+        move.fillMode = kCAFillModeForwards;
+        move.removedOnCompletion = NO;
+        [layers[i] addAnimation:move forKey:@"words"];
+    }
+
+    if (overflow > 1) {
+        CAKeyframeAnimation *slide = [CAKeyframeAnimation animationWithKeyPath:@"position.x"];
+        slide.values = centres;
+        slide.keyTimes = keyTimes;
+        slide.duration = duration;
+        slide.fillMode = kCAFillModeForwards;
+        slide.removedOnCompletion = NO;
+        [_label.layer addAnimation:slide forKey:@"marquee"];
+    }
 }
 
 @end

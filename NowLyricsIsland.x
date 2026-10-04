@@ -24,6 +24,11 @@
 //    keeps no info dictionary on 16.5.1. The artwork in the same answer gives
 //    the album color.
 //
+//  - Word by word: when the playing app's lyrics have word times (its
+//    nowplaying.plist names the file, NLLocate.h), the line shown is found in
+//    that file by the position MediaRemote reports, the same way the app picks
+//    it, and the strip lights it up as it is sung.
+//
 //  Settings are the NowLyrics preference file, re-read on its reload
 //  notification, so every change on the settings page applies at once.
 //
@@ -32,8 +37,9 @@
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 #import <dlfcn.h>
-#import "NLShared.h"
+#import "NowLyrics.h"
 #import "NLIslandStrip.h"
+#import "NLLocate.h"
 
 // Built with -DNLI_FILELOG (for devices without a log reader, such as the
 // vphone VMs), notable events go to /var/mobile/Library/Logs/NowLyricsIsland.log.
@@ -88,6 +94,11 @@ static void NLIFileLog(NSString *format, ...) {
 - (NSInteger)layoutMode;
 @end
 
+@interface SBMediaController : NSObject
++ (instancetype)sharedInstance;
+- (id)nowPlayingApplication;   // an SBApplication
+@end
+
 @interface SBSystemApertureViewController : UIViewController
 @property (readonly, nonatomic) CGRect minimumSensorRegionFrame;
 - (void)preferredEdgeOutsetsDidInvalidateForLayoutSpecifier:(id)specifier;
@@ -103,11 +114,13 @@ typedef struct {
     BOOL artworkColor;
     BOOL scrollUp;       // line change pushes up instead of fading
     CGFloat speed;       // marquee, pt/s
+    BOOL wordByWord;     // light lines up as they are sung, when the lyrics have word times
     BOOL debugNoGrow;    // NLI_FILELOG builds only: skip the outsets change
     BOOL debugNoStrip;   // NLI_FILELOG builds only: never attach the strip
 } NLIslandSettings;
 
 static NLIslandSettings gSettings;   // read in %ctor
+static NSDictionary *gPrefs = nil;   // the file itself, for the lyrics offsets
 
 // Ranges and defaults match bundle/Island.plist.
 static const CGFloat kNLDefaultFontSize = 11;
@@ -128,6 +141,7 @@ static NLIslandSettings NLIslandReadSettings(void) {
     s.artworkColor = [prefs[@"islandColor"] isEqual:@"artwork"];
     s.scrollUp = [prefs[@"islandTransition"] isEqual:@"up"];
     s.speed = NLIslandNum(prefs, @"islandMarqueeSpeed", kNLDefaultSpeed, 9, 81);   // shown as 0.3×–2.7×
+    s.wordByWord = NLPrefBool(prefs, @"islandWordByWord", YES);
 #ifdef NLI_FILELOG
     s.debugNoGrow = NLPrefBool(prefs, @"islandDebugNoGrow", NO);
     s.debugNoStrip = NLPrefBool(prefs, @"islandDebugNoStrip", NO);
@@ -159,6 +173,14 @@ static NSString *gTitle = nil;
 static BOOL gExplicit = NO;   // the track is flagged explicit (and NowLyrics was not told to hide that)
 static UIColor *gArtworkColor = nil;
 static NSUInteger gArtworkPrint = 0;           // the artwork gArtworkColor is (being) taken from
+
+// Word by word: the shown line's pieces and the playback clock they run on
+// (the app's lookup position, offsets included), as of gWordClockAt.
+static NSArray<NSString *> *gWordTexts = nil;
+static NSArray<NSNumber *> *gWordStarts = nil, *gWordEnds = nil;
+static NSTimeInterval gWordClock = 0;
+static CFTimeInterval gWordClockAt = 0;
+static double gWordRate = 0;
 
 static BOOL NLIsNowPlaying(id element) {
     NSString *client = [element respondsToSelector:@selector(clientIdentifier)] ? [element clientIdentifier] : nil;
@@ -423,7 +445,28 @@ static void NLIslandUpdate(void) {
     }
     [gStrip applyFontSize:gSettings.fontSize color:NLTextColor() speed:gSettings.speed];
     [gStrip setText:gTitle explicit:gExplicit scrollUp:gSettings.scrollUp];
+    [gStrip setWordTexts:gWordTexts starts:gWordStarts ends:gWordEnds
+                position:gWordClock + (CACurrentMediaTime() - gWordClockAt) * gWordRate rate:gWordRate];
     if (gClip.alpha < 1) NLIslandRevealWhenStill(pill, 0);
+}
+
+#pragma mark - Word by word
+
+// The pieces of the line on screen, when it has word times (NLLocate.m).
+static void NLIslandUpdateWords(NSDictionary *info) {
+    gWordTexts = nil;
+    gWordStarts = gWordEnds = nil;
+    if (!gSettings.wordByWord) return;
+    id app = [[objc_getClass("SBMediaController") sharedInstance] nowPlayingApplication];
+    NSString *bundleID = [app respondsToSelector:@selector(bundleIdentifier)] ? [app bundleIdentifier] : nil;
+    NLShownWords *words = NLWordsForShownLine(bundleID, gTitle, info, gPrefs);
+    if (!words) return;
+    gWordTexts = words.texts;
+    gWordStarts = words.starts;
+    gWordEnds = words.ends;
+    gWordClock = words.position;
+    gWordClockAt = CACurrentMediaTime();
+    gWordRate = words.rate;
 }
 
 static void NLIslandRefreshInfo(void) {
@@ -445,6 +488,7 @@ static void NLIslandRefreshInfo(void) {
         gTitle = [title isKindOfClass:NSString.class] ? title : nil;
         // Cleared by the players already when "Hide explicit badge" is on.
         gExplicit = NLPrefBool(info, @"kMRMediaRemoteNowPlayingInfoIsExplicitTrack", NO);
+        NLIslandUpdateWords(info);
 
         NSData *artwork = info[@"kMRMediaRemoteNowPlayingInfoArtworkData"];
         NSUInteger print = (gSettings.artworkColor && [artwork isKindOfClass:NSData.class]) ? NLArtworkPrint(artwork) : 0;
@@ -577,13 +621,15 @@ static NSString *NLIInsets(NSDirectionalEdgeInsets i) {
 static void NLIslandPrefsChanged(CFNotificationCenterRef center, void *observer,
                                  CFStringRef name, const void *object, CFDictionaryRef userInfo) {
     NLIslandSettings now = NLIslandReadSettings();
+    NSDictionary *prefs = NLReadPrefsFile();
     dispatch_async(dispatch_get_main_queue(), ^{
+        gPrefs = prefs;
         BOOL heightChanged = now.on != gSettings.on;
         BOOL colorChanged = now.artworkColor != gSettings.artworkColor;
         gSettings = now;
         if (colorChanged) gArtworkPrint = 0;   // fetch the artwork again
         if (heightChanged) NLIslandInvalidateHeight();
-        if (now.on && (!gTitle || colorChanged)) NLIslandRefreshInfo();
+        if (now.on) NLIslandRefreshInfo();   // an offset or the word-by-word switch may have changed too
         NLIslandUpdate();
     });
 }
@@ -592,6 +638,7 @@ static void NLIslandPrefsChanged(CFNotificationCenterRef center, void *observer,
     @autoreleasepool {
         if (!objc_getClass("SBSystemApertureSceneElement")) return;   // no Dynamic Island support in this iOS
         gSettings = NLIslandReadSettings();
+        gPrefs = NLReadPrefsFile();
         NLI_LOG(@"loaded on=%d fontSize=%.1f", gSettings.on, gSettings.fontSize);
         if (NLI_DEBUG_HOOKS) {
             %init(NLIDebug);
