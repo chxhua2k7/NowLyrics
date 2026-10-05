@@ -221,7 +221,8 @@ static void NLTintDumpOrder(UIView *platter, UIView *material) {
 
 // iOS 26 draws the media module's background from the cover itself
 // (MRUCrossfadeImageView) and the lock screen's player in glass, which shows
-// what is behind the platter over anything inside it: no tint there.
+// what is behind the platter over anything inside it: no tint there, none of
+// these hooks (NLPlayerTintAvailable, %ctor).
 
 %hook SBMediaController
 - (void)_mediaRemoteNowPlayingInfoDidChange:(id)notification {
@@ -252,6 +253,7 @@ static void NLTintPrefsChanged(CFNotificationCenterRef center, void *observer, C
 
 %ctor {
     @autoreleasepool {
+        if (!NLPlayerTintAvailable()) return;
         NLReadTintPrefs();
         dlopen("/System/Library/PrivateFrameworks/MediaControls.framework/MediaControls", RTLD_NOW);
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, NLTintPrefsChanged,

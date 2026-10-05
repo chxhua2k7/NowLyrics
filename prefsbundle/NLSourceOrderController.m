@@ -101,6 +101,7 @@ NSArray<NSString *> *NLSourceOrder(PSListController *controller) {
     UITableView *_table;
     NSMutableArray<NSString *> *_order;   // every source, in order
     NSMutableArray<NSString *> *_shown;   // those switched on, in order
+    NLPageTop *_pageTop;            // the top as the main page's (Advanced › Other pages too)
 }
 
 - (void)viewDidLoad {
@@ -113,12 +114,35 @@ NSArray<NSString *> *NLSourceOrder(PSListController *controller) {
     _table.editing = YES;
     _table.allowsSelectionDuringEditing = NO;
     [self.view addSubview:_table];
+    _pageTop = [[NLPageTop alloc] initWithOwner:self table:_table];
+    [_pageTop update];
 }
 
 - (void)viewWillAppear:(BOOL)animated {
+    [_pageTop update];
     [super viewWillAppear:animated];
     [self nlLoad];
     [_table reloadData];
+}
+
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    [_pageTop appear];
+}
+
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    [_pageTop disappear];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    [_pageTop layout];
+}
+
+- (void)preferredContentSizeDidChangeForChildContentContainer:(id<UIContentContainer>)container {
+    [super preferredContentSizeDidChangeForChildContentContainer:container];
+    [_pageTop layout];
 }
 
 #pragma mark Preferences

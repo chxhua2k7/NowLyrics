@@ -40,6 +40,7 @@
 #import <objc/runtime.h>
 #import <sys/stat.h>
 #import "NLLyricsPages.h"
+#import "../NLPlayerTint.h"
 
 @interface PSListController (NLPreferences)
 - (void)setPreferenceValue:(id)value specifier:(PSSpecifier *)specifier;
@@ -197,7 +198,7 @@ static NSString *NLShowIfKey(NSString *rule) {
 
 // What the top of the main page shows (Advanced › Top of main page): the
 // lock screen's player, the island preview or nothing.
-static NSString *NLPageHeader(PSListController *controller) {
+NSString *NLMainPageTop(PSListController *controller) {
     id value = NLReadPref(controller, @"pageHeader");
     return [value isEqual:@"island"] || [value isEqual:@"none"] ? value : @"player";
 }
@@ -208,7 +209,8 @@ static BOOL NLSpecifierWanted(PSListController *controller, NSArray<PSSpecifier 
         PSSpecifier *control = NLSwitchFor(all, key);
         // What this iOS can do, or what the main page's top shows, rather than a switch.
         id value = [key isEqualToString:@"nlAppleMusicAvailable"] ? @(NLAppleMusicAvailable())
-                 : [key isEqualToString:@"nlHeaderIsland"] ? @([NLPageHeader(controller) isEqualToString:@"island"])
+                 : [key isEqualToString:@"nlPlayerTintAvailable"] ? @(NLPlayerTintAvailable())
+                 : [key isEqualToString:@"nlHeaderIsland"] ? @([NLMainPageTop(controller) isEqualToString:@"island"])
                  : control ? [controller readPreferenceValue:control]
                            : NLReadPref(nil, key);
         if (![value respondsToSelector:@selector(boolValue)]) value = [control propertyForKey:@"default"];
@@ -289,12 +291,16 @@ static void NLNoteNoIsland(NSArray<PSSpecifier *> *all, NSString *anchor);   // 
 // add to it (Crescendo's volume row, NextUp 3's Up Next row), at the most it
 // can be.
 static void NLMakeRoomForIslandPreview(NSArray<PSSpecifier *> *all) {
+    // iOS 26's grouped tables leave less between the row's group and the next
+    // card than 16's: the open island touched that card.
+    CGFloat slack = 0;
+    if (@available(iOS 26.0, *)) slack = 12;
     for (PSSpecifier *s in all) {
         if (![s.identifier isEqualToString:@"islandPreview"]) continue;   // shown or not
         id base = [s propertyForKey:@"nlBaseHeight"] ?: [s propertyForKey:@"height"];
         if (![base respondsToSelector:@selector(doubleValue)]) continue;
         [s setProperty:base forKey:@"nlBaseHeight"];
-        [s setProperty:@([base doubleValue] + NLIslandPreviewMostExtraHeight()) forKey:@"height"];
+        [s setProperty:@([base doubleValue] + NLIslandPreviewMostExtraHeight() + slack) forKey:@"height"];
     }
 }
 
@@ -311,9 +317,31 @@ static NSDictionary *NLIslandPreviewValues(PSListController *controller, NSArray
     return values;
 }
 
+// An island preview away from the Lyrics Island page (the main page's, the
+// other pages'): each island setting's current value, read through
+// `controller` (or from the domain without one), else its default. Read from
+// that page's plist rather than loaded as its specifiers, which would give the
+// page asking that page's title.
+NSDictionary *NLIslandPreviewValuesFromPlist(PSListController *controller) {
+    static NSArray<NSDictionary *> *items;
+    if (!items) {
+        // This bundle's: the main page's own bundle is PreferenceLoader's folder.
+        NSString *path = [[NSBundle bundleForClass:NLIslandListController.class] pathForResource:@"Island" ofType:@"plist"];
+        id loaded = path ? [NSDictionary dictionaryWithContentsOfFile:path][@"items"] : nil;
+        items = [loaded isKindOfClass:NSArray.class] ? loaded : @[];
+    }
+    NSMutableDictionary *values = [NSMutableDictionary dictionary];
+    for (NSDictionary *item in items) {
+        NSString *key = [item isKindOfClass:NSDictionary.class] ? item[@"key"] : nil;
+        if (![key isKindOfClass:NSString.class]) continue;
+        id value = NLReadPref(controller, key) ?: item[@"default"];
+        if (value) values[key] = value;
+    }
+    return values;
+}
+
 @implementation NLRootListController {
     NSArray<PSSpecifier *> *_allSpecifiers;   // every row from the plist, shown or not
-    NSArray<NSDictionary *> *_islandItems;   // the island page's plist rows, for the preview's values
     NSString *_size;
     NLPlayerHeader *_player;
     NSTimer *_refresh;
@@ -384,7 +412,7 @@ static NSDictionary *NLIslandPreviewValues(PSListController *controller, NSArray
 // screen's player as the table's header, the island preview as the first row
 // (shown by its showIf), or neither.
 - (void)nlApplyHeader {
-    BOOL player = [NLPageHeader(self) isEqualToString:@"player"];
+    BOOL player = [NLMainPageTop(self) isEqualToString:@"player"];
     if (player && !_player) {
         _player = [[NLPlayerHeader alloc] initWithOwner:self table:self.table];
         [_player layout];
@@ -396,23 +424,8 @@ static NSDictionary *NLIslandPreviewValues(PSListController *controller, NSArray
 }
 
 // The island preview at the top: what the island page's settings make it.
-// Read from that page's plist rather than loaded as its specifiers, which
-// would give this page that page's title.
 - (NSDictionary *)nlIslandPreviewValues {
-    if (!_islandItems) {
-        // This bundle's: the page's own bundle is PreferenceLoader's folder.
-        NSString *path = [[NSBundle bundleForClass:NLIslandListController.class] pathForResource:@"Island" ofType:@"plist"];
-        id items = path ? [NSDictionary dictionaryWithContentsOfFile:path][@"items"] : nil;
-        _islandItems = [items isKindOfClass:NSArray.class] ? items : @[];
-    }
-    NSMutableDictionary *values = [NSMutableDictionary dictionary];
-    for (NSDictionary *item in _islandItems) {
-        NSString *key = [item isKindOfClass:NSDictionary.class] ? item[@"key"] : nil;
-        if (![key isKindOfClass:NSString.class]) continue;
-        id value = NLReadPref(self, key) ?: item[@"default"];
-        if (value) values[key] = value;
-    }
-    return values;
+    return NLIslandPreviewValuesFromPlist(self);
 }
 
 // The tint reaches every NowLyrics page through the navigation controller's
@@ -484,16 +497,23 @@ static NSDictionary *NLIslandPreviewValues(PSListController *controller, NSArray
 }
 
 // The About group's Size row: what the package installed, by dpkg's list of
-// its files.
+// its files. A rootless list has the files as they are (/var/jb/...), a
+// roothide one has them under the jailbreak root (/Library/...).
 - (NSString *)nlSize:(PSSpecifier *)specifier {
     if (_size) return _size;
     NSString *list = [NSString stringWithContentsOfFile:NLJBPath(@"/var/lib/dpkg/info/com.c3x14n.nowlyrics.list")
                                                encoding:NSUTF8StringEncoding error:nil];
     if (!list) return @"–";
     unsigned long long total = 0;
-    for (NSString *path in [list componentsSeparatedByString:@"\n"]) {
+    for (NSString *listed in [list componentsSeparatedByString:@"\n"]) {
+        if (!listed.length) continue;
+#if __has_include(<roothide.h>)
+        NSString *path = jbroot(listed);
+#else
+        NSString *path = listed;
+#endif
         struct stat st;
-        if (path.length && lstat(path.fileSystemRepresentation, &st) == 0 && S_ISREG(st.st_mode)) total += (unsigned long long)st.st_size;
+        if (lstat(path.fileSystemRepresentation, &st) == 0 && S_ISREG(st.st_mode)) total += (unsigned long long)st.st_size;
     }
     _size = [NSByteCountFormatter stringFromByteCount:(long long)total countStyle:NSByteCountFormatterCountStyleFile];
     return _size;
@@ -615,6 +635,28 @@ static BOOL NLSameRows(NSArray<PSSpecifier *> *a, NSArray<PSSpecifier *> *b) {
 
 @implementation NLSubListController {
     NSArray<PSSpecifier *> *_allSpecifiers;
+    NLPageTop *_pageTop;   // the top as the main page's (Advanced › Other pages too)
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    _pageTop = [[NLPageTop alloc] initWithOwner:self table:self.table];
+    [_pageTop update];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    [_pageTop layout];
+}
+
+- (void)preferredContentSizeDidChangeForChildContentContainer:(id<UIContentContainer>)container {
+    [super preferredContentSizeDidChangeForChildContentContainer:container];
+    [_pageTop layout];
+}
+
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    [_pageTop disappear];
 }
 
 - (NSMutableArray *)specifiers {
@@ -632,6 +674,7 @@ static BOOL NLSameRows(NSArray<PSSpecifier *> *a, NSArray<PSSpecifier *> *b) {
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
     [self nlFollowSourceOrder];
+    [_pageTop appear];
 }
 
 - (void)nlFollowSourceOrder {
@@ -656,6 +699,9 @@ static BOOL NLSameRows(NSArray<PSSpecifier *> *a, NSArray<PSSpecifier *> *b) {
 - (void)setPreferenceValue:(id)value specifier:(PSSpecifier *)specifier {
     [super setPreferenceValue:value specifier:specifier];
     NLUpdateShownSpecifiers(self, _allSpecifiers, specifier);
+    // Advanced › Top of main page or Other pages too: this page's top at once.
+    NSString *key = [specifier propertyForKey:@"key"];
+    if ([key isEqual:@"topOnEveryPage"] || [key isEqual:@"pageHeader"]) [_pageTop update];
 }
 
 // After Apple Music or Musixmatch was unlocked or locked: their rows, and
@@ -669,6 +715,8 @@ static BOOL NLSameRows(NSArray<PSSpecifier *> *a, NSArray<PSSpecifier *> *b) {
 
 // "Unlock Apple Music lyrics": SpringBoard checks for a subscription; with
 // one, Apple Music shows and is switched on, without one it stays hidden.
+// Before Apple Music's privacy notice is agreed to there is nothing to ask:
+// Music, where it is agreed to, is one tap away.
 - (void)nlUnlockAppleMusic:(PSSpecifier *)specifier {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:NLL(@"Apple Music subscription")
                                                                    message:NLL(@"Checking your Apple Music subscription…")
@@ -680,6 +728,21 @@ static BOOL NLSameRows(NSArray<PSSpecifier *> *a, NSArray<PSSpecifier *> *b) {
         NLApplyAppleMusicSubscription(result);
         if (result == NLSubscriptionActive) NLWritePrefs(@{@"useAppleMusic": @YES});
         [weakSelf nlRefreshLockedRows];
+        if (result == NLSubscriptionPrivacy) {
+            void (^ask)(void) = ^{
+                UIAlertAction *open = [UIAlertAction actionWithTitle:NLL(@"Open Music") style:UIAlertActionStyleDefault
+                                                             handler:^(UIAlertAction *action) {
+                    [UIApplication.sharedApplication openURL:[NSURL URLWithString:@"music://"] options:@{} completionHandler:nil];
+                }];
+                UIAlertAction *ok = [UIAlertAction actionWithTitle:NLL(@"OK") style:UIAlertActionStyleCancel handler:nil];
+                if (weakSelf) NLShowAlert(weakSelf, NLL(@"Apple Music subscription"),
+                                          NLL(@"Apple Music’s privacy notice is not agreed to on this iPhone yet. Agree to it in Music, then unlock again."),
+                                          @[open, ok]);
+            };
+            if (alert.presentingViewController) [alert dismissViewControllerAnimated:YES completion:ask];
+            else ask();
+            return;
+        }
         alert.message = result == NLSubscriptionActive
             ? NLL(@"Subscription confirmed. Apple Music lyrics are unlocked and on, in Music and in other apps such as Spotify.")
             : result == NLSubscriptionNone
@@ -723,6 +786,9 @@ static NSString *NLSwitchState(NSString *key) {
 }
 
 - (void)viewWillAppear:(BOOL)animated {
+    // Before super, as on the main page: the header is in place before the row
+    // tapped to leave the page is deselected.
+    [_pageTop update];
     [super viewWillAppear:animated];
     // Musixmatch's app removed with nothing saved to work without it: locked again.
     if (NLRecheckMusixmatch()) [self nlRefreshLockedRows];

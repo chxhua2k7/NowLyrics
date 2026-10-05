@@ -22,6 +22,10 @@
 //  status says (as Music and Settings ask), else StoreKit's cloud service
 //  capabilities, else whether a well-known song's lyrics can be had.
 //
+//  Nothing goes to the store while Apple Music's privacy notice waits to be
+//  agreed to on this iPhone (Music shows it on first launch): StoreKit put it
+//  up over whatever was on screen and waited for an answer.
+//
 
 #import <objc/runtime.h>
 #import <dlfcn.h>
@@ -40,6 +44,7 @@
 - (void)setSongAdamID:(long long)adamID;
 - (void)setResponseHandler:(void (^)(id response, NSError *error))handler;
 - (NSString *)lyricsContent;   // MPStoreLyricsResponse
++ (BOOL)acknowledgementNeededForPrivacyIdentifier:(NSString *)identifier;   // AMSAcknowledgePrivacyTask
 @end
 
 static const NSTimeInterval kNLRequestLifetime = 60;   // older requests were given up on
@@ -58,6 +63,18 @@ static NSString *NLDescribeError(NSError *error) {
         if ([reason isKindOfClass:NSString.class] && reason.length) [text appendFormat:@" (%@)", reason];
     }
     return text;
+}
+
+// Whether Apple Music's privacy notice still waits to be agreed to here, as
+// AppleMediaServices keeps it (the notice Music shows on first launch).
+static BOOL NLAppleMusicPrivacyNeeded(void) {
+    Class task = objc_getClass("AMSAcknowledgePrivacyTask");
+    if (!task) {
+        dlopen("/System/Library/PrivateFrameworks/AppleMediaServices.framework/AppleMediaServices", RTLD_NOW);
+        task = objc_getClass("AMSAcknowledgePrivacyTask");
+    }
+    if (![task respondsToSelector:@selector(acknowledgementNeededForPrivacyIdentifier:)]) return NO;
+    return [task acknowledgementNeededForPrivacyIdentifier:@"com.apple.onboarding.applemusic"];
 }
 
 // The lyrics by catalog ID. Calls back on the main queue with the TTML, or
@@ -129,6 +146,10 @@ static void NLServe(NSDictionary *request, NSString *folder) {
         });
     };
 
+    if (NLAppleMusicPrivacyNeeded()) {
+        finish(@{@"error": @"Apple Music's privacy notice is not agreed to"});
+        return;
+    }
     if (given > 0) {
         lyrics(@{@"id": @(given)});
         return;
@@ -180,7 +201,9 @@ static NSString *NLAppFolder(NSString *bundleID) {
 static const NSUInteger kNLCatalogPlayback = 1 << 0;   // SKCloudServiceCapabilityMusicCatalogPlayback
 
 // Calls back once on the main queue: "active", "none" (a definite answer
-// without catalog playback) or "unknown", and what each way said.
+// without catalog playback), "privacy" (iTunesCloud did not say active, and
+// the privacy notice keeps the rest from being asked) or "unknown", and what
+// each way said.
 static void NLCheckSubscription(void (^done)(NSString *result, NSString *detail)) {
     NSMutableArray<NSString *> *said = [NSMutableArray array];
     __block BOOL finished = NO, saidNone = NO;
@@ -215,6 +238,11 @@ static void NLCheckSubscription(void (^done)(NSString *result, NSString *detail)
     // 2. StoreKit's cloud service capabilities (SpringBoard may read the media library).
     void (^storeKit)(void) = ^{
         if (finished) return;
+        if (NLAppleMusicPrivacyNeeded()) {
+            [said addObject:@"privacy notice not agreed to"];
+            finish(@"privacy");
+            return;
+        }
         dlopen("/System/Library/Frameworks/StoreKit.framework/StoreKit", RTLD_NOW);
         NSObject *cloud = [objc_getClass("SKCloudServiceController") new];
         if (![cloud respondsToSelector:@selector(requestCapabilitiesWithCompletionHandler:)]) {

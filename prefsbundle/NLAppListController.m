@@ -97,8 +97,53 @@ static void NLListViewDidLoad(PSListController *self, SEL _cmd) {
     NLListUpdateButton(self);
 }
 
+#pragma mark - The top of the page
+
+static char kNLPageTopKey;
+
+// What the main page has at its top, as the other pages have it (Advanced ›
+// Other pages too, NLPageTop).
+static NLPageTop *NLListTop(PSListController *self) {
+    NLPageTop *top = objc_getAssociatedObject(self, &kNLPageTopKey);
+    if (!top && self.table) {
+        top = [[NLPageTop alloc] initWithOwner:self table:self.table];
+        objc_setAssociatedObject(self, &kNLPageTopKey, top, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    return top;
+}
+
+static void NLListViewWillAppear(PSListController *self, SEL _cmd, BOOL animated) {
+    [NLListTop(self) update];
+    struct objc_super base = {self, gListBase};
+    ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&base, _cmd, animated);
+}
+
+static void NLListViewDidAppear(PSListController *self, SEL _cmd, BOOL animated) {
+    struct objc_super base = {self, gListBase};
+    ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&base, _cmd, animated);
+    [NLListTop(self) appear];
+}
+
+static void NLListViewWillDisappear(PSListController *self, SEL _cmd, BOOL animated) {
+    struct objc_super base = {self, gListBase};
+    ((void (*)(struct objc_super *, SEL, BOOL))objc_msgSendSuper)(&base, _cmd, animated);
+    [objc_getAssociatedObject(self, &kNLPageTopKey) disappear];
+}
+
+static void NLListViewDidLayoutSubviews(PSListController *self, SEL _cmd) {
+    struct objc_super base = {self, gListBase};
+    ((void (*)(struct objc_super *, SEL))objc_msgSendSuper)(&base, _cmd);
+    [objc_getAssociatedObject(self, &kNLPageTopKey) layout];
+}
+
+static void NLListChildSizeChanged(PSListController *self, SEL _cmd, id<UIContentContainer> container) {
+    struct objc_super base = {self, gListBase};
+    ((void (*)(struct objc_super *, SEL, id))objc_msgSendSuper)(&base, _cmd, container);
+    [objc_getAssociatedObject(self, &kNLPageTopKey) layout];
+}
+
 // Made whenever AltList is there, as the plist names it; an AltList without
-// these methods gets its own list, unfiltered.
+// these methods gets its own list, unfiltered (with the top all the same).
 void NLRegisterAppListController(void) {
     gListBase = objc_getClass("ATLApplicationListMultiSelectionController");
     if (!gListBase || objc_getClass("NLAppListController")) return;
@@ -110,5 +155,10 @@ void NLRegisterAppListController(void) {
         class_addMethod(list, @selector(viewDidLoad), (IMP)NLListViewDidLoad, "v@:");
         class_addMethod(list, @selector(_loadSectionsFromSpecifier), (IMP)NLListLoadSections, "v@:");
     }
+    class_addMethod(list, @selector(viewWillAppear:), (IMP)NLListViewWillAppear, "v@:B");
+    class_addMethod(list, @selector(viewDidAppear:), (IMP)NLListViewDidAppear, "v@:B");
+    class_addMethod(list, @selector(viewWillDisappear:), (IMP)NLListViewWillDisappear, "v@:B");
+    class_addMethod(list, @selector(viewDidLayoutSubviews), (IMP)NLListViewDidLayoutSubviews, "v@:");
+    class_addMethod(list, @selector(preferredContentSizeDidChangeForChildContentContainer:), (IMP)NLListChildSizeChanged, "v@:@");
     objc_registerClassPair(list);
 }

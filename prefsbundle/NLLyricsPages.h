@@ -91,6 +91,30 @@ void NLWritePrefs(NSDictionary<NSString *, id> *values);
 - (void)remove;
 @end
 
+// NLRootListController.m: what Advanced › Top of main page puts there,
+// "player", "island" or "none", read through `controller` (or from the domain
+// without one); and an island preview's values away from the Lyrics Island
+// page, from that page's plist.
+NSString *NLMainPageTop(PSListController *controller);
+NSDictionary *NLIslandPreviewValuesFromPlist(PSListController *controller);
+
+// NLPlayerHeader.m: the top of the other pages (Lyrics Sources, Advanced,
+// Apple Music, Musixmatch, Source order, the library, Choose Apps) as the main
+// page's while Advanced › Other pages too is on (the default): the player, the
+// island preview or nothing. Now Playing keeps its own player and the Lyrics
+// Island page its own island preview. The owner calls -update before its
+// viewWillAppear: super (and when either setting changes), -layout from
+// viewDidLayoutSubviews (and when a child's preferred size changes), -appear
+// and -disappear; while appeared it follows what is playing on its own.
+BOOL NLTopOnEveryPage(void);
+@interface NLPageTop : NSObject
+- (instancetype)initWithOwner:(UIViewController *)owner table:(UITableView *)table;
+- (void)update;
+- (void)layout;
+- (void)appear;
+- (void)disappear;
+@end
+
 // The pages' theme: the color of what the island preview shows
 // (NLIslandPreviewCell.m), the album's or NowLyrics' own. NLThemeSetColor takes
 // the raw color and posts NLThemeChangedNotification when it changed. Tint
@@ -135,7 +159,9 @@ UIButton *NLPopUpButton(NSArray<NSString *> *titles, NSArray *values, id current
 
 // NLAppleMusicAccess.m: Apple Music stays hidden until SpringBoard confirms a
 // subscription (kept as `appleMusicVerified`); a lapsed one locks it again.
-typedef NS_ENUM(NSInteger, NLSubscription) { NLSubscriptionUnknown = 0, NLSubscriptionActive, NLSubscriptionNone };
+// Privacy: Apple Music's privacy notice is not agreed to here yet, so nothing
+// past iTunesCloud was asked (NLAppleMusicSB.x).
+typedef NS_ENUM(NSInteger, NLSubscription) { NLSubscriptionUnknown = 0, NLSubscriptionActive, NLSubscriptionNone, NLSubscriptionPrivacy };
 BOOL NLAppleMusicAvailable(void);   // this iOS can ask Apple Music for lyrics (16 and later)
 BOOL NLAppleMusicVerified(void);
 void NLCheckAppleMusicSubscription(void (^done)(NLSubscription result, NSString *detail));   // main queue
@@ -164,4 +190,5 @@ void NLNextUpKeepOut(UIView *view);   // the island preview's view: none of Next
 // NLIslandPreviewCell.m: the most the open island preview grows by for the rows
 // tweaks add, which the island page keeps room for under it.
 CGFloat NLIslandPreviewMostExtraHeight(void);
+CGFloat NLIslandPreviewOpenBottom(void);   // the open island's bottom, from the table's top
 BOOL NLDeviceHasDynamicIsland(void);   // NLRootListController.m

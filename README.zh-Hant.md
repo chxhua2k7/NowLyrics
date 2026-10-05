@@ -34,7 +34,9 @@ English: [README.md](README.md)
   SpringBoard 用 Apple 公開搜尋依歌名、歌手、長度找到這首(`NLAppleMusicFind.m`),要到歌詞後寫回
   `am-response.plist`。確認有訂閱前 Apple Music 相關的設定全部隱藏:按「解鎖」時由 SpringBoard
   問 iTunesCloud 的 `ICMusicSubscriptionStatusController`,再問 StoreKit,最後實際要一首歌的歌詞;
-  之後每天重新確認,訂閱過期就再鎖起來。
+  之後每天重新確認,訂閱過期就再鎖起來。還沒同意 Apple Music 的隱私權說明時(`AMSAcknowledgePrivacyTask`、
+  `com.apple.onboarding.applemusic`)只問 iTunesCloud、也不抓歌詞,因為 StoreKit 會把同意畫面蓋在當下的畫面上;
+  設定頁會請你到「音樂」裡同意。
 - **逐字歌詞**:Apple Music、Musixmatch(有 token 時的 `track.richsync.get`)、網易雲(`/api/song/lyric/v1` 的 `yrc`)
   與匯入的 TTML 或逐字 LRC 有逐字時間,存成 enhanced LRC(`<mm:ss.xx>`)。鎖定畫面照舊一行;島從 App 的
   `nowplaying.plist` 找到歌詞檔,用 MediaRemote 的進度和 App 一樣的方式對到這一行,遮罩照時間推進
@@ -49,7 +51,11 @@ English: [README.md](README.md)
   `trackSources`(曲目 key → 秒 / 來源名);頁面上只顯示一個偏移(「進階」的預設偏移加上這首的)。
   主頁和「正在播放」頁最上面嵌入鎖定畫面的播放器
   (MediaControls 的 `+[MRPlatterViewController coverSheetPlatterViewController]`,`NLPlayerHeader`);
-  主頁可在「進階 › 主頁頂端」(`pageHeader`)換成島預覽或隱藏。「歌詞來源」頁照嘗試順序列出來源
+  主頁可在「進階 › 主頁頂端」(`pageHeader`)換成島預覽或隱藏;「進階 › 其他頁也一樣」
+  (`topOnEveryPage`,預設開,`NLPageTop`)讓其他頁面頂端跟主頁一樣(島預覽放在表格的 header),
+  「歌詞上島」頁(有自己的預覽島)、「正在播放」頁(有自己的播放器)和歌詞編輯頁除外。播放器離開鎖定畫面
+  就沒有自己的背景(它的材質在別處什麼都不顯示),所以墊一層:iOS 26 是玻璃(`UIGlassEffect`),以下是系統材質;
+  「播放器用封面背景」蓋在上面。「歌詞來源」頁照嘗試順序列出來源
   (plist 列上的 `source`)。Musixmatch 跟 Apple Music 一樣要先解鎖:有安裝 Musixmatch App
   (`musixmatchVerified`);App 刪掉後,有存 User Token 或 API Key 就繼續用。
 - **播放器用封面背景**(`NLPlayerTint`,開關 `playerTint`):控制中心蓋在
@@ -125,7 +131,7 @@ iOS 17 以上改掛在元件自己的 view:那裡容器的內容 view 規定只�
 `SBSIsSystemApertureAvailable` 判斷,所以 iOS 16 用 MobileGestalt 開出動態島的 iPhone 也算;其他機型設定頁會說明),
 依賴在 16.5.1、18.6.2、26.1 確認過的 SpringBoard 內部實作,其他版本可能需要調整。播放器用封面背景:16 與 18 的
 鎖定畫面和控制中心;26 的鎖定畫面播放器是玻璃,會把背後的畫面蓋在顏色上,控制中心的媒體模組本來就取封面顏色,
-所以維持系統原樣。
+所以維持系統原樣;26 上這個設定會隱藏,設定頁的播放器也維持系統外觀,跟鎖定畫面一致。
 
 ## 授權
 

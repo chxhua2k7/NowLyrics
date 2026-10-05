@@ -1255,6 +1255,13 @@ static Class NLNextUpRowClass(void) {
 // What the rows tweaks add to the open island can come to: NextUp's row with
 // Crescendo's slider above it, or the slider alone. The page keeps that much
 // more room under the preview for it to open into.
+// How far down the table the open island reaches from the table's top, with
+// what music adds to it: the room a page keeps when no rows below take part
+// of it (the other pages' header, NLPageTop).
+CGFloat NLIslandPreviewOpenBottom(void) {
+    return kNLTopMargin + kNLExpandedLive.height + NLIslandPreviewMostExtraHeight();
+}
+
 CGFloat NLIslandPreviewMostExtraHeight(void) {
     BOOL crescendo = NLCrescendoShows(NLCrescendoDynamicIsland);
     BOOL nextUp = NLNextUpShowsInIsland();

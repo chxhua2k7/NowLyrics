@@ -101,6 +101,8 @@
 "Player over its cover" = "播放器用封面背景";
 "Transparency" = "透明度";
 "Top of main page" = "主页顶端";
+"Other pages too" = "其他页也一样";
+"Other pages too puts what the main page has at its top on the other pages as well; Lyrics Island keeps its island preview and Now Playing its player." = "“其他页也一样”让其他页面顶端也放主页顶端的内容；“歌词上岛”页保留它的预览岛，“正在播放”页保留它的播放器。";
 "Player" = "播放器";
 "Island" = "灵动岛";
 "Hidden" = "隐藏";
@@ -131,6 +133,8 @@
 "Subscription confirmed. Apple Music lyrics are unlocked and on, in Music and in other apps such as Spotify." = "已确认订阅。Apple Music 歌词已解锁并打开，“音乐”和 Spotify 等其他 App 都能用。";
 "There is no Apple Music subscription on this Apple ID, so Apple Music lyrics stay hidden." = "这个 Apple ID 没有 Apple Music 订阅，所以 Apple Music 歌词会保持隐藏。";
 "Could not check the subscription (%@). Try again later." = "无法确认订阅（%@）。请稍后再试。";
+"Apple Music’s privacy notice is not agreed to on this iPhone yet. Agree to it in Music, then unlock again." = "这台 iPhone 还没有同意 Apple Music 的隐私说明。请先在“音乐”里同意，再解锁一次。";
+"Open Music" = "打开“音乐”";
 "SpringBoard did not answer" = "SpringBoard 没有响应";
 "Sources are tried in the order set under Source order. NetEase lyrics are Simplified Chinese. Apple Music lyrics need an Apple Music subscription, Musixmatch lyrics the Musixmatch app: unlocking checks for them." = "按“来源顺序”依次尝试。网易云歌词为简体中文。Apple Music 歌词需要 Apple Music 订阅，Musixmatch 歌词需要 Musixmatch App，解锁时会确认。";
 "Unlock Musixmatch lyrics" = "解锁 Musixmatch 歌词";

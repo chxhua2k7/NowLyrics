@@ -48,7 +48,11 @@ Sold on Havoc as `com.c3x14n.nowlyrics`; listing material in `havoc/`.
   `am-response.plist` back. Everything Apple Music stays hidden until
   "Unlock" confirms a subscription (SpringBoard asks iTunesCloud's
   `ICMusicSubscriptionStatusController`, then StoreKit, then tries one song's
-  lyrics); it is checked again daily, and a lapsed one locks it again.
+  lyrics); it is checked again daily, and a lapsed one locks it again. While
+  Apple Music's privacy notice waits to be agreed to (`AMSAcknowledgePrivacyTask`,
+  `com.apple.onboarding.applemusic`), nothing past iTunesCloud is asked and no
+  lyrics are fetched: StoreKit would put the notice up over whatever is on
+  screen. The settings page sends you to Music to agree to it.
 - **Word by word**: Apple Music, Musixmatch (`track.richsync.get`, with a token), NetEase
   (`yrc` from `/api/song/lyric/v1`) and imported TTML or word-by-word LRC carry
   word times, stored as enhanced LRC (`<mm:ss.xx>`). The lock screen still shows
@@ -73,7 +77,14 @@ Sold on Havoc as `com.c3x14n.nowlyrics`; listing material in `havoc/`.
   and the Now Playing page embed the lock screen's player (MediaControls'
   `+[MRPlatterViewController coverSheetPlatterViewController]`, `NLPlayerHeader`);
   on the main page Advanced › Top of main page (`pageHeader`) swaps it for the
-  island preview or nothing. Lyrics Sources lists the sources in the order they
+  island preview or nothing, and Advanced › Other pages too (`topOnEveryPage`,
+  on by default, `NLPageTop`) gives the other pages the same top (the island
+  preview as their table's header), but for Lyrics Island (its own island
+  preview), Now Playing (its own player) and the lyrics editor. Outside the
+  lock screen the player has no background of its own (its material shows
+  nothing there), so it sits on one: glass (`UIGlassEffect`) on iOS 26, a
+  system material below; Player over its cover lies over it. Lyrics Sources
+  lists the sources in the order they
   are tried (`source` on their plist rows). Musixmatch, like Apple Music, sits
   behind an unlock: the Musixmatch app installed (`musixmatchVerified`); with
   the app gone it stays while a User Token or API key is saved.
@@ -187,7 +198,8 @@ SpringBoard internals checked on 16.5.1, 18.6.2 and 26.1; other versions may
 need adjusting. Player over its cover: lock screen and Control Center on 16
 and 18; on 26 the lock screen's player is glass, which shows what is behind it
 over the tint, and Control Center's media module already takes the cover's
-colors, so it stays as the system draws it.
+colors, so it stays as the system draws it; there the setting is hidden and
+the settings page's player keeps the system look too, like the lock screen's.
 
 ## License
 

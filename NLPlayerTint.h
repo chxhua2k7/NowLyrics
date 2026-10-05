@@ -15,6 +15,16 @@
 
 #define NL_PLAYER_TINT_KEY @"playerTint"   // preference, default on
 
+// iOS 26's lock screen player is glass, which shows what is behind the platter
+// over a tint inside it, and its Control Center's media module takes the
+// cover's colors itself. From 26 on every player keeps the system's look,
+// the settings page's copy too (so it looks like the lock screen's), and the
+// setting is hidden.
+static inline BOOL NLPlayerTintAvailable(void) {
+    if (@available(iOS 26.0, *)) return NO;
+    return YES;
+}
+
 @interface NLPlayerTintView : UIView
 // `info`: MediaRemote's now-playing info (its title and artwork are used).
 // Work is done off the main queue and only when the artwork changed; the

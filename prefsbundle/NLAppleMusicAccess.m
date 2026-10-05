@@ -5,7 +5,8 @@
 //  (NLAppleMusicSB.x, NL_AM_CHECK_REQUEST_FILE) and the answer is kept as
 //  `appleMusicVerified` (with `appleMusicVerifiedAt`). A confirmed one is asked
 //  about again after a day; a definite "none" locks it again and turns Apple
-//  Music off, so the apps stop asking. "Could not tell" changes nothing.
+//  Music off, so the apps stop asking. "Could not tell" changes nothing, nor
+//  does a privacy notice not yet agreed to.
 //
 
 #import "NLLyricsPages.h"
@@ -59,7 +60,8 @@ static void NLCheckAnswered(CFNotificationCenterRef center, void *observer, CFSt
         if (!gCheckID || ![answer[@"id"] isEqual:gCheckID]) return;   // a lyrics answer, or not ours
         NSString *result = answer[@"result"];
         NLSubscription subscription = [result isEqual:@"active"] ? NLSubscriptionActive
-                                    : [result isEqual:@"none"] ? NLSubscriptionNone : NLSubscriptionUnknown;
+                                    : [result isEqual:@"none"] ? NLSubscriptionNone
+                                    : [result isEqual:@"privacy"] ? NLSubscriptionPrivacy : NLSubscriptionUnknown;
         NLCheckFinished(subscription, [answer[@"detail"] isKindOfClass:NSString.class] ? answer[@"detail"] : @"");
     });
 }

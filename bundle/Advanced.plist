@@ -39,6 +39,8 @@
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>Other pages too puts what the main page has at its top on the other pages as well; Lyrics Island keeps its island preview and Now Playing its player.</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -74,9 +76,27 @@
 		</dict>
 		<dict>
 			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>app.nowlyrics</string>
+			<key>iconColor</key>
+			<string>#FF9F0A</string>
+			<key>iconSymbol</key>
+			<string>rectangle.stack.fill|square.stack.fill</string>
+			<key>key</key>
+			<string>topOnEveryPage</string>
+			<key>label</key>
+			<string>Other pages too</string>
+		</dict>
+		<dict>
+			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
 			<string>Colors the now-playing player in Settings, on the lock screen and in Control Center: its cover, blurred and darkened.</string>
+			<key>showIf</key>
+			<string>nlPlayerTintAvailable</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -95,6 +115,8 @@
 			<string>playerTint</string>
 			<key>label</key>
 			<string>Player over its cover</string>
+			<key>showIf</key>
+			<string>nlPlayerTintAvailable</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -122,7 +144,10 @@
 			<key>min</key>
 			<real>0</real>
 			<key>showIf</key>
-			<string>playerTint</string>
+			<array>
+				<string>nlPlayerTintAvailable</string>
+				<string>playerTint</string>
+			</array>
 			<key>step</key>
 			<real>5</real>
 			<key>unit</key>

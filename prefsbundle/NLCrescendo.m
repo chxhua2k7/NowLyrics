@@ -19,15 +19,22 @@
 //  preferences.
 //
 //  iOS 17 and later have this themselves (Accessibility > Audio & Visual >
-//  Always Show Volume Control, -[MRUserSettings alwaysShowVolumeControls]):
-//  the players these pages copy read it and show the row on their own, and
-//  the island has none either way (26.1: only MRULockscreenViewController and
-//  MRUNowPlayingViewController read it). Nothing is forced there.
+//  Always Show Volume Control, -[MRUserSettings alwaysShowVolumeControls]),
+//  and the island has none either way (26.1: only MRULockscreenViewController
+//  and MRUNowPlayingViewController read it; 26.6.2's open island has no row
+//  with it on). The lock screen's controller is what shows the row, so the
+//  player copied onto these pages lacks it: the row is forced there by that
+//  setting the same way as by Crescendo's.
 //
 
 #import "NLLyricsPages.h"
 #import <notify.h>
 #import <objc/runtime.h>
+
+@interface NSObject (NLUserSettings)
++ (id)currentSettings;                  // MRUserSettings
+- (BOOL)alwaysShowVolumeControls;       // iOS 17 and later
+@end
 
 @interface UIView (NLCrescendo)
 - (BOOL)showVolumeControlsView;
@@ -123,13 +130,21 @@ static UIViewController *NLOwner(UIView *view) {
     return nil;
 }
 
+// iOS 17 and later: Always Show Volume Control, as the lock screen reads it.
+static BOOL NLSystemShowsVolume(void) {
+    Class settingsClass = objc_getClass("MRUserSettings");
+    id settings = [settingsClass respondsToSelector:@selector(currentSettings)] ? [settingsClass currentSettings] : nil;
+    return [settings respondsToSelector:@selector(alwaysShowVolumeControls)] && [settings alwaysShowVolumeControls];
+}
+
 BOOL NLCrescendoSyncPlayer(UIViewController *platter) {
-    if (@available(iOS 17.0, *)) return NO;   // the player shows its row by the system's setting
     Class playerClass = objc_getClass("MRUNowPlayingView");
     UIView *player = playerClass && platter.isViewLoaded ? NLFindView(platter.view, playerClass) : nil;
     if (!player || ![player respondsToSelector:@selector(setShowVolumeControlsView:)]) return NO;
     NLHookPlayerView(playerClass);
-    BOOL want = NLCrescendoShows(NLCrescendoLockScreen);
+    BOOL want = NO;
+    if (@available(iOS 17.0, *)) want = NLSystemShowsVolume();
+    else want = NLCrescendoShows(NLCrescendoLockScreen);
     if (!want && !NLForced(player)) return NO;   // not ours: the player's own say
     if (want && NLForced(player) && player.showVolumeControlsView) return NO;
 

@@ -93,6 +93,11 @@ internal-stage::
 		done; \
 	done$(ECHO_END)
 
+# Finder's .DS_Store files (prefs/ has one) are not the package's: 1.2.2
+# shipped /Library/PreferenceLoader/Preferences/NowLyrics/.DS_Store.
+before-package::
+	$(ECHO_NOTHING)find "$(THEOS_STAGING_DIR)" -name .DS_Store -delete$(ECHO_END)
+
 # roothide: the package's own paths are jbroot-based (its dpkg and Sileo
 # resolve them in the jailbreak's root), so the icon loses /var/jb.
 ifeq ($(THEOS_PACKAGE_SCHEME),roothide)

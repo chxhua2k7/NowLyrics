@@ -82,6 +82,7 @@ static NSArray<NLLibraryEntry *> *NLEntriesIn(NSString *folder, NSString *bundle
     NSDateFormatter *_dates;
     BOOL _loaded;
     BOOL _appList;   // showing the apps rather than songs
+    NLPageTop *_pageTop;   // the top as the main page's (Advanced › Other pages too)
 }
 
 - (void)viewDidLoad {
@@ -106,11 +107,34 @@ static NSArray<NLLibraryEntry *> *NLEntriesIn(NSString *folder, NSString *bundle
     self.navigationItem.searchController = _search;
     self.navigationItem.hidesSearchBarWhenScrolling = NO;
     self.definesPresentationContext = YES;
+    _pageTop = [[NLPageTop alloc] initWithOwner:self table:_table];
+    [_pageTop update];
 }
 
 - (void)viewWillAppear:(BOOL)animated {
+    [_pageTop update];
     [super viewWillAppear:animated];
     [self nlLoad];
+}
+
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    [_pageTop appear];
+}
+
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    [_pageTop disappear];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    [_pageTop layout];
+}
+
+- (void)preferredContentSizeDidChangeForChildContentContainer:(id<UIContentContainer>)container {
+    [super preferredContentSizeDidChangeForChildContentContainer:container];
+    [_pageTop layout];
 }
 
 - (void)nlLoad {

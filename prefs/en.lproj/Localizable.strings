@@ -105,6 +105,8 @@
 "Player over its cover" = "Player over its cover";
 "Transparency" = "Transparency";
 "Top of main page" = "Top of main page";
+"Other pages too" = "Other pages too";
+"Other pages too puts what the main page has at its top on the other pages as well; Lyrics Island keeps its island preview and Now Playing its player." = "Other pages too puts what the main page has at its top on the other pages as well; Lyrics Island keeps its island preview and Now Playing its player.";
 "Player" = "Player";
 "Island" = "Island";
 "Hidden" = "Hidden";
@@ -135,6 +137,8 @@
 "Subscription confirmed. Apple Music lyrics are unlocked and on, in Music and in other apps such as Spotify." = "Subscription confirmed. Apple Music lyrics are unlocked and on, in Music and in other apps such as Spotify.";
 "There is no Apple Music subscription on this Apple ID, so Apple Music lyrics stay hidden." = "There is no Apple Music subscription on this Apple ID, so Apple Music lyrics stay hidden.";
 "Could not check the subscription (%@). Try again later." = "Could not check the subscription (%@). Try again later.";
+"Apple Music’s privacy notice is not agreed to on this iPhone yet. Agree to it in Music, then unlock again." = "Apple Music’s privacy notice is not agreed to on this iPhone yet. Agree to it in Music, then unlock again.";
+"Open Music" = "Open Music";
 "SpringBoard did not answer" = "SpringBoard did not answer";
 "Sources are tried in the order set under Source order. NetEase lyrics are Simplified Chinese. Apple Music lyrics need an Apple Music subscription, Musixmatch lyrics the Musixmatch app: unlocking checks for them." = "Sources are tried in the order set under Source order. NetEase lyrics are Simplified Chinese. Apple Music lyrics need an Apple Music subscription, Musixmatch lyrics the Musixmatch app: unlocking checks for them.";
 "Unlock Musixmatch lyrics" = "Unlock Musixmatch lyrics";

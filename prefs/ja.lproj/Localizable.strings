@@ -101,6 +101,8 @@
 "Player over its cover" = "プレーヤーの背景をジャケットに";
 "Transparency" = "透明度";
 "Top of main page" = "メインページ上部";
+"Other pages too" = "ほかのページも同じに";
+"Other pages too puts what the main page has at its top on the other pages as well; Lyrics Island keeps its island preview and Now Playing its player." = "「ほかのページも同じに」をオンにすると、メインページ上部と同じものをほかのページの上部にも表示します。「Islandに歌詞」ページは独自のプレビュー、「再生中」ページは独自のプレーヤーのままです。";
 "Player" = "プレーヤー";
 "Island" = "Dynamic Island";
 "Hidden" = "非表示";
@@ -131,6 +133,8 @@
 "Subscription confirmed. Apple Music lyrics are unlocked and on, in Music and in other apps such as Spotify." = "サブスクリプションを確認しました。Apple Music の歌詞がロック解除されオンになりました。「ミュージック」と Spotify などほかのアプリで使えます。";
 "There is no Apple Music subscription on this Apple ID, so Apple Music lyrics stay hidden." = "この Apple ID には Apple Music のサブスクリプションがないため、Apple Music の歌詞は非表示のままです。";
 "Could not check the subscription (%@). Try again later." = "サブスクリプションを確認できませんでした（%@）。しばらくしてからもう一度お試しください。";
+"Apple Music’s privacy notice is not agreed to on this iPhone yet. Agree to it in Music, then unlock again." = "この iPhone では Apple Music のプライバシーに関する説明にまだ同意していません。「ミュージック」で同意してから、もう一度ロックを解除してください。";
+"Open Music" = "「ミュージック」を開く";
 "SpringBoard did not answer" = "SpringBoard から応答がありません";
 "Sources are tried in the order set under Source order. NetEase lyrics are Simplified Chinese. Apple Music lyrics need an Apple Music subscription, Musixmatch lyrics the Musixmatch app: unlocking checks for them." = "「ソースの順序」の順に試します。NetEase の歌詞は簡体字です。Apple Music の歌詞には Apple Music のサブスクリプション、Musixmatch の歌詞には Musixmatch アプリが必要で、ロック解除時に確認します。";
 "Unlock Musixmatch lyrics" = "Musixmatch の歌詞をロック解除";
