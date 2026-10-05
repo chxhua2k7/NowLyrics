@@ -106,6 +106,10 @@
 "Transparency" = "Transparency";
 "Top of main page" = "Top of main page";
 "Other pages too" = "Other pages too";
+"Supported Tweaks" = "Supported Tweaks";
+"Crescendo’s volume slider in the player and the island preview on these pages too." = "Crescendo’s volume slider in the player and the island preview on these pages too.";
+"NextUp 3’s Up Next row in the player and the island preview on these pages too." = "NextUp 3’s Up Next row in the player and the island preview on these pages too.";
+"Not installed." = "Not installed.";
 "Other pages too puts what the main page has at its top on the other pages as well; Lyrics Island keeps its island preview and Now Playing its player." = "Other pages too puts what the main page has at its top on the other pages as well; Lyrics Island keeps its island preview and Now Playing its player.";
 "Player" = "Player";
 "Island" = "Island";

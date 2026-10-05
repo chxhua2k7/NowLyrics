@@ -102,6 +102,10 @@
 "Transparency" = "透明度";
 "Top of main page" = "メインページ上部";
 "Other pages too" = "ほかのページも同じに";
+"Supported Tweaks" = "対応Tweak";
+"Crescendo’s volume slider in the player and the island preview on these pages too." = "これらのページのプレーヤーとIslandのプレビューにも Crescendo の音量スライダーを表示します。";
+"NextUp 3’s Up Next row in the player and the island preview on these pages too." = "これらのページのプレーヤーとIslandのプレビューにも NextUp 3 の「次はこちら」の行を表示します。";
+"Not installed." = "インストールされていません。";
 "Other pages too puts what the main page has at its top on the other pages as well; Lyrics Island keeps its island preview and Now Playing its player." = "「ほかのページも同じに」をオンにすると、メインページ上部と同じものをほかのページの上部にも表示します。「Islandに歌詞」ページは独自のプレビュー、「再生中」ページは独自のプレーヤーのままです。";
 "Player" = "プレーヤー";
 "Island" = "Dynamic Island";

@@ -73,12 +73,22 @@ static BOOL NLCrescendoPref(NSString *key, uint64_t bit, BOOL fallback) {
     return [value respondsToSelector:@selector(boolValue)] ? [value boolValue] : fallback;
 }
 
-BOOL NLCrescendoShows(NLCrescendoPlace place) {
-    if (@available(iOS 17.0, *)) return NO;   // the system's own setting, see the top
+BOOL NLCrescendoInstalled(void) {
     static BOOL installed;
     static dispatch_once_t once;
     dispatch_once(&once, ^{ installed = [[NSFileManager defaultManager] fileExistsAtPath:kNLCrescendoDylib]; });
-    if (!installed || !NLCrescendoPref(@"Enabled", 1ULL << 0, YES)) return NO;
+    return installed;
+}
+
+// Advanced › Supported Tweaks › Crescendo (on unless switched off).
+static BOOL NLCrescendoWanted(void) {
+    id on = NLReadPref(nil, @"tweakCrescendo");
+    return ![on respondsToSelector:@selector(boolValue)] || [on boolValue];
+}
+
+BOOL NLCrescendoShows(NLCrescendoPlace place) {
+    if (@available(iOS 17.0, *)) return NO;   // the system's own setting, see the top
+    if (!NLCrescendoInstalled() || !NLCrescendoWanted() || !NLCrescendoPref(@"Enabled", 1ULL << 0, YES)) return NO;
     return place == NLCrescendoLockScreen ? NLCrescendoPref(@"showLockScreen", 1ULL << 2, YES)
                                           : NLCrescendoPref(@"showDynamicIsland", 1ULL << 3, YES);
 }

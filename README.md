@@ -108,6 +108,16 @@ Sold on Havoc as `com.c3x14n.nowlyrics`; listing material in `havoc/`.
   screen does. Its iOS 17 island hooks also reach the preview's view on 16.5,
   so the preview takes that view back (`NLNextUpKeepOut`) and places a
   `NUNextUpRowView` of its own, as on the real island.
+- **Advanced › Supported Tweaks** (`Tweaks.plist`): a switch each for
+  Crescendo (`tweakCrescendo`, below iOS 17, where the system's Always Show
+  Volume Control takes over) and NextUp 3 (`tweakNextUp`, iOS 16 and later),
+  both on by default, each with the tweak's own icon (its preference bundle's)
+  and dimmed when not installed. Off, NextUp's library is not loaded, and one
+  already loaded is told it has no next track (`-[NUNextUpManager isActive]`
+  in Settings only), so the player's row goes at once.
+  On iOS 17 and later the settings player shows the volume row by Always Show
+  Volume Control (`-[MRUserSettings alwaysShowVolumeControls]`), as the lock
+  screen does; the open island has none either way.
 - **Island preview** (island settings page): with music, MediaControls'
   `MRUActivityNowPlayingViewController` (what MediaRemoteUI draws the island
   with): its leading/trailing views as cover and waveform, its open layout when

@@ -53,7 +53,7 @@ include $(THEOS_MAKE_PATH)/tweak.mk
 
 # 設定頁:prefs/ 裡是 NowLyrics.plist(entry + items)和各語言的 <lang>.lproj/Localizable.strings;
 # 子頁面(歌詞上島 Island.plist、歌詞來源 Sources.plist、進階 Advanced.plist、Apple Music AppleMusic.plist、
-# Musixmatch Musixmatch.plist)
+# Musixmatch Musixmatch.plist、支援的插件 Tweaks.plist)
 # 放在 bundle/(不在 PreferenceLoader 掃描的資料夾裡),各自的 <名稱>.strings 在 stage 時
 # 從同一份 Localizable.strings 複製進 bundle;
 # PreferenceLoader 會遞迴掃描 Preferences/ 底下所有 .plist,plist 所在的資料夾就是它的
@@ -88,7 +88,7 @@ internal-stage::
 	$(ECHO_NOTHING)sed "s/__VERSION__/$(PACKAGE_VERSION)/g" bundle/Info.plist > "$(THEOS_STAGING_DIR)/Library/PreferenceBundles/NowLyricsPrefs.bundle/Info.plist"$(ECHO_END)
 	$(ECHO_NOTHING)for lproj in prefs/*.lproj; do \
 		mkdir -p "$(THEOS_STAGING_DIR)/Library/PreferenceBundles/NowLyricsPrefs.bundle/$$(basename $$lproj)"; \
-		for page in Island Sources Advanced AppleMusic Musixmatch; do \
+		for page in Island Sources Advanced AppleMusic Musixmatch Tweaks; do \
 			cp "$$lproj/Localizable.strings" "$(THEOS_STAGING_DIR)/Library/PreferenceBundles/NowLyricsPrefs.bundle/$$(basename $$lproj)/$$page.strings"; \
 		done; \
 	done$(ECHO_END)

@@ -102,6 +102,10 @@
 "Transparency" = "透明度";
 "Top of main page" = "主页顶端";
 "Other pages too" = "其他页也一样";
+"Supported Tweaks" = "支持的插件";
+"Crescendo’s volume slider in the player and the island preview on these pages too." = "这些页面的播放器和预览岛也显示 Crescendo 的音量条。";
+"NextUp 3’s Up Next row in the player and the island preview on these pages too." = "这些页面的播放器和预览岛也显示 NextUp 3 的“接着播放”行。";
+"Not installed." = "未安装。";
 "Other pages too puts what the main page has at its top on the other pages as well; Lyrics Island keeps its island preview and Now Playing its player." = "“其他页也一样”让其他页面顶端也放主页顶端的内容；“歌词上岛”页保留它的预览岛，“正在播放”页保留它的播放器。";
 "Player" = "播放器";
 "Island" = "灵动岛";

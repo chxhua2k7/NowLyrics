@@ -70,6 +70,11 @@ English: [README.md](README.md)
 - **NextUp 3**(有裝時):在 MediaControls 之後把它的 dylib 載入設定 App,設定頁播放器就和鎖定畫面一樣
   有「接著播放」列。它給 iOS 17 島的 hook 在 16.5 也會碰到預覽的 view,所以預覽把那個 view 收回來
   (`NLNextUpKeepOut`),自己照真正的島放一條 `NUNextUpRowView`。
+- **進階 › 支援的插件**(`Tweaks.plist`):Crescendo(`tweakCrescendo`,iOS 17 以下;17 起改由系統的
+  「永遠顯示音量控制」)和 NextUp 3(`tweakNextUp`,iOS 16 起)各一個開關,預設開,圖示用插件自己的(它的偏好設定
+  bundle 裡的),沒裝的會變灰。關掉 NextUp 就不載入它的 dylib;已經載入的,只在設定 App 裡讓它以為沒有下一首
+  (`-[NUNextUpManager isActive]`),播放器的列馬上消失。iOS 17 起設定頁播放器照「永遠顯示音量控制」
+  (`-[MRUserSettings alwaysShowVolumeControls]`)顯示音量列,和鎖定畫面一樣;展開的島兩種情況都沒有。
 - **歌詞上島頁的預覽**:有音樂時用 MediaControls 的 `MRUActivityNowPlayingViewController`(MediaRemoteUI
   畫島的同一個),封面、聲波是它的 leading/trailing view,展開是它的展開版面;設定 App 沒有島的宿主,
   所以 `-[UIView SBUISA_layoutMode]` 與鏡頭的 layout guide 由預覽代答(只限膠囊裡的 view)。聲波的

@@ -147,6 +147,7 @@ NSString *NLSourceTitle(NSString *name);   // the same, its title, localized
 // players on these pages, while Crescendo is installed and wants it there.
 typedef NS_ENUM(NSInteger, NLCrescendoPlace) { NLCrescendoLockScreen, NLCrescendoDynamicIsland };
 BOOL NLCrescendoShows(NLCrescendoPlace place);
+BOOL NLCrescendoInstalled(void);
 BOOL NLCrescendoSyncPlayer(UIViewController *platter);   // YES when it changed the player
 // The settings player's height as it asks for it, with what tweaks add to
 // -[MRUNowPlayingView sizeThatFits:] (Crescendo, NextUp 3). 0 without a player.

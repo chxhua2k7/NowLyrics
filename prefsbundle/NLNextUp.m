@@ -45,7 +45,35 @@ BOOL NLNextUpInstalled(void) {
     return installed;
 }
 
+// Advanced › Supported Tweaks › NextUp 3 (on unless switched off). Once its
+// library is in, its own hooks give the player its row until Settings quits.
+static BOOL NLNextUpWanted(void) {
+    id on = NLReadPref(nil, @"tweakNextUp");
+    return ![on respondsToSelector:@selector(boolValue)] || [on boolValue];
+}
+
+@interface NSObject (NLNextUp)
++ (instancetype)sharedManager;
+- (BOOL)isActive;
+@end
+
+// Switched off with its library already in, which cannot be taken out again:
+// its manager says it has no next track here, which its own row and the
+// player's size go by, so they go as well (Settings only; SpringBoard's
+// NextUp is untouched).
+static BOOL (*gIsActive)(id, SEL);
+static BOOL NLIsActive(id self, SEL _cmd) {
+    return NLNextUpWanted() && gIsActive(self, _cmd);
+}
+
+static void NLHookManager(void) {
+    Class manager = objc_getClass("NUNextUpManager");
+    Method isActive = manager ? class_getInstanceMethod(manager, @selector(isActive)) : NULL;
+    if (isActive) gIsActive = (BOOL (*)(id, SEL))method_setImplementation(isActive, (IMP)NLIsActive);
+}
+
 void NLNextUpLoad(void) {
+    if (!NLNextUpWanted()) return;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         // Its rows here were made against iOS 16's player and island.
@@ -53,18 +81,14 @@ void NLNextUpLoad(void) {
         if (!NLNextUpInstalled()) return;
         dlopen("/System/Library/PrivateFrameworks/MediaControls.framework/MediaControls", RTLD_NOW);
         dlopen(kNLNextUpDylib.fileSystemRepresentation, RTLD_NOW);
+        NLHookManager();
     });
 }
 
 BOOL NLNextUpShowsInIsland(void) {
-    if (!NLNextUpInstalled() || !NLNextUpPref(@"Enabled", 1ULL << 0, YES)) return NO;
+    if (!NLNextUpInstalled() || !NLNextUpWanted() || !NLNextUpPref(@"Enabled", 1ULL << 0, YES)) return NO;
     return NLNextUpPref(@"showDynamicIsland", 1ULL << 4, YES);
 }
-
-@interface NSObject (NLNextUp)
-+ (instancetype)sharedManager;
-- (BOOL)isActive;
-@end
 
 // NextUp's manager: whether there is a next track to show for what plays.
 BOOL NLNextUpActive(void) {

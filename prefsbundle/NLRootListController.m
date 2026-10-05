@@ -155,11 +155,31 @@ UIImage *NLRowIcon(NSString *app, NSString *symbol, NSString *hex) {
     return NLSettingsIcon(symbol, hex);
 }
 
+// A tweak's own icon at a row icon's size.
+static UIImage *NLRowSized(UIImage *image) {
+    if (fabs(image.size.width - kNLIconSize) < 0.5 && fabs(image.size.height - kNLIconSize) < 0.5) return image;
+    CGRect tile = CGRectMake(0, 0, kNLIconSize, kNLIconSize);
+    return [[[UIGraphicsImageRenderer alloc] initWithSize:tile.size] imageWithActions:^(UIGraphicsImageRendererContext *context) {
+        [image drawInRect:tile];
+    }];
+}
+
 static void NLApplyIcon(PSSpecifier *specifier) {
     if ([specifier propertyForKey:PSIconImageKey]) return;   // drawn already, or a real image from the plist
     if ([[specifier propertyForKey:@"iconDrawn"] isEqual:@"sampleCover"]) {
         [specifier setProperty:NLSampleCoverIcon() forKey:PSIconImageKey];
         return;
+    }
+    // `iconBundle`: a tweak's own icon, the "icon" of its preference bundle (a
+    // jailbreak path), as its own Settings row has it. Not installed: the symbol.
+    NSString *tweakBundle = [specifier propertyForKey:@"iconBundle"];
+    if ([tweakBundle isKindOfClass:NSString.class]) {
+        NSBundle *bundle = [NSBundle bundleWithPath:NLJBPath(tweakBundle)];
+        UIImage *image = bundle ? [UIImage imageNamed:@"icon" inBundle:bundle compatibleWithTraitCollection:nil] : nil;
+        if (image) {
+            [specifier setProperty:NLRowSized(image) forKey:PSIconImageKey];
+            return;
+        }
     }
     // `iconApp`: the installed app's own icon (the 29 pt "small" format), so the
     // row matches what the user sees on the home screen. Falls back to the symbol.
@@ -203,6 +223,19 @@ NSString *NLMainPageTop(PSListController *controller) {
     return [value isEqual:@"island"] || [value isEqual:@"none"] ? value : @"player";
 }
 
+// Advanced › Supported Tweaks: Crescendo's slider is the system's own from
+// iOS 17 on (NLCrescendo.m), and NextUp's rows here were made against iOS 16
+// (NLNextUp.m).
+static BOOL NLCrescendoUsed(void) {
+    if (@available(iOS 17.0, *)) return NO;
+    return YES;
+}
+
+static BOOL NLNextUpUsed(void) {
+    if (@available(iOS 16.0, *)) return YES;
+    return NO;
+}
+
 static BOOL NLSpecifierWanted(PSListController *controller, NSArray<PSSpecifier *> *all, PSSpecifier *specifier) {
     for (NSString *rule in NLShowIfKeys(specifier)) {
         NSString *key = NLShowIfKey(rule);
@@ -210,6 +243,8 @@ static BOOL NLSpecifierWanted(PSListController *controller, NSArray<PSSpecifier 
         // What this iOS can do, or what the main page's top shows, rather than a switch.
         id value = [key isEqualToString:@"nlAppleMusicAvailable"] ? @(NLAppleMusicAvailable())
                  : [key isEqualToString:@"nlPlayerTintAvailable"] ? @(NLPlayerTintAvailable())
+                 : [key isEqualToString:@"nlCrescendoUsed"] ? @(NLCrescendoUsed())
+                 : [key isEqualToString:@"nlNextUpUsed"] ? @(NLNextUpUsed())
                  : [key isEqualToString:@"nlHeaderIsland"] ? @([NLMainPageTop(controller) isEqualToString:@"island"])
                  : control ? [controller readPreferenceValue:control]
                            : NLReadPref(nil, key);
@@ -633,6 +668,25 @@ static BOOL NLSameRows(NSArray<PSSpecifier *> *a, NSArray<PSSpecifier *> *b) {
     return YES;
 }
 
+// Supported Tweaks: a tweak that is not installed has its switch dimmed, and
+// its group says so.
+static void NLMarkMissingTweaks(NSArray<PSSpecifier *> *all) {
+    PSSpecifier *group = nil;
+    for (PSSpecifier *s in all) {
+        if (s.cellType == PSGroupCell) group = s;
+        NSString *tweak = [s propertyForKey:@"nlTweak"];
+        if (![tweak isKindOfClass:NSString.class]) continue;
+        BOOL installed = [tweak isEqualToString:@"crescendo"] ? NLCrescendoInstalled()
+                       : [tweak isEqualToString:@"nextup"] ? NLNextUpInstalled() : YES;
+        if (installed || [[s propertyForKey:@"nlMarkedMissing"] boolValue]) continue;
+        [s setProperty:@YES forKey:@"nlMarkedMissing"];
+        [s setProperty:@NO forKey:@"enabled"];
+        NSString *had = [group propertyForKey:@"footerText"];
+        NSString *note = NLL(@"Not installed.");
+        if (group) [group setProperty:had.length ? [NSString stringWithFormat:@"%@ %@", had, note] : note forKey:@"footerText"];
+    }
+}
+
 @implementation NLSubListController {
     NSArray<PSSpecifier *> *_allSpecifiers;
     NLPageTop *_pageTop;   // the top as the main page's (Advanced › Other pages too)
@@ -666,6 +720,7 @@ static BOOL NLSameRows(NSArray<PSSpecifier *> *a, NSArray<PSSpecifier *> *b) {
         NSArray<PSSpecifier *> *all = nil;
         _specifiers = NLPrepareSpecifiers(self, NLInSourceOrder(self, loaded), &all);
         _allSpecifiers = all;
+        NLMarkMissingTweaks(all);
     }
     return _specifiers;
 }
@@ -702,6 +757,13 @@ static BOOL NLSameRows(NSArray<PSSpecifier *> *a, NSArray<PSSpecifier *> *b) {
     // Advanced › Top of main page or Other pages too: this page's top at once.
     NSString *key = [specifier propertyForKey:@"key"];
     if ([key isEqual:@"topOnEveryPage"] || [key isEqual:@"pageHeader"]) [_pageTop update];
+    // Supported Tweaks: the players and island previews take their rows in or
+    // out now (NextUp's own views and our players redo theirs on its notice).
+    if ([key isEqual:@"tweakCrescendo"] || [key isEqual:@"tweakNextUp"]) {
+        [[NSNotificationCenter defaultCenter] postNotificationName:@"NUNextUpDidChangeNotification" object:nil];
+        [[NSNotificationCenter defaultCenter] postNotificationName:NLIslandPreviewChangedNotification object:self];
+        [_pageTop layout];
+    }
 }
 
 // After Apple Music or Musixmatch was unlocked or locked: their rows, and

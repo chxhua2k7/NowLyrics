@@ -3,6 +3,12 @@
 - **Transparency** for Player over its cover (Advanced, default 50 %): the cover and the system's material under it thin together, so the wallpaper shows through on the lock screen and in Control Center
 - **Choose Apps** filter: music apps only (the default: the App Store's Music category, Music, Podcasts and apps already chosen) or all apps, from the button at the top right
 - **Preview island** option on the Lyrics Island page: Compact, Expanded, or Auto compact (opens, then closes after 5 s left alone)
+- **Other pages too** (Advanced, on by default): the other pages show what the top of the main page shows, the player, the island preview or nothing; Lyrics Island keeps its own preview and Now Playing its player
+- **Supported Tweaks** (Advanced): a switch each for Crescendo and NextUp 3, with their own icons, for their volume slider and Up Next row in the player and the island preview on these pages
+- The player in Settings sits on a background as it does on the lock screen: glass on iOS 26, the system's material on earlier iOS; Player over its cover lies over it
+- iOS 17 and later: the player in Settings shows the volume slider when Always Show Volume Control is on, as the lock screen does
+- iOS 26: Player over its cover and its transparency are hidden, as the lock screen and Control Center keep the system's look there; the open island preview no longer touches the row below it
+- Apple Music: when its privacy notice has not been agreed to on this iPhone, unlocking asks you to agree in Music first instead of Apple's sheet appearing over the screen, and no Apple Music lyrics are fetched until then
 - Lyrics Sources: Source order sits in a group of its own
 - Added more bugs to fix later
 
