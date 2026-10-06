@@ -421,12 +421,14 @@ static __weak NLIslandPreviewCell *gIslandOwner;
 // Where the island's centre goes for a given size: its top right under the
 // navigation bar (or centred in the row before it is in the table), centred
 // on the page, as the real one is on the screen (the row's card is not quite
-// centred).
+// centred). The page is what the safe area leaves: a sidebar floating over
+// the table (iPad Settings, iOS 26) takes its side.
 - (CGPoint)nlPillCentre:(CGSize)size {
     UIView *host = _pill.superview ?: self.contentView;
     CGPoint top;
     if ([host isKindOfClass:UITableView.class]) {
-        top = CGPointMake(round(host.bounds.size.width) / 2, kNLTopMargin);
+        UIEdgeInsets safe = host.safeAreaInsets;
+        top = CGPointMake(safe.left + round(host.bounds.size.width - safe.left - safe.right) / 2, kNLTopMargin);
     } else {
         CGRect b = self.contentView.bounds;
         top = [self.contentView convertPoint:CGPointMake(round(CGRectGetMidX(b)), round(CGRectGetMidY(b) - kNLCompact.height / 2))

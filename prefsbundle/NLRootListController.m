@@ -33,6 +33,7 @@
 
 #import <libprefs/prefs.h>
 #import <dlfcn.h>
+#import <notify.h>
 #import <objc/message.h>
 #import <objc/runtime.h>
 #import <sys/stat.h>
@@ -330,16 +331,23 @@ static BOOL NLRowsFollowingOutOfStep(PSListController *controller, NSArray<PSSpe
 
 #pragma mark - Lyrics Island
 
-// Whether this iPhone has a Dynamic Island, as SpringBoard decides it:
-// SpringBoardServices' SBSIsSystemApertureAvailable (iOS 16 and later), which
-// goes by the artwork subtype MobileGestalt reports, so an iPhone made to show
-// the island by changing that (iOS 16) counts too. Without that function, a
-// status bar taller than a notch's (59 pt and up with the island, 44 to 50
-// with a notch); not known yet (no window) counts as yes, so the note below
-// never shows by mistake.
+// Whether this device shows the Dynamic Island: what SpringBoard found once it
+// had finished launching (NL_ISLAND_STATE_NAME), which counts an island given
+// by other means (a MobileGestalt edit, a tweak in SpringBoard), on an iPad
+// too. Until SpringBoard has said (installed, not yet resprung), as
+// SpringBoard decides it in this process: SpringBoardServices'
+// SBSIsSystemApertureAvailable (iOS 16 and later), which goes by what
+// MobileGestalt reports, so a device made to show the island by changing that
+// counts too. Without that function, a status bar taller than a notch's (59 pt
+// and up with the island, 44 to 50 with a notch); not known yet (no window)
+// counts as yes, so the note below never shows by mistake.
 static BOOL NLDeviceHasDynamicIsland(void) {
     if (@available(iOS 16.0, *)) {} else return NO;
-    if (UIDevice.currentDevice.userInterfaceIdiom != UIUserInterfaceIdiomPhone) return NO;
+    static int token = -1;
+    if (token == -1 && notify_register_check(NL_ISLAND_STATE_NAME, &token) != NOTIFY_STATUS_OK) token = -2;
+    uint64_t state = 0;
+    if (token >= 0) notify_get_state(token, &state);
+    if (state == kNLIslandPresent || state == kNLIslandAbsent) return state == kNLIslandPresent;
     static BOOL (*available)(void);
     static BOOL has;
     static dispatch_once_t once;

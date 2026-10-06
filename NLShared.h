@@ -104,6 +104,15 @@ static inline NSString *NLStatusSource(NSString *status) {
 // identifier) and the player's group in the lock screen's notification list.
 #define NL_MEDIAREMOTEUI_ID @"com.apple.MediaRemoteUI"
 
+// Whether SpringBoard shows the Dynamic Island, as it found once it had
+// finished launching (NowLyricsIsland.x), for the settings page: the notify
+// state of this name, 0 until SpringBoard has said. SpringBoard's own answer
+// counts an island given by other means too (a MobileGestalt edit, a tweak
+// in SpringBoard), on an iPad as well.
+#define NL_ISLAND_STATE_NAME "app.nowlyrics.island"
+static const uint64_t kNLIslandAbsent = 1;
+static const uint64_t kNLIslandPresent = 2;
+
 // A value made once, on first use, by one expression (a compiled regex, a
 // character set, a constant collection, a looked-up function); thread-safe.
 // Variadic so the commas of array and dictionary literals pass through.

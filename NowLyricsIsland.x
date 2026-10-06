@@ -34,6 +34,7 @@
 //
 
 #import <UIKit/UIKit.h>
+#import <notify.h>
 #import <objc/runtime.h>
 #import "NLShared.h"
 #import "NLIslandStrip.h"
@@ -651,6 +652,27 @@ static NSString *NLIInsets(NSDirectionalEdgeInsets i) {
     %orig;
     if (!gSettings.on) return;
     dispatch_async(dispatch_get_main_queue(), ^{ NLIslandRefreshInfo(); });
+}
+%end
+
+// The settings page asks SpringBoard rather than its own process whether
+// there is an island (NL_ISLAND_STATE_NAME), so one given by other means (a
+// MobileGestalt edit, a tweak in SpringBoard) counts, on any device. Asked
+// only once SpringBoard has finished launching: SpringBoardServices keeps the
+// answer for the process the first time it is asked, and a tweak giving the
+// island has hooked what it needs by then. The token stays registered, so the
+// state lasts while SpringBoard runs.
+static void NLIslandPublishAvailability(void) {
+    static int token = -1;
+    if (token == -1 && notify_register_check(NL_ISLAND_STATE_NAME, &token) != NOTIFY_STATUS_OK) return;
+    BOOL (*available)(void) = (BOOL (*)(void))dlsym(RTLD_DEFAULT, "SBSIsSystemApertureAvailable");
+    notify_set_state(token, available && available() ? kNLIslandPresent : kNLIslandAbsent);
+}
+
+%hook SpringBoard
+- (void)applicationDidFinishLaunching:(id)application {
+    %orig;
+    NLIslandPublishAvailability();
 }
 %end
 

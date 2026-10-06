@@ -170,12 +170,13 @@ static void NLSetTableHeader(UITableView *table, UIView *header, CGFloat height)
 }
 
 // Inset like the table's cards, as tall as it asks to be, with room above it
-// and before the first card.
+// and before the first card. The two sides' margins differ where a sidebar
+// floats over the table (iPad Settings, iOS 26): the left one covers it.
 - (void)layout {
     UITableView *table = _table;
     if (!_platter || !table) return;
-    CGFloat inset = table.layoutMargins.left;
-    CGFloat width = MAX(table.bounds.size.width - inset * 2, 0);
+    UIEdgeInsets margins = table.layoutMargins;
+    CGFloat width = MAX(table.bounds.size.width - margins.left - margins.right, 0);
     NLCrescendoSyncPlayer(_platter);
     // The player's own size, with what tweaks add to it (Crescendo's volume row,
     // NextUp's Up Next row: both grow -[MRUNowPlayingView sizeThatFits:]).
@@ -183,7 +184,7 @@ static void NLSetTableHeader(UITableView *table, UIView *header, CGFloat height)
     if (height < 60) height = _platter.preferredContentSize.height;
     if (height < 60) height = [_platter.view systemLayoutSizeFittingSize:CGSizeMake(width, UILayoutFittingCompressedSize.height)].height;
     if (height < 60) height = 200;
-    CGRect frame = CGRectMake(inset, 16, width, height);
+    CGRect frame = CGRectMake(margins.left, 16, width, height);
     if (!CGRectEqualToRect(_platter.view.frame, frame)) _platter.view.frame = frame;
     NLSetTableHeader(table, _host, 16 + height + 24);
     [_platter.view layoutIfNeeded];
