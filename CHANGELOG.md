@@ -69,18 +69,23 @@
 
 ## 1.1.2
 
-- Lyrics in the island: on iOS 17 and later the line waits until the island has settled (no more sideways shake on iOS 26)
-- Lyrics in the island: the line steps aside while another element, such as Face ID, uses the island
-- Long lines: the first and last characters are no longer eaten by the faded edges
-- Lyrics in Spotify and other apps no longer change half a second late
-- The lyrics clock no longer jumps back when an app publishes NowLyrics' own update again
-- An app updating its now-playing info from another thread is no longer let through with its raw title
-- Fixed a rare crash in music apps when the settings changed while the lyrics updated
-- Musixmatch: the lyrics timed to the version playing (single, album, radio edit) are picked
-- iPhones without the Dynamic Island get a note that Lyrics in the island needs one (iOS 16 iPhones given the island through MobileGestalt count as having it)
-- Settings icons missing on older iOS show a stand-in
-- On iOS 18 and later the settings page needs PreferenceLoader 2.2.8 and is under Settings › General
-- Added more bugs to fix later
+### Features
+
+- Works with iOS 18 and later: the settings page is under Settings › General (needs PreferenceLoader 2.2.8)
+- Musixmatch picks the lyrics that match the version you are playing (single, album or radio edit)
+- On iPhones without the Dynamic Island, the island settings explain that Lyrics in the island needs one (iPhones given the island by a tweak count as having it)
+
+### Fixes
+
+- Lyrics in the island no longer shake sideways as they appear (iOS 17 and later)
+- Lyrics in the island make way when Face ID or something else uses the island
+- Long lines no longer lose their first and last letters at the faded edges
+- Lyrics in Spotify and other apps change on time instead of half a second late
+- Lyrics no longer jump back now and then
+- The real song title no longer flashes up in place of the lyrics in some apps
+- Fixed a rare crash in music apps when changing a setting
+- Settings icons no longer go missing on older iOS
+- Added more bugs to fix later D:
 
 ## 1.1.1
 
