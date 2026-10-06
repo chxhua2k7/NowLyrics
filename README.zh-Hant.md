@@ -9,7 +9,7 @@
 支援 Spotify、Apple Music，以及任何會在鎖定畫面顯示播放資訊的播放器。歌詞來源有
 Apple Music（需訂閱）、Musixmatch、LRCLIB 和網易雲音樂。
 
-目前版本：**1.2.3** · [更新紀錄](CHANGELOG.md) · English: [README.md](README.md)
+目前版本：**1.2.4** · [更新紀錄](CHANGELOG.md) · English: [README.md](README.md)
 
 ## 功能
 

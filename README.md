@@ -11,7 +11,7 @@ Works with Spotify, Apple Music and any player that shows what it plays on the
 lock screen. Lyrics come from Apple Music (with a subscription), Musixmatch,
 LRCLIB and NetEase Cloud Music.
 
-Current version: **1.2.3** · [Changelog](CHANGELOG.md) · 繁體中文說明:[README.zh-Hant.md](README.zh-Hant.md)
+Current version: **1.2.4** · [Changelog](CHANGELOG.md) · 繁體中文說明:[README.zh-Hant.md](README.zh-Hant.md)
 
 ## Features
 

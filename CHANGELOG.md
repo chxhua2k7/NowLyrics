@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.4
+
+- Settings: the notes under Advanced and Lyrics Island now say how Quit app on change works (it quits the music app only when a setting it uses changes) and where word-by-word lyrics come from (Apple Music, Musixmatch or NetEase where they have them, or TTML and word-by-word LRC you add)
+- Added more bugs to fix later
+
 ## 1.2.3
 
 - **Apple Music subscription** is checked only when something changes, not once a day: when Apple Music reports a change, after a respring, and when Apple Music lyrics are refused. Signing out of Media & Purchases locks Apple Music like a lapsed subscription, and unlocking then asks you to sign in first
