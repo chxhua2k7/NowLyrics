@@ -2,182 +2,183 @@
 
 <img src="logo/NowLyrics-1024.png" width="128" alt="NowLyrics">
 
-Synced lyrics on the lock screen, Control Center, Dynamic Island and CarPlay,
-for Spotify, Apple Music and other players.
+While a song plays, NowLyrics puts the line being sung **in place of the track
+title** on the lock screen, in Control Center, the Dynamic Island and CarPlay,
+so the words follow the music without opening anything. Optionally it adds a
+strip with the current line under the Dynamic Island, lit up word by word.
 
-Inspired by [Lessica/AMLyrics](https://github.com/Lessica/AMLyrics), but built
-on a different foundation.
+Works with Spotify, Apple Music and any player that shows what it plays on the
+lock screen. Lyrics come from Apple Music (with a subscription), Musixmatch,
+LRCLIB and NetEase Cloud Music.
 
-繁體中文說明:[README.zh-Hant.md](README.zh-Hant.md)
+Current version: **1.2.3** · [Changelog](CHANGELOG.md) · 繁體中文說明:[README.zh-Hant.md](README.zh-Hant.md)
 
-## How it differs from AMLyrics
+## Features
 
-| | AMLyrics | NowLyrics |
+- **Lyrics in place of the title**: lock screen, Control Center, Dynamic
+  Island and CarPlay. The artist field can keep the track and artist, show the
+  next line, or stay as the player set it.
+- **Lyrics Island**: the current line at the bottom of the compact Dynamic
+  Island, which grows down to the status bar's edge. White or album color, a
+  fade or scroll-up line change, adjustable font size and scroll speed. Long
+  lines scroll, and lyrics with word times light up word by word as they are
+  sung. A live preview on its settings page shows every change at once.
+- **Four lyrics sources**, tried in the order you drag them into: Apple Music,
+  Musixmatch, LRCLIB and NetEase. When one has nothing, the next fills in.
+- **Now Playing page** in Settings: the lock screen's player, where the song's
+  lyrics came from (or why each source found none), a source picked for this
+  song, and this song's own offset.
+- **Your own lyrics**: paste them or import them from Files (LRC, word-by-word
+  LRC, Apple Music / AMLL TTML); lyrics you add win over every source.
+- **Lyrics Library**: every saved song by app, searchable; view, edit and
+  delete, or clear the cache (lyrics you added are kept).
+- **Player over its cover**: the player on the lock screen, in Control Center
+  and in Settings sits on its cover, blurred and darkened, with adjustable
+  transparency (iOS 15–18).
+- **Offset**: a default for every song and one per song, −3 s to +3 s, applied
+  as you drag; or type an exact value such as `0.25` or `-300ms`.
+- **Hide explicit badge**: drops the "E" that would follow the lyric line.
+- **Spotify Connect**: "Track • Artist / Playing on …" is turned back into the
+  real title and artist.
+- **Other tweaks**: Crescendo's volume slider and NextUp 3's Up Next row also
+  show in the player and the island preview in Settings. Tweaks that show the
+  now-playing title, such as Letterpress, show the lyric line too.
+- **Settings in four languages**: English, 繁體中文, 简体中文 and 日本語.
+
+## Supported apps
+
+- **Spotify** and **Apple Music**: full support.
+- **YouTube Music, KKBOX, SoundCloud, TIDAL, Deezer, Amazon Music**: on by
+  default, through the system's now-playing info.
+- **Any other player** that shows what it plays on the lock screen: pick it
+  under Choose Apps, which lists music apps (or, with its filter, all apps).
+
+## Lyrics sources
+
+| Source | Needs | Notes |
 |---|---|---|
-| Lyrics source | Apple's official `syllable-lyrics` (TTML) | Musixmatch → LRCLIB → NetEase, selectable |
-| How it is fetched | Hooks `ICURLSession` to reuse MusicKit's authenticated session | No auth needed, plain HTTPS |
-| Track identity | `iTunesStoreIdentifier` / `lyricsAdamID` | Title + artist + duration matching |
-| Parsing | Private `MSVLyricsTTMLParser` | Built-in LRC parser |
-| Hook target | `MRNowPlayingPlayerClient`, `MPNowPlayingContentItem` | `MPNowPlayingInfoCenter` (third-party players), `MPNowPlayingContentItem` (Music) |
-| Granularity | Per syllable | Per line |
+| **Apple Music** | An Apple Music subscription, iOS 16 or later | Apple's own lyrics in your region's store text (Traditional Chinese in Taiwan), word by word where Apple has it. Works in Music and, through SpringBoard, in Spotify and other apps |
+| **Musixmatch** | The Musixmatch app, then its User Token or your own API key | The largest catalogue, much of it word by word |
+| **LRCLIB** | Nothing | On by default |
+| **NetEase Cloud Music** | Nothing | On by default; lyrics are Simplified Chinese |
 
-The hook target is the important difference. Apple Music is a system app with
-stable class names; Spotify's player classes are obfuscated and change every few
-weeks. NowLyrics never touches the host app's own code — it hooks
-`-[MPNowPlayingInfoCenter setNowPlayingInfo:]`, a public API that any player
-displaying lock screen information must call. As a side effect it works with any
-player, not just Spotify.
+**Apple Music lyrics** stay hidden until you unlock them: Lyrics Sources ›
+Unlock Apple Music lyrics checks your subscription. Agree to Apple Music's
+privacy notice in the Music app first, and be signed in under Settings › your
+name › Media & Purchases. The subscription is checked again only when
+something changes: when Apple Music reports a change, after a respring, and
+when Apple Music refuses a lyrics request. A lapsed subscription, or signing
+out of Media & Purchases, locks Apple Music again and NowLyrics carries on with
+the other sources. In other apps the song is found on Apple Music by title,
+artist and length; Test with the song playing shows each step.
 
-Apple Music is the one player that never calls that method: it hands MediaPlayer
-a content item and MediaRemote reads the metadata out of that object. Inside
-Music the same engine therefore edits the content item instead, the way
-[AMLyrics](https://github.com/Lessica/AMLyrics) does; see "How it works".
-
-## How it works
-
-1. When `setNowPlayingInfo:` is called, the original call passes through
-   untouched; the title, artist, album, duration, elapsed time and playback rate
-   are then read on the main queue.
-2. On a track change (a new title + artist; the duration is used only to
-   check catalogue hits, since players report it a second or two apart from
-   one play to the next), lyrics are resolved: manual override → on-disk cache
-   → Musixmatch → LRCLIB → NetEase. A preferred source, if one is set, moves to
-   the front of that order. A track published without a duration yet is waited
-   for.
-3. Players only report progress on play, pause and seek, so the position in
-   between is extrapolated: `elapsed + (CACurrentMediaTime() - anchor) * rate`.
-4. At each line boundary a `dispatch_after` fires, writes that line into
-   `MPMediaItemPropertyTitle` and, depending on the Artist field setting, puts
-   the track credit or the next line into the artist field.
-   `elapsedPlaybackTime` is refreshed at the same time, otherwise the scrubber
-   would jump back.
-
-Inside Music (`com.apple.Music`) steps 1 and 4 look different, the rest is
-shared:
-
-- Music's playback engine owns an `MPNowPlayingContentItem` and keeps its
-  elapsed time current, so the item's setters (`setElapsedTime:playbackRate:`,
-  `setTitle:`, `setTrackArtistName:`, `setDuration:`) are hooked. Whatever the
-  app writes there is the real title and artist; the item that receives
-  progress updates is the one being played.
-- Publishing means writing the current line into the item's own `title` and the
-  credit into `trackArtistName`, then re-anchoring its elapsed time, which is
-  what makes MediaPlayer republish. Nothing is written when the item already
-  shows what it should, so the change notifications this raises cannot loop.
-- Switching Music off in the app picker puts the real title back, since unlike
-  the dictionary path nothing else will.
-
-Which path a process gets is decided in `%ctor` from the bundle identifier
-(`kNLContentItemBundles`); the two hook groups are never installed together.
+**Musixmatch** is unlocked once the Musixmatch app is installed. Paste its
+debug info into User Token (in the Musixmatch app: Settings → Get help → Copy
+debug info), or enter an API key of your own. The User Token identifies your
+Musixmatch account, so treat it like a password.
 
 ## Settings
 
-A NowLyrics entry appears in Settings. The page follows the device language
-(English, Traditional Chinese, Simplified Chinese, Japanese); the footers are
-deliberately short, this file has the details.
+NowLyrics has its own page in Settings (on iOS 18 and later at the bottom of
+Settings › General). **Apply** at the top right restarts SpringBoard; it is
+needed once after installing, for what runs there: Lyrics Island, Player over
+its cover and Apple Music lyrics in other apps. Everything else applies at
+once.
 
-- **Enabled** — master switch.
-- **Apps** — a full app list from AltList with a search bar. Applies live.
-  Until the picker has been used once, a built-in default list applies: Apple
-  Music, Spotify, YouTube Music, KKBOX, SoundCloud, TIDAL, Deezer and Amazon
-  Music. A list saved before 2.11 does not gain Music by itself; tick it.
-- **Display** — *Artist field*: what goes in the artist field while a lyric
-  line occupies the title (the track credit `Track — Artist`, the next lyric
-  line, or whatever the player set). *Offset*: global lyrics offset from −3 s
-  to +3 s; drag the slider (0.1 s steps, applied as you drag) or tap the value
-  and type one, e.g. `0.25` or `-300ms`. Positive means earlier. To nudge a
-  single track instead, edit the `[offset:±ms]` tag at the top of its cached
-  `.lrc`; the two add up.
-- **Lyrics Sources** — Musixmatch / LRCLIB / NetEase, each independently
-  switchable, plus a preferred source that is tried first; the rest keep the
-  order Musixmatch → LRCLIB → NetEase. LRCLIB and NetEase are on by default,
-  Musixmatch is off and needs either a User Token (paste the Musixmatch app's
-  "Copy debug info" block; it identifies your account, so treat it like a
-  password) or a developer API key, which is only used without a token.
-- **Advanced** — *Diagnostics* appends the source that answered to the artist
-  field, or, when nothing was found, what each source said (e.g. `LRCLIB 3
-  timed, duration off by 41s · NetEase nothing under this title`; "nothing under
-  this title" means no catalogue entry, "duration off" a length mismatch, "will
-  retry" a timed-out request). *Quit app on change* terminates the host app on
-  every settings change, which is rarely needed since everything applies live.
-  *Clear lyrics cache* deletes the downloaded lyrics in every app.
-- **About** — the installed version.
+- **Enabled** and **Choose Apps**: the main switch and the apps NowLyrics
+  works in.
+- **Now Playing**: the song playing now. Artist field, Hide explicit badge and
+  this song's Offset; Auto or a source picked for this song; Paste lyrics,
+  Import from Files, Remove added lyrics, and View and edit for the lyrics in
+  use.
+- **Lyrics Island**: Enabled, Preview what's playing, Preview island (Compact,
+  Expanded or Auto compact), Lyrics color (White or Album color), Line change
+  (Fade or Scroll up), Word by word, Font size, Scroll speed. The preview at
+  the top works like the real island: tap or hold it.
+- **Lyrics Sources**: Lyrics Library, Source order, Apple Music lyrics (with
+  Use in other apps and a test), Musixmatch, LRCLIB and NetEase Music.
+- **Advanced**:
+  - Default offset;
+  - Top of main page (Player, Island or Hidden), and Other pages too to put
+    the same at the top of the other pages;
+  - Player over its cover and Transparency;
+  - Supported Tweaks (Crescendo, NextUp 3);
+  - Diagnostics (the source that answered, in the artist field);
+  - Quit app on change (quits the music app when a setting it uses changes);
+  - Fix Spotify Connect titles.
 
-Changes post a Darwin notification (`app.nowlyrics/ReloadPrefs`), so they take
-effect without relaunching anything. Changing the sources also clears the
-in-memory cache; the on-disk cache is kept.
+## Adding your own lyrics
 
-## Supplying your own lyrics
+The easiest way is Settings › NowLyrics › Now Playing while the song plays:
+**Paste lyrics** (copy LRC or TTML first) or **Import from Files**. Lyrics you
+add are used before every source until you remove them.
 
-Matching is string-based, so live takes, remasters and obscure tracks will fail —
-the entry simply is not in the catalogue and no tuning changes that. Drop a `.lrc`
-into the target app's container instead:
+By hand: put an `.lrc` file named `Title - Artist.lrc` (or `Title.lrc`) into
+the app's container, under `Library/NowLyrics/manual/`. An `[offset:±ms]` tag
+at the top shifts that one song. Lyrics fetched online are kept per app in
+`Library/NowLyrics/` (at most 300 songs per app) and can be edited in the
+Lyrics Library.
 
-```
-Library/NowLyrics/manual/
-```
+## Requirements and install
 
-Name it `Title - Artist.lrc` or `Title.lrc` (both cases are tried, duration is
-ignored). Manual lyrics take priority over every online source and are never
-overwritten by the cache.
+- **iOS 15.0 – 26.1**, rootless jailbreak (Dopamine, palera1n), arm64 and arm64e.
+- **AltList**, installed automatically with NowLyrics.
+- **iOS 18 and later**: PreferenceLoader 2.2.8 from
+  [dhinakg's repo](https://dhinakg.github.io/repo/), which the settings page
+  needs there.
+- Cannot be installed alongside **AMLyrics**: both rewrite the same Apple Music
+  item.
 
-Fetched lyrics are cached one level up, in `Library/NowLyrics/`, as `.lrc`
-files named after the track, so they can be found and hand-edited. An
-`[offset:±ms]` tag at the top of such a file shifts that one track. The folder
-keeps at most 300 files per app, oldest out first. *Clear lyrics cache* in the
-settings records the time of the tap; each app deletes the files older than
-that, at once if it is running and otherwise when it is next launched.
+NowLyrics is sold on [Havoc](https://havoc.app): add the Havoc repo in your
+package manager, buy NowLyrics and install it, then tap **Apply** on its
+settings page once.
+
+## Troubleshooting
+
+- **No lyrics for a song**: open Settings › NowLyrics › Now Playing. It shows
+  what each source answered; pick another source for the song, or add the
+  lyrics yourself.
+- **Lyrics a little early or late**: drag Offset on Now Playing (this song) or
+  Default offset under Advanced (every song).
+- **Nothing under the Dynamic Island**: Lyrics Island needs an iPhone with the
+  Dynamic Island and one respring (Apply) after installing.
+- **Apple Music lyrics missing**: make sure Apple Music lyrics is unlocked and
+  on under Lyrics Sources; the unlock tells you what is missing.
 
 ## Known limitations
 
-- LRCLIB's coverage of Chinese tracks is noticeably weaker than English, which is
-  why NetEase is enabled as a fallback. That endpoint is unofficial and may break
-  or block non-mainland addresses.
-- **NetEase lyrics are Simplified Chinese.** There is no conversion. Musixmatch
-  has more native Traditional entries for Mandopop. The credit lines (作词 /
-  作曲 / 编曲) and the copyright notice NetEase puts at the start of a transcript
-  are dropped by the parser, so they no longer flash up as lyrics. NetEase also
-  puts blank timestamped lines between verses; a blank is only treated as a gap
-  (where the track title is shown) when the next line is five seconds or more
-  away, otherwise the previous line simply stays up.
-- Musixmatch has two paths. A **User Token** taken from the Musixmatch app hits
-  `apic.musixmatch.com/ws/1.1/macro.subtitles.get`, the endpoint the app itself
-  uses — unofficial, may break at any time, and the token is effectively an
-  account credential. A **developer API key** hits the documented API, but its
-  timed `matcher.subtitle.get` endpoint is usually not part of the free plan, so
-  expect 403. The token path is tried first.
-- Unlike EeveeSpotify, no `track_spotify_id` is sent: reading it requires hooking
-  Spotify's private `SPTPlayerTrack`, which would forfeit the whole
-  system-frameworks-only design and only ever help Spotify. Matching is therefore
-  weaker for obscure or same-titled tracks.
-- Matching relies on strings. `NLCleanTitle()` strips `- 2011 Remaster` and
-  `(feat. X)` style suffixes, but it is not perfect. A duration mismatch over 8
-  seconds (10 for NetEase) is rejected rather than shown, since wrong lyrics are
-  worse than none.
-- Preferences are read from the app's own `Library/Preferences/`, then
-  `/var/mobile/Library/Preferences/`, then the same path under `/var/jb`. If
-  none is readable, everything falls back to the defaults: the built-in app
-  list, LRCLIB and NetEase. The in-container path is also how it can be
-  configured when injected with TrollFools, where there is no Settings panel.
-- Apple Music support is built on the same hook points AMLyrics uses
-  (`MPNowPlayingContentItem`), which are private API, so an iOS update can
-  change them. Do not run AMLyrics and NowLyrics inside Music at the same time:
-  both write the item's title. Because the title is changed on the item itself,
-  Music's own now-playing views may show the lyric line too. Manual `.lrc`
-  files for Music go into Music's own container.
-- **Per line, not per syllable.** AMLyrics can do syllables because Apple's TTML
-  carries that markup; LRC does not.
-- Injecting into an App Store app changes its signature, which may sign you out
-  or break Spotify Connect. That is a property of the injection, not this code.
-
-## Install
-
-NowLyrics is sold on [Havoc](https://havoc.app). Add the Havoc repo in Sileo, buy it, install. Requires iOS 15 or 16 on a rootless jailbreak (Dopamine, palera1n) and [AltList](https://github.com/opa334/AltList), which Sileo pulls in automatically.
+- The lock screen, Control Center and CarPlay show the whole line; only Lyrics
+  Island goes word by word, and only with lyrics that have word times.
+- Inside Apple Music the lyric line also appears in Music's own now-playing
+  views.
+- Songs are matched by title, artist and length, so live versions, remasters
+  and rare tracks can be missed; add those lyrics yourself.
+- NetEase lyrics are Simplified Chinese, with no conversion. The NetEase and
+  Musixmatch User Token services are unofficial and may stop working; a free
+  Musixmatch API key usually has no timed lyrics.
+- Apple Music lyrics and Lyrics Island rely on iOS internals, checked on iOS
+  16.5.1, 18.6.2 and 26.1; another iOS version may need an update.
+- On iOS 26, Player over its cover is hidden: the lock screen's player is
+  glass there and Control Center already takes the cover's colors.
 
 ## Privacy
 
-To look up lyrics, NowLyrics sends the track title, artist, album and duration to the lyrics services you have enabled: Musixmatch, LRCLIB and NetEase Cloud Music. Nothing else leaves the device. If you paste a Musixmatch token, it is stored only in the tweak's preference file on your device and sent only to Musixmatch. There are no analytics, no accounts and no tracking.
+To find lyrics, NowLyrics sends the track's title, artist, album and length to
+the lyrics sources you have on. Apple Music lyrics are asked of Apple through
+your own Apple ID, after the song is found with Apple's public search; the
+subscription check also asks Apple. A Musixmatch User Token or API key is
+stored only in NowLyrics' settings on your device and sent only to Musixmatch.
+No accounts, no analytics, no tracking.
+
+## Credits
+
+Inspired by [Lessica/AMLyrics](https://github.com/Lessica/AMLyrics). App
+picker by [AltList](https://github.com/opa334/AltList). Lyrics from Apple
+Music, [Musixmatch](https://www.musixmatch.com), [LRCLIB](https://lrclib.net)
+and NetEase Cloud Music.
 
 ## License
 
-© 2026 chxhua2k7. All rights reserved. This repository holds the documentation for NowLyrics; the software is proprietary and distributed through Havoc.
+© 2026 chxhua2k7. All rights reserved. This repository holds the
+documentation for NowLyrics; the software is proprietary and distributed
+through Havoc.
