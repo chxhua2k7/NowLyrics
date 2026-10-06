@@ -140,8 +140,9 @@ settings page once.
   lyrics yourself.
 - **Lyrics a little early or late**: drag Offset on Now Playing (this song) or
   Default offset under Advanced (every song).
-- **Nothing under the Dynamic Island**: Lyrics Island needs an iPhone with the
-  Dynamic Island and one respring (Apply) after installing.
+- **Nothing under the Dynamic Island**: Lyrics Island needs the Dynamic Island
+  (an iPhone that has it, or a device given one by a MobileGestalt edit or a
+  tweak, iPads too) and one respring (Apply) after installing.
 - **Apple Music lyrics missing**: make sure Apple Music lyrics is unlocked and
   on under Lyrics Sources; the unlock tells you what is missing.
 

@@ -3,6 +3,8 @@
 ## 1.2.4
 
 - Settings: the notes under Advanced and Lyrics Island now say how Quit app on change works (it quits the music app only when a setting it uses changes) and where word-by-word lyrics come from (Apple Music, Musixmatch or NetEase where they have them, or TTML and word-by-word LRC you add)
+- Lyrics Island also works where the Dynamic Island was turned on by other means (a MobileGestalt edit or a tweak), iPads included; the settings page no longer says it needs an iPhone there
+- iPad: with Settings' sidebar showing, the player at the top of the settings pages fills its column again and the island preview sits in the middle of it
 - Added more bugs to fix later
 
 ## 1.2.3
