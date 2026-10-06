@@ -264,8 +264,15 @@ static void NLIslandMeasureExtra(UIView *pill) {
         line = UIApplication.sharedApplication.keyWindow.safeAreaInsets.top;
 #pragma clang diagnostic pop
     }
-    if (line < 30) line = compactBottom + kNLDefaultExtra;
-    else gMeasuredWindow = pill.window;
+    if (line < 30) {
+        line = compactBottom + kNLDefaultExtra;
+    } else {
+        gMeasuredWindow = pill.window;
+        // An island given by other means (an iPad, an iPhone with a notch):
+        // the status bar ends above the island's bottom (32 pt against 48 on
+        // an iPad), so there is no line to grow to; it grows as a 14 Pro's.
+        if (line - compactBottom < 1) line = compactBottom + kNLDefaultExtra;
+    }
     CGFloat extra = MIN(MAX(round((line - compactBottom) * 2) / 2, 0), 30);
     if (fabs(extra - gExtra) < 0.5) return;
     NLI_LOG(@"island grows %.1f -> %.1f pt (line %.1f, compact bottom %.1f)", gExtra, extra, line, compactBottom);
