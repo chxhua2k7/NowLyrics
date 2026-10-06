@@ -18,38 +18,20 @@
 #import <dlfcn.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
-#import <notify.h>
 
 #define kNLNextUpDylib NLJBPath(@"/Library/MobileSubstrate/DynamicLibraries/NextUp3.dylib")
 
-// NextUp's NUPrefs.h: bit 63 = published; value bit n, and bit n + 32 when the
-// publishing build knew that key.
-static const uint64_t kNLNUValid = 1ULL << 63;
-
 static BOOL NLNextUpPref(NSString *key, uint64_t bit, BOOL fallback) {
     static int token = -1;
-    if (token == -1 && notify_register_check("com.yves.nextup3.state", &token) != NOTIFY_STATUS_OK) token = -2;
-    uint64_t state = 0;
-    if (token >= 0 && notify_get_state(token, &state) == NOTIFY_STATUS_OK &&
-        (state & kNLNUValid) && (state & (bit << 32))) {
-        return (state & bit) != 0;
-    }
-    id value = CFBridgingRelease(CFPreferencesCopyAppValue((__bridge CFStringRef)key, CFSTR("com.yves.nextup3")));
-    return [value respondsToSelector:@selector(boolValue)] ? [value boolValue] : fallback;
+    return NLTweakStatePref("com.yves.nextup3.state", &token, CFSTR("com.yves.nextup3"), key, bit, fallback);
 }
 
-BOOL NLNextUpInstalled(void) {
-    static BOOL installed;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{ installed = [[NSFileManager defaultManager] fileExistsAtPath:kNLNextUpDylib]; });
-    return installed;
-}
+BOOL NLNextUpInstalled(void) { return NL_ONCE([[NSFileManager defaultManager] fileExistsAtPath:kNLNextUpDylib]); }
 
 // Advanced › Supported Tweaks › NextUp 3 (on unless switched off). Once its
 // library is in, its own hooks give the player its row until Settings quits.
 static BOOL NLNextUpWanted(void) {
-    id on = NLReadPref(nil, @"tweakNextUp");
-    return ![on respondsToSelector:@selector(boolValue)] || [on boolValue];
+    return NLReadPrefBool(nil, @"tweakNextUp", YES);
 }
 
 @interface NSObject (NLNextUp)
@@ -67,9 +49,7 @@ static BOOL NLIsActive(id self, SEL _cmd) {
 }
 
 static void NLHookManager(void) {
-    Class manager = objc_getClass("NUNextUpManager");
-    Method isActive = manager ? class_getInstanceMethod(manager, @selector(isActive)) : NULL;
-    if (isActive) gIsActive = (BOOL (*)(id, SEL))method_setImplementation(isActive, (IMP)NLIsActive);
+    gIsActive = (BOOL (*)(id, SEL))NLReplaceMethod(objc_getClass("NUNextUpManager"), @selector(isActive), (IMP)NLIsActive);
 }
 
 void NLNextUpLoad(void) {
@@ -77,7 +57,7 @@ void NLNextUpLoad(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         // Its rows here were made against iOS 16's player and island.
-        if (@available(iOS 16.0, *)) {} else return;
+        if (!NLNextUpUsed()) return;
         if (!NLNextUpInstalled()) return;
         dlopen("/System/Library/PrivateFrameworks/MediaControls.framework/MediaControls", RTLD_NOW);
         dlopen(kNLNextUpDylib.fileSystemRepresentation, RTLD_NOW);
@@ -87,19 +67,25 @@ void NLNextUpLoad(void) {
 
 BOOL NLNextUpShowsInIsland(void) {
     if (!NLNextUpInstalled() || !NLNextUpWanted() || !NLNextUpPref(@"Enabled", 1ULL << 0, YES)) return NO;
-    return NLNextUpPref(@"showDynamicIsland", 1ULL << 4, YES);
+    if (!NLNextUpPref(@"showDynamicIsland", 1ULL << 4, YES)) return NO;
+    NLNextUpLoad();   // both callers want its row view and manager then
+    return YES;
 }
 
-// NextUp's manager: whether there is a next track to show for what plays.
-BOOL NLNextUpActive(void) {
+// NextUp's manager, nil without its library.
+static id NLNextUpManager(void) {
     Class manager = objc_getClass("NUNextUpManager");
-    id shared = [manager respondsToSelector:@selector(sharedManager)] ? [manager sharedManager] : nil;
+    return [manager respondsToSelector:@selector(sharedManager)] ? [manager sharedManager] : nil;
+}
+
+// Whether there is a next track to show for what plays.
+BOOL NLNextUpActive(void) {
+    id shared = NLNextUpManager();
     return [shared respondsToSelector:@selector(isActive)] && [shared isActive];
 }
 
 void NLNextUpStart(void) {
-    Class manager = objc_getClass("NUNextUpManager");
-    id shared = [manager respondsToSelector:@selector(sharedManager)] ? [manager sharedManager] : nil;
+    id shared = NLNextUpManager();
     // -start is declared elsewhere with other types: called by hand.
     if ([shared respondsToSelector:@selector(start)]) ((void (*)(id, SEL))objc_msgSend)(shared, @selector(start));
 }
@@ -126,4 +112,9 @@ void NLNextUpKeepOut(UIView *view) {
         key = symbol ? *symbol : NULL;
     });
     if (key && objc_getAssociatedObject(view, key)) objc_setAssociatedObject(view, key, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+id NLObserveNextUp(void (^changed)(void)) {
+    return [[NSNotificationCenter defaultCenter] addObserverForName:NL_NEXTUP_CHANGED_NOTIFICATION object:nil queue:NSOperationQueue.mainQueue
+                                                         usingBlock:^(NSNotification *note) { dispatch_async(dispatch_get_main_queue(), changed); }];
 }

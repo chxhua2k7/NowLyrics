@@ -5,32 +5,18 @@
 //  font size and scroll speed; the specifier's min, max, step, unit and
 //  displayScale (plist keys) set the range and how the value reads.
 //
-//  This bundle is also where AltList gets loaded from. Its framework used to
-//  be this bundle's executable (a symlink); now that the bundle has code of its
-//  own, it is dlopen'ed here so ATLApplicationListMultiSelectionController
-//  resolves when the plist names it.
-//
 
-#import <UIKit/UIKit.h>
 #import <Preferences/PSControlTableCell.h>
 #import <Preferences/PSSpecifier.h>
-#import <dlfcn.h>
 #import "../NLShared.h"
 #import "NLOffsetControl.h"
-
-void NLRegisterAppListController(void);   // NLAppListController.m
-
-__attribute__((constructor))
-static void NLLoadAltList(void) {
-    @autoreleasepool {
-        dlopen(NLJBPath(@"/Library/Frameworks/AltList.framework/AltList").fileSystemRepresentation, RTLD_NOW);
-        NLRegisterAppListController();   // Choose Apps' list, with its filter
-    }
-}
 
 // Used when a row names no range: the lyrics offset row's seconds, ±3, tenths.
 static const double kNLDefaultLimit = 3.0;
 static const double kNLDefaultStep = 0.1;
+static const CGFloat kNLFieldWidth = 84, kNLFieldHeight = 30;
+static const CGFloat kNLGap = 12;   // between the title, the slider and the field
+static const CGFloat kNLTitleLine = 44;   // a stacked row's first line, the title's
 
 #pragma mark - Control
 
@@ -47,14 +33,7 @@ static const double kNLDefaultStep = 0.1;
 
 - (instancetype)initWithFrame:(CGRect)frame {
     if ((self = [super initWithFrame:frame])) {
-        _minimum = -kNLDefaultLimit;
-        _maximum = kNLDefaultLimit;
-        _step = kNLDefaultStep;
-        _unit = @"s";
-        _displayScale = 1;
         _slider = [[UISlider alloc] init];
-        _slider.minimumValue = (float)_minimum;
-        _slider.maximumValue = (float)_maximum;
         [_slider addTarget:self action:@selector(sliderMoved:) forControlEvents:UIControlEventValueChanged];
         [_slider addTarget:self action:@selector(sliderReleased:)
           forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
@@ -73,7 +52,8 @@ static const double kNLDefaultStep = 0.1;
         _field.delegate = self;
         [self addSubview:_field];
 
-        [self showValue];
+        // The lyrics offset's range, until a row names its own; shows the value.
+        [self setMinimum:-kNLDefaultLimit maximum:kNLDefaultLimit step:kNLDefaultStep unit:@"s" scale:1];
     }
     return self;
 }
@@ -81,14 +61,13 @@ static const double kNLDefaultStep = 0.1;
 - (void)layoutSubviews {
     [super layoutSubviews];
     CGRect b = self.bounds;
-    CGFloat fieldWidth = 84, fieldHeight = 30;
     if (_stacked) {
         // First line is the row's own title line (44pt); the slider takes the rest.
-        _field.frame = CGRectMake(CGRectGetMaxX(b) - fieldWidth, (44 - fieldHeight) / 2, fieldWidth, fieldHeight);
-        _slider.frame = CGRectMake(CGRectGetMinX(b), 44, b.size.width, b.size.height - 44);
+        _field.frame = CGRectMake(CGRectGetMaxX(b) - kNLFieldWidth, (kNLTitleLine - kNLFieldHeight) / 2, kNLFieldWidth, kNLFieldHeight);
+        _slider.frame = CGRectMake(CGRectGetMinX(b), kNLTitleLine, b.size.width, b.size.height - kNLTitleLine);
     } else {
-        _field.frame = CGRectMake(CGRectGetMaxX(b) - fieldWidth, (b.size.height - fieldHeight) / 2, fieldWidth, fieldHeight);
-        _slider.frame = CGRectMake(CGRectGetMinX(b), 0, CGRectGetMinX(_field.frame) - 12 - CGRectGetMinX(b), b.size.height);
+        _field.frame = CGRectMake(CGRectGetMaxX(b) - kNLFieldWidth, (b.size.height - kNLFieldHeight) / 2, kNLFieldWidth, kNLFieldHeight);
+        _slider.frame = CGRectMake(CGRectGetMinX(b), 0, CGRectGetMinX(_field.frame) - kNLGap - CGRectGetMinX(b), b.size.height);
     }
 }
 
@@ -100,6 +79,11 @@ static const double kNLDefaultStep = 0.1;
     _slider.minimumValue = (float)_minimum;
     _slider.maximumValue = (float)_maximum;
     self.value = _value;
+}
+
+- (void)extendRangeToInclude:(double)value {
+    if (!isfinite(value) || (value >= _minimum && value <= _maximum)) return;
+    [self setMinimum:MIN(_minimum, value) maximum:MAX(_maximum, value) step:0 unit:nil scale:0];
 }
 
 - (double)clamp:(double)v {
@@ -141,9 +125,7 @@ static const double kNLDefaultStep = 0.1;
     [self showValue];
     if (_commitPending) return;
     _commitPending = YES;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        if (self->_commitPending) [self commit];
-    });
+    NLAfter(0.2, ^{ if (self->_commitPending) [self commit]; });
 }
 
 - (void)sliderReleased:(UISlider *)slider {
@@ -171,8 +153,7 @@ static const double kNLDefaultStep = 0.1;
 // Accepts "0.3", "-0.25", "+1", "0,3", and for seconds "300ms". Anything else
 // puts the old value back.
 - (void)textFieldDidEndEditing:(UITextField *)field {
-    NSString *text = [[field.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]
-                      stringByReplacingOccurrencesOfString:@"," withString:@"."];
+    NSString *text = [NLTrimmed(field.text) stringByReplacingOccurrencesOfString:@"," withString:@"."];
     NSScanner *scanner = [NSScanner scannerWithString:text];
     double typed = 0;
     if (text.length && [scanner scanDouble:&typed]) {
@@ -181,8 +162,7 @@ static const double kNLDefaultStep = 0.1;
         typed *= _displayScale;
         typed = [self clamp:round(typed * 100) / 100];   // hundredths are plenty
         if (typed != _value) {
-            _value = typed;
-            _slider.value = (float)_value;
+            self.value = typed;
             [self commit];
         }
     }
@@ -194,11 +174,11 @@ static const double kNLDefaultStep = 0.1;
 void NLLayoutStackedOffsetRow(UITableViewCell *cell, NLOffsetControl *control, CGFloat inset) {
     CGRect content = cell.contentView.bounds;
     CGRect icon = cell.imageView.frame;
-    icon.origin.y = round((44 - icon.size.height) / 2);
+    icon.origin.y = round((kNLTitleLine - icon.size.height) / 2);
     cell.imageView.frame = icon;
     CGRect title = cell.textLabel.frame;
-    title.origin.y = round((44 - title.size.height) / 2);
-    title.size.width = MIN(title.size.width, content.size.width - inset - 84 - 12 - title.origin.x);
+    title.origin.y = round((kNLTitleLine - title.size.height) / 2);
+    title.size.width = MIN(title.size.width, content.size.width - inset - kNLFieldWidth - kNLGap - title.origin.x);
     cell.textLabel.frame = title;
     control.stacked = YES;
     control.frame = CGRectMake(inset, 0, content.size.width - inset * 2, content.size.height - 6);
@@ -237,17 +217,20 @@ void NLLayoutStackedOffsetRow(UITableViewCell *cell, NLOffsetControl *control, C
 }
 
 static double NLProp(PSSpecifier *specifier, NSString *key, double fallback) {
-    id v = [specifier propertyForKey:key];
-    return [v respondsToSelector:@selector(doubleValue)] ? [v doubleValue] : fallback;
+    return NLLooseNum([specifier propertyForKey:key], fallback);
+}
+
+- (NLOffsetControl *)nlControl {
+    return (NLOffsetControl *)self.control;
 }
 
 - (void)applyRangeFromSpecifier:(PSSpecifier *)specifier {
     NSString *unit = [specifier propertyForKey:@"unit"];
-    [(NLOffsetControl *)self.control setMinimum:NLProp(specifier, @"min", -kNLDefaultLimit)
-                                        maximum:NLProp(specifier, @"max", kNLDefaultLimit)
-                                           step:NLProp(specifier, @"step", kNLDefaultStep)
-                                           unit:[unit isKindOfClass:NSString.class] ? unit : nil
-                                          scale:NLProp(specifier, @"displayScale", 1)];
+    [[self nlControl] setMinimum:NLProp(specifier, @"min", -kNLDefaultLimit)
+                         maximum:NLProp(specifier, @"max", kNLDefaultLimit)
+                            step:NLProp(specifier, @"step", kNLDefaultStep)
+                            unit:[unit isKindOfClass:NSString.class] ? unit : nil
+                           scale:NLProp(specifier, @"displayScale", 1)];
 }
 
 - (void)refreshCellContentsWithSpecifier:(PSSpecifier *)specifier {
@@ -259,7 +242,7 @@ static double NLProp(PSSpecifier *specifier, NSString *key, double fallback) {
     [super layoutSubviews];
     CGRect content = self.contentView.bounds;
     CGFloat inset = 16;
-    NLOffsetControl *control = (NLOffsetControl *)self.control;
+    NLOffsetControl *control = [self nlControl];
 
     // Tall row: icon, title and the value on a normal-looking first line, the
     // slider across the full width underneath. Short row: everything side by side.
@@ -267,21 +250,20 @@ static double NLProp(PSSpecifier *specifier, NSString *key, double fallback) {
         NLLayoutStackedOffsetRow(self, control, inset);
     } else {
         control.stacked = NO;
-        CGFloat left = MAX(CGRectGetMaxX(self.textLabel.frame) + 12, 96);
+        CGFloat left = MAX(CGRectGetMaxX(self.textLabel.frame) + kNLGap, 96);
         control.frame = CGRectMake(left, 0, content.size.width - left - inset, content.size.height);
     }
 }
 
 - (id)controlValue {
-    return @(((NLOffsetControl *)self.control).value);
+    return @([self nlControl].value);
 }
 
 - (void)setValue:(id)value {
     [super setValue:value];
-    double v = [value respondsToSelector:@selector(doubleValue)] ? [value doubleValue]
-                                                                  : NLProp(self.specifier, @"default", 0);
-    ((NLOffsetControl *)self.control).value = v;
-    _lastSent = @(((NLOffsetControl *)self.control).value);
+    double v = NLLooseNum(value, NLProp(self.specifier, @"default", 0));
+    [self nlControl].value = v;
+    _lastSent = [self controlValue];
 }
 
 // Writes the preference and posts the specifier's notification, once per

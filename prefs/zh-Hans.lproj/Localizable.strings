@@ -1,7 +1,6 @@
-/* NowLyrics settings page. Keys are the English strings in NowLyrics.plist. */
+/* NowLyrics settings. Keys are the English text itself: label/footerText/validTitles/title/placeholder in prefs/NowLyrics.plist and bundle/*.plist, and NLL(@"…") in prefsbundle/. Copied into NowLyricsPrefs.bundle as <page>.strings at stage time. A key with no entry shows itself (brand names have none). */
 
 "Enabled" = "启用";
-"Apps" = "音乐 App";
 "Choose Apps" = "选择 App";
 "Music Apps" = "音乐 App";
 "All Apps" = "所有 App";
@@ -20,12 +19,9 @@
 "Diagnostics" = "诊断";
 "Fix Spotify Connect titles" = "Spotify Connect 曲名修正";
 "Quit app on change" = "改设置时退出 App";
-"About" = "关于";
 "Version" = "版本";
 "Shows the current lyric line in place of the track title on the lock screen, in Control Center, the Dynamic Island and CarPlay." = "在锁定屏幕、控制中心、灵动岛与 CarPlay 上，用当前歌词行取代曲名显示。";
-"Applies immediately. Only players that publish now-playing info will show anything." = "即时生效。只有会发布 now-playing 信息的播放器才会显示歌词。";
-"A positive offset shows lyrics earlier. Drag the slider, or tap the value to type one, e.g. 0.25 or -300ms." = "偏移为正值时歌词提早出现。拖动滑块，或点数值直接输入，例如 0.25 或 -300ms。";
-"Diagnostics shows which source answered in the artist field. Quit app on change kills the app on every settings change. Fix Spotify Connect titles turns “Title • Artist / Playing on a device” back into the real title and artist." = "诊断会在演出者栏显示是哪个来源回应的。改设置时结束 App 会在每次改动时把 App 关掉。Spotify Connect 曲名修正把“曲名 • 演出者 / 正在用某设备播放”还原成真正的曲名和演出者。";
+"Diagnostics shows which source answered in the artist field. Quit app on change kills the app on every settings change. Fix Spotify Connect titles turns “Title • Artist / Playing on a device” back into the real title and artist." = "诊断会在艺人栏位显示是哪个来源回应的。改设置时退出 App 会在每次改动时把 App 关掉。Spotify Connect 曲名修正把“曲名 • 艺人 / 正在用某设备播放”还原成真正的曲名和艺人。";
 "© 2026 chxhua2k7. Inspired by AMLyrics." = "© 2026 chxhua2k7。灵感来自 AMLyrics。";
 "Clear lyrics cache" = "清除歌词缓存";
 "Apply" = "应用";
@@ -119,7 +115,7 @@
 "Nothing is playing in an app NowLyrics is on for." = "没有在 NowLyrics 开启的 App 里播放。";
 "Playing in %@: %@ — %@" = "%@ 正在播：%@ — %@";
 "On Apple Music: %@ — %@ (ID %@)" = "Apple Music 上的：%@ — %@（ID %@）";
-"SpringBoard did not answer. Respring once after installing (Apply), then try again." = "SpringBoard 没有响应。安装后请先应用（注销）一次再试。";
+"SpringBoard did not answer. Respring once after installing (Apply), then try again." = "SpringBoard 没有响应。安装后请先应用（重启）一次再试。";
 "SpringBoard could not get them: %@" = "SpringBoard 要不到：%@";
 "SpringBoard got an answer, but no timed lines in it (%lu characters)." = "SpringBoard 拿到了响应，但里面没有带时间的歌词（%lu 个字符）。";
 "SpringBoard got the lyrics in %.1f s: %lu lines, %@." = "SpringBoard 拿到歌词了，用了 %.1f 秒：%lu 行，%@。";
@@ -138,6 +134,7 @@
 "There is no Apple Music subscription on this Apple ID, so Apple Music lyrics stay hidden." = "这个 Apple ID 没有 Apple Music 订阅，所以 Apple Music 歌词会保持隐藏。";
 "Could not check the subscription (%@). Try again later." = "无法确认订阅（%@）。请稍后再试。";
 "Apple Music’s privacy notice is not agreed to on this iPhone yet. Agree to it in Music, then unlock again." = "这台 iPhone 还没有同意 Apple Music 的隐私说明。请先在“音乐”里同意，再解锁一次。";
+"No Apple ID is signed in for Media & Purchases. Sign in under Settings › your name › Media & Purchases, then unlock again." = "这台 iPhone 的“媒体与购买项目”没有登录 Apple ID。请到“设置”›“你的姓名”›“媒体与购买项目”登录，再解锁一次。";
 "Open Music" = "打开“音乐”";
 "SpringBoard did not answer" = "SpringBoard 没有响应";
 "Sources are tried in the order set under Source order. NetEase lyrics are Simplified Chinese. Apple Music lyrics need an Apple Music subscription, Musixmatch lyrics the Musixmatch app: unlocking checks for them." = "按“来源顺序”依次尝试。网易云歌词为简体中文。Apple Music 歌词需要 Apple Music 订阅，Musixmatch 歌词需要 Musixmatch App，解锁时会确认。";

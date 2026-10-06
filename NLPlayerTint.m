@@ -4,6 +4,7 @@
 
 #import "NLPlayerTint.h"
 #import "NLIslandStrip.h"
+#import "NLLocate.h"
 #import <CoreImage/CoreImage.h>
 #import <objc/runtime.h>
 
@@ -13,10 +14,10 @@ static const CGFloat kNLReadableLuma = 0.3;
 
 // Between songs the artwork goes missing for a moment: the old look stays
 // until the new cover is there (shown at once then, with a short fade), and
-// only a cover missing this long brings the fallback. Going to the fallback at
-// once flashed coral between songs.
-static const NSTimeInterval kNLMissingGrace = 2.5;
+// only a cover missing kNLMissingGrace (NLLocate.h) brings the fallback. Going
+// to the fallback at once flashed coral between songs.
 static const NSTimeInterval kNLFade = 0.25;
+static const UIViewAnimationOptions kNLFadeOptions = UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction;
 
 // Looks closer than this (summed RGB difference) change without a fade.
 static const CGFloat kNLSameLook = 0.06;
@@ -63,45 +64,48 @@ static NLRGB NLRGBOf(UIColor *color) {
     return (NLRGB){r, g, b};
 }
 
-// A color deepened until white text reads on it.
-static UIColor *NLDeepened(UIColor *color) {
-    CGFloat h = 0, s = 0, b = 0, a = 1;
-    if (![color getHue:&h saturation:&s brightness:&b alpha:&a]) return nil;
-    return [UIColor colorWithHue:h saturation:MIN(s * 1.15, 0.85) brightness:MIN(b, 0.38) alpha:1];
+// NowLyrics' coral, the main switch's icon's color, deepened until white text
+// reads on it; made once.
+static UIColor *NLCoral(void) {
+    static UIColor *coral;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        CGFloat h = 0, s = 0, b = 0, a = 1;
+        [[UIColor colorWithRed:0.95 green:0.38 blue:0.44 alpha:1] getHue:&h saturation:&s brightness:&b alpha:&a];
+        coral = [UIColor colorWithHue:h saturation:MIN(s * 1.15, 0.85) brightness:MIN(b, 0.38) alpha:1];
+    });
+    return coral;
 }
 
-// NowLyrics' coral, the main switch's icon's color, deepened.
-static UIColor *NLCoral(void) {
-    return NLDeepened([UIColor colorWithRed:0.95 green:0.38 blue:0.44 alpha:1]);
+// The soft copy of a cover under the player here and in the settings page's
+// waveform (NLWaveformView.m).
+CGImageRef NLCreateBlurredImage(CIImage *input, CGFloat width, CGFloat sigma) {
+    CIContext *context = NL_ONCE([CIContext contextWithOptions:nil]);   // one for every caller: safe across threads
+    CGFloat scale = width / MAX(input.extent.size.width, 1);
+    CIImage *small = [input imageByApplyingTransform:CGAffineTransformMakeScale(scale, scale)];
+    CGRect extent = small.extent;
+    CIImage *blurred = [[[small imageByClampingToExtent] imageByApplyingGaussianBlurWithSigma:sigma] imageByCroppingToRect:extent];
+    return [context createCGImage:blurred fromRect:extent];
+}
+
+// Ascending, for qsort.
+static int NLCompareFloats(const void *a, const void *b) {
+    float x = *(const float *)a, y = *(const float *)b;
+    return (x > y) - (x < y);
 }
 
 // The cover small and blurred (edges clamped so they do not darken), how dark
 // a scrim it needs (enough for its brightest tenth to come down to
 // kNLReadableLuma), and its average color under that scrim.
 static UIImage *NLBlurredCover(NSData *data, CGFloat *scrim, NLRGB *seen) {
-    static CIContext *context;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{ context = [CIContext contextWithOptions:nil]; });
     CIImage *input = [CIImage imageWithData:data];
     if (!input || input.extent.size.width < 1) return nil;
-    CGFloat scale = 64 / input.extent.size.width;
-    input = [input imageByApplyingTransform:CGAffineTransformMakeScale(scale, scale)];
-    CGRect extent = input.extent;
-    CIImage *blurred = [[[input imageByClampingToExtent] imageByApplyingGaussianBlurWithSigma:6] imageByCroppingToRect:extent];
-    CGImageRef cg = [context createCGImage:blurred fromRect:extent];
+    CGImageRef cg = NLCreateBlurredImage(input, 64, 6);
     if (!cg) return nil;
 
-    enum { side = 16 };
+    enum { side = NL_SAMPLE_SIDE };
     uint8_t px[side * side * 4];
-    memset(px, 0, sizeof(px));
-    CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
-    CGContextRef bitmap = CGBitmapContextCreate(px, side, side, 8, side * 4, space,
-                                                kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
-    CGColorSpaceRelease(space);
-    if (bitmap) {
-        CGContextDrawImage(bitmap, CGRectMake(0, 0, side, side), cg);
-        CGContextRelease(bitmap);
-    }
+    NLSampleImage(cg, kCGInterpolationDefault, px);   // no bitmap context: px stays all zero
     float lumas[side * side];
     double sumR = 0, sumG = 0, sumB = 0;
     for (int i = 0; i < side * side; i++) {
@@ -109,12 +113,7 @@ static UIImage *NLBlurredCover(NSData *data, CGFloat *scrim, NLRGB *seen) {
         sumR += px[i * 4] / 255.0; sumG += px[i * 4 + 1] / 255.0; sumB += px[i * 4 + 2] / 255.0;
     }
     // The 90th percentile: a few bright pixels do not darken the whole thing.
-    for (int i = 1; i < side * side; i++) {
-        float v = lumas[i];
-        int j = i - 1;
-        while (j >= 0 && lumas[j] > v) { lumas[j + 1] = lumas[j]; j--; }
-        lumas[j + 1] = v;
-    }
+    qsort(lumas, side * side, sizeof(float), NLCompareFloats);
     CGFloat bright = lumas[(int)(side * side * 0.9)];
     *scrim = bright > kNLReadableLuma ? MIN(MAX(1 - kNLReadableLuma / bright, 0.15), 0.8) : 0.15;
     CGFloat keep = (1 - *scrim) / (side * side);
@@ -127,6 +126,12 @@ static UIImage *NLBlurredCover(NSData *data, CGFloat *scrim, NLRGB *seen) {
 
 // The artwork print standing for "nothing is playing".
 static const NSUInteger kNLNothing = NSUIntegerMax;
+
+// `changes` faded in over kNLFade, or made at once.
+static void NLFadeOrSet(BOOL fade, void (^changes)(void)) {
+    if (fade) [UIView animateWithDuration:kNLFade delay:0 options:kNLFadeOptions animations:changes completion:nil];
+    else [UIView performWithoutAnimation:changes];
+}
 
 @implementation NLPlayerTintView {
     UIView *_stage;              // all of it: faded out with nothing playing, the system's material shows
@@ -216,10 +221,8 @@ static const NSUInteger kNLNothing = NSUIntegerMax;
 }
 
 - (void)showNowPlaying:(NSDictionary *)info animated:(BOOL)animated {
-    id title = info[@"kMRMediaRemoteNowPlayingInfoTitle"];
-    BOOL song = [title isKindOfClass:NSString.class] && [title length];
-    NSData *artwork = song ? info[@"kMRMediaRemoteNowPlayingInfoArtworkData"] : nil;
-    if (![artwork isKindOfClass:NSData.class] || artwork.length == 0) artwork = nil;
+    BOOL song = NLInfoTitle(info) != nil;
+    NSData *artwork = song ? NLInfoArtwork(info) : nil;
     // Nothing playing is a song without a cover here, unless this one clears then.
     NSUInteger print = (!song && _clearsWhenNothingPlays) ? kNLNothing : artwork ? NLArtworkPrint(artwork) : 0;
     if (_shown && print == _shownPrint) {
@@ -250,26 +253,21 @@ static const NSUInteger kNLNothing = NSUIntegerMax;
             return;
         }
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-            UIColor *solid = nil;
             CGFloat scrim = 0;
             NLRGB seen = {0, 0, 0};
             UIImage *cover = artwork ? NLBlurredCover(artwork, &scrim, &seen) : nil;
-            if (!cover) solid = NLCoral();
-            if (solid) seen = NLRGBOf(solid);
             dispatch_async(dispatch_get_main_queue(), ^{
                 if (generation != self->_generation) return;
                 shown();
                 BOOL wasHidden = !self->_stageVisible;
                 // Coming back from nothing: the look is put in place, then faded in.
-                [self nlShowSolid:solid cover:cover scrim:scrim seen:seen fade:fade && !wasHidden];
+                [self nlShowCover:cover scrim:scrim seen:seen fade:fade && !wasHidden];
                 [self nlSetStageVisible:YES fade:fade];
             });
         });
     };
     if (wait <= 0) work();
-    else dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(wait * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        if (generation == self->_generation) work();
-    });
+    else NLAfter(wait, ^{ if (generation == self->_generation) work(); });
 }
 
 - (void)nlSetStageVisible:(BOOL)visible fade:(BOOL)fade {
@@ -279,47 +277,36 @@ static const NSUInteger kNLNothing = NSUIntegerMax;
         [self nlApplyMaterial];
         return;
     }
-    void (^changes)(void) = ^{
+    NLFadeOrSet(fade && self.window, ^{
         self->_stage.alpha = alpha;
         [self nlApplyMaterial];
-    };
-    if (fade && self.window) {
-        [UIView animateWithDuration:kNLFade delay:0
-                            options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction
-                         animations:changes completion:nil];
-    } else {
-        [UIView performWithoutAnimation:changes];
-    }
+    });
 }
 
-- (void)nlShowSolid:(UIColor *)solid cover:(UIImage *)cover scrim:(CGFloat)scrim seen:(NLRGB)seen fade:(BOOL)fade {
+- (void)nlShowCover:(UIImage *)cover scrim:(CGFloat)scrim seen:(NLRGB)seen fade:(BOOL)fade {
+    if (!cover) seen = NLRGBOf(NLCoral());   // no cover: the coral
     CGFloat difference = fabs(seen.r - _seen.r) + fabs(seen.g - _seen.g) + fabs(seen.b - _seen.b);
     _seen = seen;
     fade = fade && self.window && difference > kNLSameLook;
     BOOL wasCover = _cover.alpha > 0.5;
-    UIViewAnimationOptions options = UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction;
-    void (^animate)(void (^)(void)) = ^(void (^changes)(void)) {
-        if (fade) [UIView animateWithDuration:kNLFade delay:0 options:options animations:changes completion:nil];
-        else [UIView performWithoutAnimation:changes];
-    };
 
     if (cover) {
         if (wasCover && fade) {
             // Cover to cover: the image itself does not animate, so dissolve it.
-            [UIView transitionWithView:_cover duration:kNLFade options:UIViewAnimationOptionTransitionCrossDissolve | options
+            [UIView transitionWithView:_cover duration:kNLFade options:UIViewAnimationOptionTransitionCrossDissolve | kNLFadeOptions
                             animations:^{ self->_cover.image = cover; } completion:nil];
         } else {
             [UIView performWithoutAnimation:^{ self->_cover.image = cover; }];
         }
-        animate(^{
+        NLFadeOrSet(fade, ^{
             self->_cover.alpha = 1;
             self->_scrim.alpha = scrim;
         });
     } else {
         // From a cover the color comes in underneath as the cover fades out.
-        if (wasCover) [UIView performWithoutAnimation:^{ self->_base.backgroundColor = solid; }];
-        animate(^{
-            self->_base.backgroundColor = solid;
+        if (wasCover) [UIView performWithoutAnimation:^{ self->_base.backgroundColor = NLCoral(); }];
+        NLFadeOrSet(fade, ^{
+            self->_base.backgroundColor = NLCoral();
             self->_cover.alpha = 0;
             self->_scrim.alpha = 0;
         });

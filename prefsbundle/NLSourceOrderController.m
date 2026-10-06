@@ -5,29 +5,26 @@
 //  source named once (those switched off keep their place among themselves,
 //  after the others), which NLSettings reads.
 //
+//  Also what the pages share about the sources and the preferences (read and
+//  written through the page that pushed them), and NLTablePage, the base of
+//  the pages that are a table of their own.
+//
 
 #import "NLLyricsPages.h"
-#import <Preferences/PSListController.h>
-#import <Preferences/PSSpecifier.h>
-
-@interface PSListController (NLPreferences)
-- (void)setPreferenceValue:(id)value specifier:(PSSpecifier *)specifier;
-- (id)readPreferenceValue:(PSSpecifier *)specifier;
-@end
 
 // Each source: its preference name, title, switch and default, and the icon
 // the Lyrics Sources page gives it.
 static NSArray<NSDictionary *> *NLSources(void) {
-    return @[
+    return NL_ONCE((@[
         @{@"name": @"applemusic", @"title": @"Apple Music", @"switch": @"useAppleMusic", @"on": @NO,
           @"app": @"com.apple.Music", @"symbol": @"music.note", @"color": @"#FA2D48"},
         @{@"name": @"musixmatch", @"title": @"Musixmatch", @"switch": @"useMusixmatch", @"on": @NO,
-          @"app": @"com.musixmatch.lyrics", @"symbol": @"sparkles", @"color": @"#B052DE"},
+          @"app": NLMusixmatchBundleID, @"symbol": @"sparkles", @"color": @"#B052DE"},
         @{@"name": @"lrclib", @"title": @"LRCLIB", @"switch": @"useLRCLIB", @"on": @YES,
           @"symbol": @"globe", @"color": @"#30B0C7"},
         @{@"name": @"netease", @"title": @"NetEase Music", @"switch": @"useNetease", @"on": @YES,
           @"app": @"com.netease.cloudmusic", @"symbol": @"cloud", @"color": @"#E33D3D"},
-    ];
+    ]));
 }
 
 static NSDictionary *NLSourceInfo(NSString *name) {
@@ -66,63 +63,54 @@ id NLReadPref(PSListController *controller, NSString *key) {
                       : CFBridgingRelease(CFPreferencesCopyAppValue((__bridge CFStringRef)key, (__bridge CFStringRef)NL_PREFS_DOMAIN));
 }
 
-void NLWritePrefs(NSDictionary<NSString *, id> *values) {
-    for (NSString *key in values) {
-        id value = values[key] == NSNull.null ? nil : values[key];
-        CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)value, (__bridge CFStringRef)NL_PREFS_DOMAIN);
-    }
-    CFPreferencesAppSynchronize((__bridge CFStringRef)NL_PREFS_DOMAIN);
-    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
-                                         (__bridge CFStringRef)NL_RELOAD_NOTIFICATION, NULL, NULL, YES);
-}
-
 void NLWritePref(PSListController *controller, NSString *key, id value) {
     if (controller) [controller setPreferenceValue:value specifier:NLPrefSpecifier(controller, key)];
     else NLWritePrefs(@{key: value ?: NSNull.null});
 }
 
-// The saved order, completed as NLSettings completes it (an old preferred
-// source goes right after Apple Music).
+// The saved order, completed as NLSettings completes it (NLCompletedSourceOrder).
 NSArray<NSString *> *NLSourceOrder(PSListController *controller) {
-    id saved = NLReadPref(controller, @"sourceOrder");
-    id preferred = NLReadPref(controller, @"preferredSource");
-    NSArray *names = [saved isKindOfClass:NSArray.class] ? saved : @[@"applemusic", preferred ?: @""];
-    NSMutableArray<NSString *> *order = [NSMutableArray array];
-    for (id name in [names arrayByAddingObjectsFromArray:[NLSources() valueForKey:@"name"]]) {
-        if ([name isKindOfClass:NSString.class] && NLSourceInfo(name) && ![order containsObject:name]) [order addObject:name];
-    }
-    return order;
+    return NLCompletedSourceOrder(NLReadPref(controller, @"sourceOrder"), NLReadPref(controller, @"preferredSource"));
 }
 
-@interface NLSourceOrderController () <UITableViewDataSource, UITableViewDelegate>
+BOOL NLSourceSwitchOn(PSListController *controller, NSString *name) {
+    NSDictionary *info = NLSourceInfo(name);
+    return info && NLReadPrefBool(controller, info[@"switch"], [info[@"on"] boolValue]);
+}
+
+@implementation PSViewController (NLPrefs)
+
+// Through the page that pushed this one, the way its own rows read and write.
+- (PSListController *)nlParentList {
+    PSViewController *parent = self.parentController;
+    return [parent isKindOfClass:PSListController.class] ? (PSListController *)parent : nil;
+}
+
+- (id)nlPref:(NSString *)key { return NLReadPref([self nlParentList], key); }
+
+- (void)nlSetPref:(id)value forKey:(NSString *)key { NLWritePref([self nlParentList], key, value); }
+
+- (BOOL)nlBoolPref:(NSString *)key fallback:(BOOL)fallback { return NLReadPrefBool([self nlParentList], key, fallback); }
+
 @end
 
-@implementation NLSourceOrderController {
-    UITableView *_table;
-    NSMutableArray<NSString *> *_order;   // every source, in order
-    NSMutableArray<NSString *> *_shown;   // those switched on, in order
-    NLPageTop *_pageTop;            // the top as the main page's (Advanced › Other pages too)
+#pragma mark - Table page
+
+@implementation NLTablePage {
+    NLPageTop *_pageTop;   // the top as the main page's (Advanced › Other pages too)
 }
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = NLL(@"Source order");
-    _table = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStyleInsetGrouped];
-    _table.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    _table.dataSource = self;
-    _table.delegate = self;
-    _table.editing = YES;
-    _table.allowsSelectionDuringEditing = NO;
-    [self.view addSubview:_table];
-    _pageTop = [[NLPageTop alloc] initWithOwner:self table:_table];
-    [_pageTop update];
+    _table = NLMakeTable(self);
+    _pageTop = [[NLPageTop alloc] initWithOwner:self table:_table];   // built by -viewWillAppear:'s update
 }
 
+// Before super, as on the main page: the header is in place before the row
+// tapped to leave the page is deselected.
 - (void)viewWillAppear:(BOOL)animated {
     [_pageTop update];
     [super viewWillAppear:animated];
-    [self nlLoad];
-    [_table reloadData];
 }
 
 - (void)viewDidAppear:(BOOL)animated {
@@ -145,34 +133,40 @@ NSArray<NSString *> *NLSourceOrder(PSListController *controller) {
     [_pageTop layout];
 }
 
+@end
+
+#pragma mark - Source order
+
+@interface NLSourceOrderController () <UITableViewDataSource, UITableViewDelegate>
+@end
+
+@implementation NLSourceOrderController {
+    NSMutableArray<NSString *> *_order;   // every source, in order
+    NSMutableArray<NSString *> *_shown;   // those switched on, in order
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = NLL(@"Source order");
+    _table.editing = YES;
+    _table.allowsSelectionDuringEditing = NO;
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [self nlLoad];
+    [_table reloadData];
+}
+
 #pragma mark Preferences
 
-// Through the page that pushed this one, the way its own rows read and write.
-- (PSListController *)nlParent {
-    PSViewController *parent = self.parentController;
-    return [parent isKindOfClass:PSListController.class] ? (PSListController *)parent : nil;
-}
-
-- (id)nlPref:(NSString *)key {
-    return NLReadPref([self nlParent], key);
-}
-
-- (void)nlSetPref:(id)value forKey:(NSString *)key {
-    NLWritePref([self nlParent], key, value);
-}
-
-- (BOOL)nlIsOn:(NSDictionary *)info {
-    id value = [self nlPref:info[@"switch"]];
-    return [value respondsToSelector:@selector(boolValue)] ? [value boolValue] : [info[@"on"] boolValue];
-}
-
 - (void)nlLoad {
-    _order = [NLSourceOrder([self nlParent]) mutableCopy];
+    _order = [NLSourceOrder([self nlParentList]) mutableCopy];
     _shown = [NSMutableArray array];
     for (NSString *name in _order) {
         if ([name isEqualToString:@"applemusic"] && !NLAppleMusicVerified()) continue;   // no subscription confirmed
         if ([name isEqualToString:@"musixmatch"] && !NLMusixmatchVerified()) continue;   // not unlocked
-        if ([self nlIsOn:NLSourceInfo(name)]) [_shown addObject:name];
+        if (NLSourceSwitchOn([self nlParentList], name)) [_shown addObject:name];
     }
 }
 
@@ -195,16 +189,12 @@ NSArray<NSString *> *NLSourceOrder(PSListController *controller) {
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    NSDictionary *info = NLSourceInfo(_shown[indexPath.row]);
+    NSString *name = _shown[indexPath.row];
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
-    cell.textLabel.text = NLL(info[@"title"]);
-    cell.imageView.image = NLSourceIcon(info[@"name"]);
+    cell.textLabel.text = NLSourceTitle(name);
+    cell.imageView.image = NLSourceIcon(name);
     cell.showsReorderControl = YES;
     return cell;
-}
-
-- (BOOL)tableView:(UITableView *)tableView canMoveRowAtIndexPath:(NSIndexPath *)indexPath {
-    return YES;
 }
 
 - (UITableViewCellEditingStyle)tableView:(UITableView *)tableView editingStyleForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -215,15 +205,12 @@ NSArray<NSString *> *NLSourceOrder(PSListController *controller) {
     return NO;
 }
 
+// Every row can move: this method alone makes them movable.
 - (void)tableView:(UITableView *)tableView moveRowAtIndexPath:(NSIndexPath *)from toIndexPath:(NSIndexPath *)to {
     NSString *name = _shown[from.row];
     [_shown removeObjectAtIndex:from.row];
     [_shown insertObject:name atIndex:to.row];
     [self nlSave];
-}
-
-- (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {
-    NLThemeCell(cell);
 }
 
 @end

@@ -36,17 +36,6 @@ static NSString *const kNLDeniedBundles[] = {
     nil,
 };
 
-// Only real apps: the system ones in /Applications and everything installed
-// through the App Store or a jailbreak (its /Applications, NLJBPath).
-// Daemons and services that happen to link MediaPlayer (sosd, for one) live
-// elsewhere and are not worth a hook.
-static NSString *const kNLAppRoots[] = {
-    @"/Applications/",
-    @"/private/var/containers/Bundle/Application/",
-    @"/var/containers/Bundle/Application/",
-    nil,
-};
-
 // Apple's own apps do not publish through -setNowPlayingInfo:; they give
 // MediaPlayer a content item instead, and that object is what gets edited.
 // Only Music is known to need this.
@@ -65,62 +54,36 @@ static BOOL NLListContains(NSString *const list[], NSString *bundleID) {
 
 #pragma mark - Values
 
-static NSString *NLTrimmed(id value) {
-    return [value isKindOfClass:[NSString class]]
-        ? [value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]
-        : nil;
-}
-
-// The Musixmatch app's "Copy debug info" produces a whole block; pull the
-// token out of it so the field can just be pasted into.
-static NSString *NLExtractToken(id value) {
-    NSString *raw = NLTrimmed(value);
-    if (raw.length == 0) return nil;
-
-    NSRange marker = [raw rangeOfString:@"[UserToken]:"];
-    if (marker.location == NSNotFound) return raw;
-
-    NSString *tail = [raw substringFromIndex:NSMaxRange(marker)];
-    for (NSString *piece in [tail componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]) {
-        if (piece.length) return piece;
-    }
-    return nil;
-}
-
 // The app picker is AltList's ATLApplicationListMultiSelectionController, which
 // stores the enabled apps as an array of bundle identifiers. nil means the user
 // has never opened that page, which is the only time the built-in defaults apply.
-static NSSet<NSString *> *NLSelectedApps(NSDictionary *prefs) {
-    id raw = prefs[@"enabledApps"];
-    if (![raw isKindOfClass:[NSArray class]]) return nil;
-    return [NSSet setWithArray:(NSArray *)raw];
+static NSArray<NSString *> *NLSelectedApps(NSDictionary *prefs) {
+    return NLArray(prefs, @"enabledApps");
 }
 
 // Recomputed on every preference change, which is what makes the per-app
 // switches take effect without relaunching the host app.
 static BOOL NLEnabledForBundle(NSString *bundleID, NSDictionary *prefs) {
-    if (bundleID.length == 0) return NO;
     if (NLListContains(kNLDeniedBundles, bundleID)) return NO;
     if (!NLPrefBool(prefs, @"enabled", YES)) return NO;
 
     // An empty array means "all off" and must not fall through to the defaults.
-    NSSet<NSString *> *selected = NLSelectedApps(prefs);
+    NSArray<NSString *> *selected = NLSelectedApps(prefs);
     if (selected) return [selected containsObject:bundleID];
     return NLListContains(kNLDefaultBundles, bundleID);
 }
 
-#pragma mark - Snapshot
-
-static NLSource NLSourceNamed(id name) {
-    if ([name isEqual:@"musixmatch"]) return NLSourceMusixmatch;
-    if ([name isEqual:@"lrclib"]) return NLSourceLRCLIB;
-    if ([name isEqual:@"netease"]) return NLSourceNetease;
-    if ([name isEqual:@"applemusic"]) return NLSourceAppleMusic;
-    return NLSourceNone;
+// A per-song table (`trackOffsets`, `trackSources`): track key → value.
+// Anything but a dictionary is none.
+static NSDictionary *NLPerSong(NSDictionary *prefs, NSString *key) {
+    id all = prefs[key];
+    return [all isKindOfClass:[NSDictionary class]] ? all : nil;
 }
 
+#pragma mark - Snapshot
+
 @implementation NLSettings {
-    NSDictionary *_prefs;   // for the per-song offsets, looked up as tracks come
+    NSDictionary *_prefs;   // the offsets and the per-song sources, looked up as tracks come
 }
 
 - (instancetype)initWithPrefs:(NSDictionary *)prefs {
@@ -135,28 +98,22 @@ static NLSource NLSourceNamed(id name) {
     // The order: the user's, any sources it does not name after it in the
     // default order. Before there was an order, a preferred source.
     NSMutableArray<NSNumber *> *order = [NSMutableArray array];
-    id savedOrder = prefs[@"sourceOrder"];
-    NSArray *names = [savedOrder isKindOfClass:NSArray.class] ? savedOrder
-                   : @[@"applemusic", prefs[@"preferredSource"] ?: @""];
-    for (id name in [names arrayByAddingObjectsFromArray:@[@"applemusic", @"musixmatch", @"lrclib", @"netease"]]) {
-        NLSource source = NLSourceNamed(name);
-        if (source != NLSourceNone && ![order containsObject:@(source)]) [order addObject:@(source)];
-    }
+    for (NSString *name in NLCompletedSourceOrder(prefs[@"sourceOrder"], prefs[@"preferredSource"])) [order addObject:@(NLSourceNamed(name))];
     _sourceOrder = [order copy];
 
     // Defaults match prefs/NowLyrics.plist.
     _useLRCLIB = NLPrefBool(prefs, @"useLRCLIB", YES);
     _useNetease = NLPrefBool(prefs, @"useNetease", YES);
-    // Apple Music's lyrics answer only in Music (NLSources.m).
+    // Apple Music's lyrics: in Music by its item, in other apps through SpringBoard (appleMusicOtherApps).
     _useAppleMusic = NLPrefBool(prefs, @"useAppleMusic", NO);
     _useAppleMusicElsewhere = _useAppleMusic && NLPrefBool(prefs, @"appleMusicOtherApps", YES);
     _killOnChange = NLPrefBool(prefs, @"killOnChange", NO);
+    _appleMusicVerified = NLPrefBool(prefs, @"appleMusicVerified", NO);
     _diagnostics = NLPrefBool(prefs, @"diagnostics", NO);
     _spotifyConnect = NLPrefBool(prefs, @"spotifyConnect", YES);
     _hideExplicit = NLPrefBool(prefs, @"hideExplicit", NO);
-    _offset = NLPrefNum(prefs, @"offset", 0);
     _cacheClearedAt = NLPrefNum(prefs, @"cacheClearedAt", 0);
-    _musixmatchToken = NLExtractToken(prefs[@"musixmatchToken"]);
+    _musixmatchToken = NLMusixmatchUserToken(prefs[@"musixmatchToken"]);
     _musixmatchKey = NLTrimmed(prefs[@"musixmatchKey"]);
 
     // Selected but no credentials entered is the same as switched off.
@@ -179,15 +136,32 @@ static NLSource NLSourceNamed(id name) {
 }
 
 - (NSTimeInterval)offsetForTrack:(NSString *)key {
-    return _offset + NLTrackOffset(_prefs, key);
+    return NLOffsetForTrack(_prefs, key);
 }
 
 // `trackSources` maps track keys to the source picked for that song on the
 // "Now Playing" page, by the same names as `sourceOrder`.
 - (NLSource)sourceForTrack:(NSString *)key {
-    id all = _prefs[NL_TRACK_SOURCES_KEY];
-    if (![all isKindOfClass:[NSDictionary class]] || key.length == 0) return NLSourceNone;
-    return NLSourceNamed(((NSDictionary *)all)[key]);
+    NSDictionary *all = NLPerSong(_prefs, NL_TRACK_SOURCES_KEY);
+    return all && key.length ? NLSourceNamed(all[key]) : NLSourceNone;
+}
+
+// What the app reads, value by value; the per-song tables whole, since any
+// song may come up.
+- (BOOL)sameEffectAs:(NLSettings *)other {
+    if (!other) return NO;
+    return _enabled == other->_enabled && _artistMode == other->_artistMode &&
+           [_sourceOrder isEqualToArray:other->_sourceOrder] &&
+           _useMusixmatch == other->_useMusixmatch && _useLRCLIB == other->_useLRCLIB && _useNetease == other->_useNetease &&
+           _useAppleMusic == other->_useAppleMusic && _useAppleMusicElsewhere == other->_useAppleMusicElsewhere &&
+           NLSame(_musixmatchKey, other->_musixmatchKey) && NLSame(_musixmatchToken, other->_musixmatchToken) &&
+           _killOnChange == other->_killOnChange && _diagnostics == other->_diagnostics &&
+           _spotifyConnect == other->_spotifyConnect && _hideExplicit == other->_hideExplicit &&
+           _cacheClearedAt == other->_cacheClearedAt &&
+           [_sourceSignature isEqualToString:other->_sourceSignature] &&
+           NLPrefNum(_prefs, @"offset", 0) == NLPrefNum(other->_prefs, @"offset", 0) &&
+           NLSame(NLPerSong(_prefs, NL_TRACK_OFFSETS_KEY), NLPerSong(other->_prefs, NL_TRACK_OFFSETS_KEY)) &&
+           NLSame(NLPerSong(_prefs, NL_TRACK_SOURCES_KEY), NLPerSong(other->_prefs, NL_TRACK_SOURCES_KEY));
 }
 
 @end
@@ -221,8 +195,7 @@ NLSettings *NLSettingsReloadPicking(NSString *trackKey, NSString *source) {
     if (trackKey.length) {
         id old = prefs[NL_TRACK_SOURCES_KEY];
         NSMutableDictionary *sources = [old isKindOfClass:[NSDictionary class]] ? [old mutableCopy] : [NSMutableDictionary dictionary];
-        if (source.length) sources[trackKey] = source;
-        else [sources removeObjectForKey:trackKey];
+        sources[trackKey] = source.length ? source : nil;   // nil removes it
         prefs[NL_TRACK_SOURCES_KEY] = sources;
     }
     return NLSettingsSet([[NLSettings alloc] initWithPrefs:prefs]);
@@ -242,11 +215,15 @@ BOOL NLProcessIsEligible(void) {
 
     if ([main.bundlePath hasPrefix:@"/System/Library/CoreServices/"]) return NO;
 
+    // Only real apps: the system ones in /Applications and everything installed
+    // through the App Store or a jailbreak (its /Applications, NLJBPath).
+    // Daemons and services that happen to link MediaPlayer (sosd, for one) live
+    // elsewhere and are not worth a hook.
     NSString *jailbreakApps = NLJBPath(@"/Applications/");
-    BOOL underAppRoot = [main.bundlePath hasPrefix:jailbreakApps] ||
-                        [main.bundlePath hasPrefix:[@"/private" stringByAppendingString:jailbreakApps]];
-    for (int i = 0; !underAppRoot && kNLAppRoots[i]; i++) {
-        if ([main.bundlePath hasPrefix:kNLAppRoots[i]]) underAppRoot = YES;
+    BOOL underAppRoot = NO;
+    for (NSString *root in @[@"/Applications/", @"/private/var/containers/Bundle/Application/", @"/var/containers/Bundle/Application/",
+                             jailbreakApps, [@"/private" stringByAppendingString:jailbreakApps]]) {
+        if ([main.bundlePath hasPrefix:root]) { underAppRoot = YES; break; }
     }
     if (!underAppRoot) return NO;
 

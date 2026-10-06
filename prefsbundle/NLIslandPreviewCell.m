@@ -24,24 +24,17 @@
 //  do. Nothing playing, it goes back to the sample lines.
 //
 //  The page's controller posts NLIslandPreviewChangedNotification after each
-//  change; the cell then asks it (-nlIslandPreviewValues) for the values.
+//  change; the cell then reads the island page's settings again
+//  (NLIslandPreviewValuesFromPlist, through its row's page).
 //
 
-#import <UIKit/UIKit.h>
-#import <Preferences/PSTableCell.h>
-#import <Preferences/PSSpecifier.h>
 #import "../NLIslandStrip.h"
 #import "NLLyricsPages.h"
-#import <dlfcn.h>
 #import <objc/runtime.h>
 
 // MRUActivityNowPlayingViewController, the island's now-playing element.
 @interface NSObject (NLActivity)
 - (void)setActiveLayoutMode:(NSInteger)mode;
-// MRUWaveformView and its settings.
-+ (id)currentSettings;
-- (instancetype)initWithFrame:(CGRect)frame context:(NSInteger)context settings:(id)settings;
-- (void)setArtworkImage:(UIImage *)image;
 - (UIView *)leadingView;   // its cover: closed at the leading side, open at the top left
 - (UIView *)trailingView;  // its waveform: closed at the trailing side, open at the top right
 @end
@@ -61,29 +54,30 @@ static const NSInteger kNLActivityExpanded = 4;
 static char kNLHostModeKey, kNLHostGuideKey;
 static IMP gLayoutModeIMP, gObstructedIMP;
 
-static NSInteger NLHostLayoutMode(UIView *self, SEL _cmd) {
-    for (UIView *v = self; v; v = v.superview) {
-        NSNumber *mode = objc_getAssociatedObject(v, &kNLHostModeKey);
-        if (mode) return mode.integerValue;
+// The nearest answer the preview left on `view` or an ancestor under `key`,
+// nil outside the preview's island.
+static id NLHostAnswer(UIView *view, const void *key) {
+    for (UIView *v = view; v; v = v.superview) {
+        id value = objc_getAssociatedObject(v, key);
+        if (value) return value;
     }
-    return ((NSInteger (*)(id, SEL))gLayoutModeIMP)(self, _cmd);
+    return nil;
+}
+
+static NSInteger NLHostLayoutMode(UIView *self, SEL _cmd) {
+    NSNumber *mode = NLHostAnswer(self, &kNLHostModeKey);
+    return mode ? mode.integerValue : ((NSInteger (*)(id, SEL))gLayoutModeIMP)(self, _cmd);
 }
 
 static id NLHostObstructedGuide(UIView *self, SEL _cmd) {
-    for (UIView *v = self; v; v = v.superview) {
-        id guide = objc_getAssociatedObject(v, &kNLHostGuideKey);
-        if (guide) return guide;
-    }
-    return ((id (*)(id, SEL))gObstructedIMP)(self, _cmd);
+    return NLHostAnswer(self, &kNLHostGuideKey) ?: ((id (*)(id, SEL))gObstructedIMP)(self, _cmd);
 }
 
 static void NLStandInForHost(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        Method mode = class_getInstanceMethod(UIView.class, NSSelectorFromString(@"SBUISA_layoutMode"));
-        Method guide = class_getInstanceMethod(UIView.class, NSSelectorFromString(@"SBUISA_systemApertureObstructedAreaLayoutGuide"));
-        if (mode) gLayoutModeIMP = method_setImplementation(mode, (IMP)NLHostLayoutMode);
-        if (guide) gObstructedIMP = method_setImplementation(guide, (IMP)NLHostObstructedGuide);
+        gLayoutModeIMP = NLReplaceMethod(UIView.class, NSSelectorFromString(@"SBUISA_layoutMode"), (IMP)NLHostLayoutMode);
+        gObstructedIMP = NLReplaceMethod(UIView.class, NSSelectorFromString(@"SBUISA_systemApertureObstructedAreaLayoutGuide"), (IMP)NLHostObstructedGuide);
     });
 }
 
@@ -91,11 +85,6 @@ NSString *const NLIslandPreviewChangedNotification = @"NLIslandPreviewChanged";
 // The preview showing the island left the screen: another one still on it
 // (a swipe back let go halfway) takes the island up again.
 static NSString *const NLIslandPreviewFreedNotification = @"NLIslandPreviewFreed";
-NSArray<NSString *> *NLPreviewLinePool(NSBundle *bundle);   // NLPreviewLines.m
-
-@interface NSObject (NLIslandPreview)
-- (NSDictionary *)nlIslandPreviewValues;
-@end
 
 // The compact island on a 14 Pro with music playing, grown to the status bar,
 // and the expanded one a long press opens.
@@ -107,6 +96,7 @@ static const CGSize kNLCompact = {188, 47};
 static const CGSize kNLExpanded = {330, 92};
 static const CGSize kNLExpandedLive = {368, 195};   // the real one on a 14 Pro: cover, line, progress, controls
 static const CGSize kNLOpenView = {371, 198};       // the open island's own view, laid out at the measured size
+#define kNLClosedScale (kNLCompact.width / kNLExpandedLive.width)   // the closed island's width over the open one's
 static const CGFloat kNLExpandedLiveRadius = 44.5;
 // Crescendo's volume row in the open island (CRHooksDynamicIsland.x): the
 // island opens this much taller, the 24 pt slider 24 pt above its bottom,
@@ -126,14 +116,14 @@ static const CGFloat kNLVolumeSlider = 24;
 static const NSTimeInterval kNLKeyLineHold = 2.5;
 static const CGFloat kNLKeyLineInert = 0.45;
 static const CGFloat kNLTopMargin = 8;   // from the top of the table to the island
-static const CGFloat kNLSensorWidth = 125;   // the line is centred under the camera at this width
 static const CGFloat kNLPressScale = 1.06;
+static const CGFloat kNLPressScaleOpen = 1.02;   // the swell when the island is open
 static const NSTimeInterval kNLExpandDelay = 0.45;
 static const NSTimeInterval kNLAutoClose = 5;   // "Auto compact": an open island untouched this long closes
 static const NSUInteger kNLBars = 6;
 static const NSUInteger kNLRecentLines = 20;   // not repeated until this many others came by
 
-@interface NLIslandPreviewCell : PSTableCell <UIGestureRecognizerDelegate>
+@interface NLIslandPreviewCell () <UIGestureRecognizerDelegate>
 @end
 
 // The open island's extra rows hang below their host, which takes the open
@@ -158,7 +148,6 @@ static const NSUInteger kNLRecentLines = 20;   // not repeated until this many o
     UIView *_pill;
     UIView *_ring;   // the outline, around the pill rather than on it
     UIImageView *_art;
-    UIImage *_sampleArt;                   // the stand-in cover, back when nothing plays
     NLWaveformView *_wave;
     // The real island, while music plays and the switch wants it (nil: the
     // sample lines run).
@@ -171,7 +160,7 @@ static const NSUInteger kNLRecentLines = 20;   // not repeated until this many o
     UIView *_liveWave;                     // the island's own waveform view, in the sample waveform's place
     UIView *_liveArt;                      // the island's own cover view, in the sample cover's place
     NLWaveformDriver *_activityWave;       // moves its waveform, which has no audio tap here
-    NSUInteger _liveArtworkLength;         // the cover the album color was taken from
+    NSUInteger _liveArtworkPrint;          // the cover the album color was taken from (NLArtworkPrint; 0: none)
     BOOL _activityPlacesLive;              // the open view may move the cover and waveform (opening, once)
     BOOL _keepingLiveViews;                // inside -nlKeepLiveViewsThrough: (a nested pass is left alone)
     BOOL _collapsingLive;                  // the live island is closing: the cover and waveform are the close animation's
@@ -181,7 +170,6 @@ static const NSUInteger kNLRecentLines = 20;   // not repeated until this many o
     UILabel *_titleLabel;      // expanded only
     UILabel *_lineLabel;       // expanded only
     UIColor *_albumColor;
-    UIColor *_textColor;
     NSString *_line;
     NSMutableArray<NSString *> *_recent;
     NSUInteger _generation;    // invalidates the pending line change
@@ -211,22 +199,14 @@ static const NSUInteger kNLRecentLines = 20;   // not repeated until this many o
 // The stand-in cover: NowLyrics' own icon (the 87 px one in this bundle). Its
 // album color comes from the same NLColorFromArtwork() the island uses.
 static UIImage *NLSampleArtwork(void) {
-    static UIImage *icon;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        icon = [UIImage imageNamed:@"NowLyrics" inBundle:[NSBundle bundleForClass:NLIslandPreviewCell.class]
-             compatibleWithTraitCollection:[UITraitCollection traitCollectionWithDisplayScale:3]];
-    });
-    return icon;
+    return NL_ONCE([UIImage imageNamed:@"NowLyrics" inBundle:NLPrefsBundle()
+                    compatibleWithTraitCollection:[UITraitCollection traitCollectionWithDisplayScale:3]]);
 }
 
 // That color, worked out once (through a PNG of the icon): the icon never
 // changes, and every new cell and every return from the live island want it.
 static UIColor *NLSampleArtworkColor(void) {
-    static UIColor *color;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{ color = NLColorFromArtwork(UIImagePNGRepresentation(NLSampleArtwork())); });
-    return color;
+    return NL_ONCE(NLColorFromArtwork(UIImagePNGRepresentation(NLSampleArtwork())));
 }
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier specifier:(PSSpecifier *)specifier {
@@ -256,7 +236,6 @@ static UIColor *NLSampleArtworkColor(void) {
         _art.clipsToBounds = YES;
         [_pill addSubview:_art];
         _albumColor = NLSampleArtworkColor();
-        _sampleArt = art;
 
         _wave = [[NLWaveformView alloc] initWithBars:kNLBars];
         _wave.artwork = art;   // colored by the sample cover, the way the island's is by the real one
@@ -288,10 +267,9 @@ static UIColor *NLSampleArtworkColor(void) {
         _lightTap = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
         _firmTap = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
         _recent = [NSMutableArray array];
-        _fontSize = 11;
-        _textColor = [UIColor colorWithWhite:1 alpha:0.92];
+        _fontSize = kNLDefaultFontSize;
 
-        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(nlValuesChanged:)
+        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(nlApplyValues)
                                                      name:NLIslandPreviewChangedNotification object:nil];
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(nlIslandFreed)
                                                      name:NLIslandPreviewFreedNotification object:nil];
@@ -301,10 +279,7 @@ static UIColor *NLSampleArtworkColor(void) {
 
 // NowLyrics' own color: that of the main switch's icon (NLSampleCoverIcon).
 UIColor *NLNowLyricsColor(void) {
-    static UIColor *color;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{ color = NLColorFromArtwork(UIImagePNGRepresentation(NLSampleCoverIcon())); });
-    return color;
+    return NL_ONCE(NLColorFromArtwork(UIImagePNGRepresentation(NLSampleCoverIcon())));
 }
 
 // The theme is the color of what the island shows: the album's, or NowLyrics'
@@ -314,17 +289,25 @@ UIColor *NLNowLyricsColor(void) {
     NLThemeSetColor((_liveInfo && _albumColor) ? _albumColor : NLNowLyricsColor());
 }
 
+// `block` on the main queue after `delay` seconds, given the cell if it is still
+// around. The block reads state only through `cell`.
+- (void)nlAfter:(NSTimeInterval)delay run:(void (^)(NLIslandPreviewCell *cell))block {
+    __weak typeof(self) weakSelf = self;
+    NLAfter(delay, ^{
+        NLIslandPreviewCell *cell = weakSelf;
+        if (cell) block(cell);
+    });
+}
+
 // The outline lights up, and settles again after a while.
 - (void)nlWakeKeyLine {
     NSUInteger generation = ++_keyLineGeneration;
     UIViewAnimationOptions options = UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction;
     [UIView animateWithDuration:0.2 delay:0 options:options animations:^{ self->_ring.alpha = 1; } completion:nil];
-    __weak typeof(self) weakSelf = self;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kNLKeyLineHold * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        NLIslandPreviewCell *cell = weakSelf;
-        if (!cell || cell->_keyLineGeneration != generation) return;
+    [self nlAfter:kNLKeyLineHold run:^(NLIslandPreviewCell *cell) {
+        if (cell->_keyLineGeneration != generation) return;
         [UIView animateWithDuration:0.8 delay:0 options:options animations:^{ cell->_ring.alpha = kNLKeyLineInert; } completion:nil];
-    });
+    }];
 }
 
 - (void)dealloc {
@@ -356,10 +339,41 @@ UIColor *NLNowLyricsColor(void) {
 // the real one floats over the app: opening, it keeps its top edge (where the
 // camera is) and grows down and out over the rows below, wider than the row's
 // card if it must, and pushes nothing aside.
-- (UIView *)nlTable {
-    UIView *table = self.superview;
-    while (table && ![table isKindOfClass:UITableView.class]) table = table.superview;
-    return table;
+- (UITableView *)nlTable {
+    return (UITableView *)NLAncestorOfClass(self.superview, UITableView.class);
+}
+
+// Showing the real island (what plays, through its own controller) rather
+// than the sample.
+- (BOOL)nlLive {
+    return _liveInfo != nil && _activity != nil;
+}
+
+// The island and its outline move as one.
+- (void)nlSetIslandTransform:(CGAffineTransform)t {
+    _pill.transform = t;
+    _ring.transform = t;
+}
+
+// The outline and the island into `host`: over the table's cells (which the
+// table adds and reorders) when it is the table, plainly in the row otherwise.
+- (void)nlMoveIslandTo:(UIView *)host overCells:(BOOL)over {
+    [host addSubview:_ring];
+    [host addSubview:_pill];
+    _ring.layer.zPosition = over ? 99 : 0;
+    _pill.layer.zPosition = over ? 100 : 0;
+}
+
+// The live cover and waveform that exist (either may be nil), to loop over.
+static NSArray<UIView *> *NLExisting(UIView *a, UIView *b) {
+    return a && b ? @[a, b] : a ? @[a] : b ? @[b] : @[];
+}
+
+// `view` where the sample cover or waveform `sample` is: bounds and centre
+// (closing gives the live ones a scale for a moment).
+static void NLPlaceLike(UIView *view, UIView *sample) {
+    view.bounds = (CGRect){CGPointZero, sample.bounds.size};
+    view.center = sample.center;
 }
 
 // The one preview whose island is up on the page. The table makes a new cell
@@ -392,10 +406,7 @@ static __weak NLIslandPreviewCell *gIslandOwner;
     if (_pill.superview == host) return;
     // Often inside the page's push animation, which must not carry it along.
     [UIView performWithoutAnimation:^{
-        [host addSubview:self->_ring];
-        [host addSubview:self->_pill];
-        self->_ring.layer.zPosition = table ? 99 : 0;    // over the cells, which the table adds and reorders
-        self->_pill.layer.zPosition = table ? 100 : 0;
+        [self nlMoveIslandTo:host overCells:table != nil];
         [self nlLayoutPill];
         [self->_pill layoutIfNeeded];
     }];
@@ -412,17 +423,21 @@ static __weak NLIslandPreviewCell *gIslandOwner;
 // on the page, as the real one is on the screen (the row's card is not quite
 // centred).
 - (CGPoint)nlPillCentre:(CGSize)size {
-    CGRect b = self.contentView.bounds;
     UIView *host = _pill.superview ?: self.contentView;
-    CGPoint top = [self.contentView convertPoint:CGPointMake(round(CGRectGetMidX(b)), round(CGRectGetMidY(b) - kNLCompact.height / 2))
-                                          toView:host];
-    if ([host isKindOfClass:UITableView.class]) top = CGPointMake(round(host.bounds.size.width / 2 * 2) / 2, kNLTopMargin);
+    CGPoint top;
+    if ([host isKindOfClass:UITableView.class]) {
+        top = CGPointMake(round(host.bounds.size.width) / 2, kNLTopMargin);
+    } else {
+        CGRect b = self.contentView.bounds;
+        top = [self.contentView convertPoint:CGPointMake(round(CGRectGetMidX(b)), round(CGRectGetMidY(b) - kNLCompact.height / 2))
+                                      toView:host];
+    }
     return CGPointMake(top.x, top.y + size.height / 2);
 }
 
 // Bounds and centre rather than frame, so the press transform can stay on.
 - (void)nlLayoutPill {
-    BOOL live = _liveInfo != nil && _activity != nil;
+    BOOL live = [self nlLive];
     [self nlUpdateExtraHeight];   // NextUp's row only while live
     CGSize liveSize = CGSizeMake(kNLExpandedLive.width, kNLExpandedLive.height + _extraHeight);
     CGSize size = _expanded ? (live ? liveSize : kNLExpanded) : kNLCompact;
@@ -462,9 +477,7 @@ static __weak NLIslandPreviewCell *gIslandOwner;
 
     // The strip as NowLyricsIsland lays it out: the font's exact line height on
     // the bottom edge, centred at the camera's width less a little each side.
-    CGFloat h = [UIFont systemFontOfSize:_fontSize weight:UIFontWeightSemibold].lineHeight;
-    CGFloat width = kNLSensorWidth - 8;
-    CGRect strip = CGRectMake(round((size.width - width) / 2), size.height - h, width, h);
+    CGRect strip = NLIslandStripFrame(size, kNLDefaultSensorWidth - kNLContentGap * 2, NLIslandLineHeight(_fontSize));
     // Never carried along by the island's spring: it is hidden while the
     // island is open and comes back in place once it has closed.
     [UIView performWithoutAnimation:^{
@@ -495,12 +508,7 @@ static __weak NLIslandPreviewCell *gIslandOwner;
 - (void)nlStandDown {
     if (gIslandOwner == self) gIslandOwner = nil;
     [self nlStop];
-    [UIView performWithoutAnimation:^{
-        [self.contentView addSubview:self->_ring];
-        [self.contentView addSubview:self->_pill];
-        self->_ring.layer.zPosition = 0;
-        self->_pill.layer.zPosition = 0;
-    }];
+    [UIView performWithoutAnimation:^{ [self nlMoveIslandTo:self.contentView overCells:NO]; }];
 }
 
 - (void)nlStop {
@@ -512,29 +520,33 @@ static __weak NLIslandPreviewCell *gIslandOwner;
         _expanded = NO;   // back closed next time, without animating off screen
         _titleLabel.alpha = _lineLabel.alpha = 0;
         _strip.alpha = 1;
-        _pill.transform = CGAffineTransformIdentity;
-        _ring.transform = CGAffineTransformIdentity;
+        [self nlSetIslandTransform:CGAffineTransformIdentity];
         // Live, the open island's own view and the cover and waveform too, as
         // a close leaves them: it stayed up in the closed island, its line
         // over the strip's, when the island came back.
-        if (_activity) {
-            CGAffineTransform closed = NLTopScale(kNLCompact.width / kNLExpandedLive.width, kNLOpenView.height);
-            [UIView performWithoutAnimation:^{
-                self->_activity.view.alpha = 0;
-                self->_activity.view.transform = closed;
-                self->_extrasHost.alpha = 0;
-                self->_extrasHost.transform = closed;
-                for (UIView *view in @[self->_liveArt ?: [NSNull null], self->_liveWave ?: [NSNull null]]) {
-                    if (![view isKindOfClass:UIView.class]) continue;
-                    view.transform = CGAffineTransformIdentity;
-                    view.alpha = 1;
-                }
-            }];
-            [self nlSetActivityMode:kNLActivityCompact];
-            [self nlReturnLiveViews];
-        }
+        [self nlEndLiveClose];
         [self nlLayoutPill];
     }
+}
+
+// The real island as its close leaves it, at once: the open view shrunk away,
+// the cover and waveform whole and back in the island, the controller in its
+// closed layout.
+- (void)nlEndLiveClose {
+    if (!_activity) return;
+    CGAffineTransform closed = NLOpenViewClosed();
+    [UIView performWithoutAnimation:^{
+        self->_activity.view.alpha = 0;
+        self->_activity.view.transform = closed;
+        self->_extrasHost.alpha = 0;
+        self->_extrasHost.transform = closed;
+        for (UIView *view in NLExisting(self->_liveArt, self->_liveWave)) {
+            view.transform = CGAffineTransformIdentity;
+            view.alpha = 1;
+        }
+    }];
+    [self nlSetActivityMode:kNLActivityCompact];
+    [self nlReturnLiveViews];
 }
 
 - (void)nlScreenChanged {
@@ -573,14 +585,12 @@ static __weak NLIslandPreviewCell *gIslandOwner;
 - (void)nlOpenAsWanted:(BOOL)appearing {
     if (appearing && [_openMode isEqualToString:@"closed"]) return;
     NSString *mode = _openMode;
-    __weak typeof(self) weakSelf = self;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)((appearing ? kNLExpandDelay : 0) * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        NLIslandPreviewCell *cell = weakSelf;
-        if (!cell || ![cell nlOnScreen] || ![cell->_openMode isEqualToString:mode]) return;
+    [self nlAfter:appearing ? kNLExpandDelay : 0 run:^(NLIslandPreviewCell *cell) {
+        if (![cell nlOnScreen] || ![cell->_openMode isEqualToString:mode]) return;
         cell->_quiet = YES;
         [cell nlSetExpanded:![mode isEqualToString:@"closed"]];
         cell->_quiet = NO;
-    });
+    }];
 }
 
 // "Auto compact": the open island closes once left alone for kNLAutoClose;
@@ -588,42 +598,33 @@ static __weak NLIslandPreviewCell *gIslandOwner;
 - (void)nlScheduleAutoClose {
     NSUInteger generation = ++_autoCloseGeneration;
     if (!_expanded || ![_openMode isEqualToString:@"auto"]) return;
-    __weak typeof(self) weakSelf = self;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kNLAutoClose * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        NLIslandPreviewCell *cell = weakSelf;
-        if (!cell || cell->_autoCloseGeneration != generation || !cell->_expanded || ![cell nlOnScreen]) return;
+    [self nlAfter:kNLAutoClose run:^(NLIslandPreviewCell *cell) {
+        if (cell->_autoCloseGeneration != generation || !cell->_expanded || ![cell nlOnScreen]) return;
         cell->_quiet = YES;
         [cell nlSetExpanded:NO];
         cell->_quiet = NO;
-    });
-}
-
-- (void)nlValuesChanged:(NSNotification *)note {
-    [self nlApplyValues];
+    }];
 }
 
 - (void)nlApplyValues {
-    NSDictionary *values = nil;
     id target = self.specifier.target;
-    if ([target respondsToSelector:@selector(nlIslandPreviewValues)]) values = [target nlIslandPreviewValues];
-    _fontSize = [values[@"islandFontSize"] respondsToSelector:@selector(doubleValue)] ? [values[@"islandFontSize"] doubleValue] : 11;
-    CGFloat speed = [values[@"islandMarqueeSpeed"] respondsToSelector:@selector(doubleValue)] ? [values[@"islandMarqueeSpeed"] doubleValue] : kNLDefaultSpeed;
+    NSDictionary *values = NLIslandPreviewValuesFromPlist([target isKindOfClass:PSListController.class] ? target : nil);
+    _fontSize = NLLooseNum(values[@"islandFontSize"], kNLDefaultFontSize);
+    CGFloat speed = NLLooseNum(values[@"islandMarqueeSpeed"], kNLDefaultSpeed);
     _scrollUp = [values[@"islandTransition"] isEqual:@"up"];
-    _liveWanted = [values[@"islandPreviewLive"] respondsToSelector:@selector(boolValue)] ? [values[@"islandPreviewLive"] boolValue] : YES;
-    NSString *openMode = [@[@"open", @"auto"] containsObject:values[@"islandPreviewOpen"]] ? values[@"islandPreviewOpen"] : @"closed";
+    _liveWanted = NLLooseBool(values[@"islandPreviewLive"], YES);
+    NSString *openMode = [NL_ONCE((@[@"open", @"auto"])) containsObject:values[@"islandPreviewOpen"]] ? values[@"islandPreviewOpen"] : @"closed";
     BOOL openChanged = _openMode && ![openMode isEqualToString:_openMode];
     _openMode = openMode;
     if (openChanged) [self nlOpenAsWanted:NO];
-    _wordByWord = [values[@"islandWordByWord"] respondsToSelector:@selector(boolValue)] ? [values[@"islandWordByWord"] boolValue] : YES;
-    _textColor = ([values[@"islandColor"] isEqual:@"artwork"] && _albumColor) ? _albumColor : [UIColor colorWithWhite:1 alpha:0.92];
+    _wordByWord = NLLooseBool(values[@"islandWordByWord"], YES);
+    UIColor *textColor = NLIslandTextColor([values[@"islandColor"] isEqual:@"artwork"], _albumColor);
     _crescendoWanted = NLCrescendoShows(NLCrescendoDynamicIsland);
-    _nextUpWanted = NLNextUpShowsInIsland();
-    if (_nextUpWanted) NLNextUpLoad();   // its row view and manager
-    [self nlUpdateExtraHeight];
-    _lineLabel.textColor = _textColor;
-    [self nlLayoutPill];
+    _nextUpWanted = NLNextUpShowsInIsland();   // its library is loaded then
+    _lineLabel.textColor = textColor;
+    [self nlLayoutPill];   // which works out the extra rows' height first
     [_strip layoutIfNeeded];
-    [_strip applyFontSize:_fontSize color:_textColor speed:speed];
+    [_strip applyFontSize:_fontSize color:textColor speed:speed];
 }
 
 #pragma mark Lines
@@ -667,7 +668,7 @@ static NSArray<NSString *> *NLPreviewPieces(NSString *line) {
 
 // A line that has not come by recently.
 - (NSString *)nlPickLine {
-    NSArray<NSString *> *pool = NLPreviewLinePool([NSBundle bundleForClass:self.class]);
+    NSArray<NSString *> *pool = NLPreviewLinePool(NLPrefsBundle());
     NSMutableArray<NSString *> *fresh = [NSMutableArray array];
     for (NSString *line in pool) {
         if (![_recent containsObject:line] && ![line isEqualToString:_line]) [fresh addObject:line];
@@ -683,10 +684,10 @@ static NSArray<NSString *> *NLPreviewPieces(NSString *line) {
 // until it has scrolled through at the set speed. Held still while expanded.
 - (void)nlNextLine {
     NSUInteger generation = ++_generation;
-    if (_liveInfo && _activity) return;   // the real island's lines come from what is playing
+    if ([self nlLive]) return;   // the real island's lines come from what is playing
     _line = [self nlPickLine];
     [_strip setText:_line explicit:NO scrollUp:_scrollUp];
-    NSTimeInterval dwell = MAX(_strip.marqueeReadDuration, 2.6);
+    NSTimeInterval shown = _strip.marqueeReadDuration;
     if (_wordByWord) {
         NSArray<NSString *> *pieces = NLPreviewPieces(_line);
         NSMutableArray *starts = [NSMutableArray array], *ends = [NSMutableArray array];
@@ -695,17 +696,16 @@ static NSArray<NSString *> *NLPreviewPieces(NSString *line) {
             [ends addObject:@(0.2 + (i + 1) * kNLPreviewPieceTime)];
         }
         [_strip setWordTexts:pieces starts:starts ends:ends position:0 rate:1];
-        dwell = MAX(0.2 + pieces.count * kNLPreviewPieceTime + 1.2, 2.6);
+        shown = 0.2 + pieces.count * kNLPreviewPieceTime + 1.2;
     }
+    NSTimeInterval dwell = MAX(shown, 2.6);
     [UIView transitionWithView:_lineLabel duration:0.25 options:UIViewAnimationOptionTransitionCrossDissolve
                     animations:^{ self->_lineLabel.text = self->_line; } completion:nil];
-    __weak typeof(self) weakSelf = self;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(dwell * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        NLIslandPreviewCell *cell = weakSelf;
-        if (!cell || cell->_generation != generation || !cell.window) return;
+    [self nlAfter:dwell run:^(NLIslandPreviewCell *cell) {
+        if (cell->_generation != generation || !cell.window) return;
         if (cell->_expanded) { cell->_generation++; return; }   // resumes on collapse
         [cell nlNextLine];
-    });
+    }];
 }
 
 #pragma mark Springs
@@ -753,11 +753,9 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
             _autoCloseGeneration++;   // not while the finger is down
             if (_expanded) break;   // open already: this press is a tap to close
             NSUInteger generation = ++_pressGeneration;
-            __weak typeof(self) weakSelf = self;
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kNLExpandDelay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                NLIslandPreviewCell *cell = weakSelf;
-                if (cell && cell->_pressGeneration == generation && !cell->_pressCancelled) [cell nlSetExpanded:YES];
-            });
+            [self nlAfter:kNLExpandDelay run:^(NLIslandPreviewCell *cell) {
+                if (cell->_pressGeneration == generation && !cell->_pressCancelled) [cell nlSetExpanded:YES];
+            }];
             break;
         }
         case UIGestureRecognizerStateChanged: {
@@ -809,30 +807,25 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
     CGFloat limit = 40;
     CGFloat px = limit * tanh(d.x / (limit * 3)), py = limit * tanh(d.y / (limit * 3));
     CGFloat ax = fabs(px) / limit, ay = fabs(py) / limit;   // 0...1 along each axis
-    CGFloat base = _expanded ? 1.02 : kNLPressScale;
+    CGFloat base = _expanded ? kNLPressScaleOpen : kNLPressScale;
     CGAffineTransform t = CGAffineTransformMakeTranslation(px, py);
     t = CGAffineTransformScale(t, base * (1 + ax * 0.12 - ay * 0.04), base * (1 + ay * 0.12 - ax * 0.04));
     if (_pressAnimator.state == UIViewAnimatingStateActive) [_pressAnimator stopAnimation:YES];
     _pressAnimator = nil;
-    [UIView performWithoutAnimation:^{
-        self->_pill.transform = t;
-        self->_ring.transform = t;
-    }];
+    [UIView performWithoutAnimation:^{ [self nlSetIslandTransform:t]; }];
 }
 
 // The page does not scroll while the island is being pulled.
 - (void)nlSetPageScrolls:(BOOL)scrolls {
-    UIView *table = [self nlTable];
-    if ([table isKindOfClass:UIScrollView.class]) ((UIScrollView *)table).scrollEnabled = scrolls;
+    [self nlTable].scrollEnabled = scrolls;
 }
 
 // Swells under the finger (less when open) and settles back when it lifts.
 - (void)nlSetPressed:(BOOL)pressed {
-    CGFloat scale = _expanded ? 1.02 : kNLPressScale;
+    CGFloat scale = _expanded ? kNLPressScaleOpen : kNLPressScale;
     if (_pressAnimator.state == UIViewAnimatingStateActive) [_pressAnimator stopAnimation:YES];
     _pressAnimator = NLSpring(pressed ? 0.25 : 0.4, pressed ? 0.8 : 0.6, ^{
-        self->_pill.transform = pressed ? CGAffineTransformMakeScale(scale, scale) : CGAffineTransformIdentity;
-        self->_ring.transform = self->_pill.transform;
+        [self nlSetIslandTransform:pressed ? CGAffineTransformMakeScale(scale, scale) : CGAffineTransformIdentity];
     });
 }
 
@@ -845,8 +838,12 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
     _expanded = expanded;
     _quietUntil = CACurrentMediaTime() + 0.9;
     if (!_quiet) [(expanded ? _firmTap : _lightTap) impactOccurred];
-    BOOL live = _liveInfo != nil && _activity != nil;
+    BOOL live = [self nlLive];
     if (!live) _lineLabel.text = _line;
+    // Back to the sample while the real island was still closing: that close
+    // loses its last steps to this change (the generation below), so they are
+    // taken now.
+    if (!live && _collapsingLive) [self nlEndLiveClose];
 
     // The open island's title, progress and controls grow with the island the
     // way SpringBoard grows an element's content: scaled from the closed
@@ -859,7 +856,6 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
     UIView *openView = live ? _activity.view : nil;
     UIView *extrasHost = live ? _extrasHost : nil;
     UIView *cover = live ? _liveArt : nil, *wave = live ? _liveWave : nil;
-    CGFloat closedScale = kNLCompact.width / kNLExpandedLive.width;
     CGFloat startWidth = _pill.bounds.size.width;
     NSUInteger generation = ++_closeGeneration;
     if (live && expanded) {
@@ -871,7 +867,7 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
         [self nlSetActivityMode:kNLActivityExpanded];
         _activityPlacesLive = NO;
         [UIView performWithoutAnimation:^{
-            openView.transform = NLTopScale(closedScale, kNLOpenView.height);
+            openView.transform = NLOpenViewClosed();
             extrasHost.transform = openView.transform;
             cover.transform = CGAffineTransformIdentity;
             wave.transform = CGAffineTransformIdentity;
@@ -896,44 +892,38 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
         } completion:nil];
     }
     // Softer and longer than before (0.5 / 0.42 s, 0.78 / 0.95): it read as fast and stiff.
-    UIViewPropertyAnimator *morph = NLSpring(expanded ? 0.6 : 0.52, expanded ? 0.82 : 0.9, ^{
+    NLSpring(expanded ? 0.6 : 0.52, expanded ? 0.82 : 0.9, ^{
         [self nlLayoutPill];
-        openView.transform = expanded ? CGAffineTransformIdentity : NLTopScale(closedScale, kNLOpenView.height);
+        openView.transform = expanded ? CGAffineTransformIdentity : NLOpenViewClosed();
         extrasHost.transform = openView.transform;
         if (live && !expanded) {
             // About the island's top centre, which is at half its width in its
             // own coordinates: half the open width now, half the closed one at
             // the end of this same spring.
-            for (UIView *view in @[cover ?: [NSNull null], wave ?: [NSNull null]]) {
-                if (![view isKindOfClass:UIView.class]) continue;
+            for (UIView *view in NLExisting(cover, wave)) {
                 CGPoint c = view.center;
-                view.center = CGPointMake(kNLCompact.width / 2 + closedScale * (c.x - startWidth / 2), closedScale * c.y);
-                view.transform = CGAffineTransformMakeScale(closedScale, closedScale);
+                view.center = CGPointMake(kNLCompact.width / 2 + kNLClosedScale * (c.x - startWidth / 2), kNLClosedScale * c.y);
+                view.transform = CGAffineTransformMakeScale(kNLClosedScale, kNLClosedScale);
             }
         }
-        self->_pill.transform = CGAffineTransformIdentity;
-        self->_ring.transform = CGAffineTransformIdentity;
+        [self nlSetIslandTransform:CGAffineTransformIdentity];
     });
-    (void)morph;
     if (live && !expanded) {
         // While the island is still closing (about two thirds of the way),
         // the cover and waveform grow in. Inside the island they would ride
         // in with its edges, so for now they hang over it, outside it, where
         // they end up on screen, and go back in once all has stopped.
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        NLAfter(0.2, ^{
             if (self->_expanded || self->_closeGeneration != generation) return;   // opened again meanwhile
             [self nlSetActivityMode:kNLActivityCompact];
             UIView *host = self->_pill.superview;
             CGPoint origin = self->_pill.frame.origin;   // the closed island's, already
             CGAffineTransform small = CGAffineTransformMakeScale(0.6, 0.6);
             [UIView performWithoutAnimation:^{
-                for (UIView *view in @[cover ?: [NSNull null], wave ?: [NSNull null]]) {
-                    if (![view isKindOfClass:UIView.class]) continue;
-                    view.transform = CGAffineTransformIdentity;
-                }
+                cover.transform = CGAffineTransformIdentity;
+                wave.transform = CGAffineTransformIdentity;
                 [self nlPlaceLiveViews];
-                for (UIView *view in @[cover ?: [NSNull null], wave ?: [NSNull null]]) {
-                    if (![view isKindOfClass:UIView.class]) continue;
+                for (UIView *view in NLExisting(cover, wave)) {
                     CGPoint c = view.center;
                     [host addSubview:view];
                     view.layer.zPosition = self->_pill.layer.zPosition + 1;
@@ -954,10 +944,8 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
     }
 
     CGAffineTransform small = CGAffineTransformMakeScale(0.85, 0.85);
-    if (expanded && !live) {
-        _titleLabel.transform = small;
-        _lineLabel.transform = small;
-    }
+    NSArray<UILabel *> *labels = @[_titleLabel, _lineLabel];   // the sample's open contents
+    if (expanded && !live) for (UILabel *label in labels) label.transform = small;
     // The line goes at once when opening (it would ride down with the island's
     // bottom edge) and comes back once the island has nearly closed.
     if (expanded) [UIView performWithoutAnimation:^{ self->_strip.alpha = 0; }];
@@ -967,40 +955,31 @@ static UIViewPropertyAnimator *NLSpring(NSTimeInterval response, CGFloat damping
         self->_wave.alpha = expanded ? 0.6 : 1;
     } completion:nil];
     NLSpring(expanded ? 0.5 : 0.3, 1, ^{
-        self->_titleLabel.alpha = (expanded && !live) ? 1 : 0;
-        self->_lineLabel.alpha = (expanded && !live) ? 1 : 0;
-        self->_titleLabel.transform = expanded ? CGAffineTransformIdentity : small;
-        self->_lineLabel.transform = expanded ? CGAffineTransformIdentity : small;
+        for (UILabel *label in labels) {
+            label.alpha = (expanded && !live) ? 1 : 0;
+            label.transform = expanded ? CGAffineTransformIdentity : small;
+        }
     });
 
     [self nlScheduleAutoClose];   // open: the wait for an auto close; closed: none
     if (!expanded) {
         // Pick the cycle up again where it stopped.
         NSUInteger generation = ++_generation;
-        __weak typeof(self) weakSelf = self;
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            NLIslandPreviewCell *cell = weakSelf;
-            if (cell && cell->_generation == generation && cell.window && !cell->_expanded) [cell nlNextLine];
-        });
+        [self nlAfter:1.2 run:^(NLIslandPreviewCell *cell) {
+            if (cell->_generation == generation && cell.window && !cell->_expanded) [cell nlNextLine];
+        }];
     }
 }
 
 // The waveform: bouncing while the sample lines run, or while the music plays.
 - (void)nlAnimateBars {
-    BOOL playing = _liveInfo ? NLPrefNum(_liveInfo, @"kMRMediaRemoteNowPlayingInfoPlaybackRate", 0) > 0 : YES;
+    BOOL playing = _liveInfo ? NLInfoPlaying(_liveInfo) : YES;
     _wave.playing = playing;
     _activityWave.playing = playing && _liveInfo;
 }
 
 
 #pragma mark The real island
-
-- (UIViewController *)nlHostController {
-    for (UIResponder *r = self.nextResponder; r; r = r.nextResponder) {
-        if ([r isKindOfClass:UIViewController.class]) return (UIViewController *)r;
-    }
-    return nil;
-}
 
 // The island's open view (MRUActivityNowPlayingView) sets the frames of its
 // cover and waveform in its own -layoutSubviews on every pass, through its
@@ -1049,32 +1028,46 @@ static void NLKeepLiveViewsInPlace(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         Class viewClass = objc_getClass("MRUActivityNowPlayingView");
-        unsigned int count = 0;
-        Method *methods = viewClass ? class_copyMethodList(viewClass, &count) : NULL;
-        for (unsigned int i = 0; i < count; i++) {
-            if (method_getName(methods[i]) != @selector(layoutSubviews)) continue;
-            gActivityLayoutIMP = method_setImplementation(methods[i], (IMP)NLActivityLayoutSubviews);
-            break;
+        Method own = viewClass ? class_getInstanceMethod(viewClass, @selector(layoutSubviews)) : NULL;
+        if (own && own != class_getInstanceMethod(class_getSuperclass(viewClass), @selector(layoutSubviews))) {
+            gActivityLayoutIMP = method_setImplementation(own, (IMP)NLActivityLayoutSubviews);
         }
-        free(methods);
     });
+}
+
+// The island's now-playing controller class, when this iOS has one the
+// preview can drive; Nil for good otherwise (iOS 15), and the preview keeps
+// the sample.
+static Class NLActivityClass(void) {
+    static Class activityClass;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        Class c = NLLoadedClass("MRUActivityNowPlayingViewController", "/System/Library/PrivateFrameworks/MediaControls.framework/MediaControls");
+        if ([c instancesRespondToSelector:@selector(leadingView)] && [c instancesRespondToSelector:@selector(setActiveLayoutMode:)]) activityClass = c;
+    });
+    return activityClass;
+}
+
+// Whether the preview can show what plays at all: the theme, worked out
+// without the preview (NLThemeRefresh), follows what it would show.
+BOOL NLIslandPreviewCanGoLive(void) {
+    return NLActivityClass() != Nil;
 }
 
 // Made once, as MediaRemoteUI makes it: it brings its own now-playing
 // controller and loads what is playing by itself.
 - (UIViewController *)nlActivity {
     if (_activity) return _activity;
-    dlopen("/System/Library/PrivateFrameworks/MediaControls.framework/MediaControls", RTLD_NOW);
-    Class activityClass = objc_getClass("MRUActivityNowPlayingViewController");
-    UIViewController *host = [self nlHostController];
-    if (!activityClass || !host) return nil;
+    Class activityClass = NLActivityClass();
+    if (!activityClass) return nil;
+    UIViewController *host = NLViewControllerOf(self);
+    if (!host) return nil;   // not in a page yet: asked again
     NLStandInForHost();
     NLKeepLiveViewsInPlace();
     // The camera, as the island's host reports it: a 14 Pro's sensor region,
     // at the top of the island, centred.
     objc_setAssociatedObject(_pill, &kNLHostModeKey, @(kNLActivityCompact), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     UIViewController *activity = [activityClass new];
-    if (![activity respondsToSelector:@selector(leadingView)] || ![activity respondsToSelector:@selector(setActiveLayoutMode:)]) return nil;
     __weak NLIslandPreviewCell *weakSelf = self;
     objc_setAssociatedObject(activity.view, &kNLActivityOwnerKey, ^NLIslandPreviewCell *{ return weakSelf; },
                              OBJC_ASSOCIATION_COPY_NONATOMIC);
@@ -1083,7 +1076,7 @@ static void NLKeepLiveViewsInPlace(void) {
     [NSLayoutConstraint activateConstraints:@[
         [camera.topAnchor constraintEqualToAnchor:activity.view.topAnchor],
         [camera.centerXAnchor constraintEqualToAnchor:activity.view.centerXAnchor],
-        [camera.widthAnchor constraintEqualToConstant:kNLSensorWidth],
+        [camera.widthAnchor constraintEqualToConstant:kNLDefaultSensorWidth],
         [camera.heightAnchor constraintEqualToConstant:37],
     ]];
     objc_setAssociatedObject(activity.view, &kNLHostGuideKey, camera, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
@@ -1101,17 +1094,11 @@ static void NLKeepLiveViewsInPlace(void) {
 // closed island has them (the pill's frame would be its pressed or pulled box).
 - (void)nlReturnLiveViews {
     [UIView performWithoutAnimation:^{
-        for (UIView *view in @[self->_liveArt ?: [NSNull null], self->_liveWave ?: [NSNull null]]) {
-            if (![view isKindOfClass:UIView.class] || view.superview == self->_pill) continue;
+        for (UIView *view in NLExisting(self->_liveArt, self->_liveWave)) {
+            if (view.superview == self->_pill) continue;
             [self->_pill addSubview:view];
             view.layer.zPosition = 0;
-            if (view == self->_liveArt) {
-                view.bounds = CGRectMake(0, 0, self->_art.frame.size.width, self->_art.frame.size.height);
-                view.center = CGPointMake(CGRectGetMidX(self->_art.frame), CGRectGetMidY(self->_art.frame));
-            } else {
-                view.bounds = self->_wave.bounds;
-                view.center = self->_wave.center;
-            }
+            NLPlaceLike(view, view == self->_liveArt ? self->_art : self->_wave);
         }
     }];
     _collapsingLive = NO;
@@ -1120,10 +1107,8 @@ static void NLKeepLiveViewsInPlace(void) {
 // The live cover and waveform where the sample ones are. Bounds and centre:
 // closing gives them a scale for a moment.
 - (void)nlPlaceLiveViews {
-    _liveWave.bounds = _wave.bounds;
-    _liveWave.center = _wave.center;
-    _liveArt.bounds = CGRectMake(0, 0, _art.frame.size.width, _art.frame.size.height);
-    _liveArt.center = CGPointMake(CGRectGetMidX(_art.frame), CGRectGetMidY(_art.frame));
+    NLPlaceLike(_liveWave, _wave);
+    NLPlaceLike(_liveArt, _art);
 }
 
 // The layout the island's controller lays out for, and what its views are
@@ -1142,10 +1127,10 @@ static void NLKeepLiveViewsInPlace(void) {
     NLDisableTaps(_activity.view);   // once per layout it builds, not on every pass of ours
 }
 
-// A scale about the top centre of a view `height` tall (transforms scale
-// about the centre, so the top is moved back up).
-static CGAffineTransform NLTopScale(CGFloat scale, CGFloat height) {
-    return CGAffineTransformScale(CGAffineTransformMakeTranslation(0, -(1 - scale) * height / 2), scale, scale);
+// The open view as the closed island shows it: scaled about its top centre
+// (transforms scale about the centre, so the top is moved back up).
+static CGAffineTransform NLOpenViewClosed(void) {
+    return CGAffineTransformScale(CGAffineTransformMakeTranslation(0, -(1 - kNLClosedScale) * kNLOpenView.height / 2), kNLClosedScale, kNLClosedScale);
 }
 
 // Takes the running animations off a layer tree.
@@ -1166,11 +1151,25 @@ static void NLDisableTaps(UIView *view) {
     for (UIView *sub in view.subviews) NLDisableTaps(sub);
 }
 
+// One of the island's own views into the pill over the sample's `sample`,
+// placed by `place`: shown, laid out at once, its running animations taken off
+// (it would settle into its first frame from elsewhere) and its taps off.
+- (void)nlAdopt:(UIView *)view over:(UIView *)sample place:(void (^)(void))place {
+    [UIView performWithoutAnimation:^{
+        place();
+        view.alpha = 1;
+        [self->_pill insertSubview:view aboveSubview:sample];
+        [view layoutIfNeeded];
+    }];
+    NLStopAnimations(view.layer);
+    NLDisableTaps(view);
+}
+
 // Live: the real cover in the sample's cover view, a system waveform view
 // over the sample waveform's place, and the open island's view always at its
 // open size, kept still on screen as the island changes shape.
 - (void)nlLayoutActivity:(CGSize)size {
-    BOOL live = _liveInfo != nil && _activity != nil;
+    BOOL live = [self nlLive];
     _wave.hidden = live;
     _liveWave.hidden = !live;
     _art.hidden = live && _liveArt;
@@ -1194,17 +1193,9 @@ static void NLDisableTaps(UIView *view) {
         if (wave && [wave respondsToSelector:@selector(setShowWaveform:)]) wave = nil;
         if (wave) {
             _liveWave = wave;
-            [UIView performWithoutAnimation:^{
-                wave.bounds = self->_wave.bounds;
-                wave.center = self->_wave.center;
-                wave.alpha = 1;
-                [self->_pill insertSubview:wave aboveSubview:self->_wave];
-                [wave layoutIfNeeded];
-            }];
-            NLStopAnimations(wave.layer);
-            NLDisableTaps(wave);
+            [self nlAdopt:wave over:_wave place:^{ NLPlaceLike(wave, self->_wave); }];
             _activityWave = [NLWaveformDriver new];
-            _activityWave.playing = NLPrefNum(_liveInfo, @"kMRMediaRemoteNowPlayingInfoPlaybackRate", 0) > 0;
+            _activityWave.playing = NLInfoPlaying(_liveInfo);
             [_activityWave driveViewsIn:wave];
         } else {
             _wave.hidden = NO;   // none on this iOS: the made-up one
@@ -1219,14 +1210,7 @@ static void NLDisableTaps(UIView *view) {
         UIView *cover = [(id)_activity leadingView];
         if (cover) {
             _liveArt = cover;
-            [UIView performWithoutAnimation:^{
-                cover.frame = self->_art.frame;
-                cover.alpha = 1;
-                [self->_pill insertSubview:cover aboveSubview:self->_art];
-                [cover layoutIfNeeded];
-            }];
-            NLStopAnimations(cover.layer);   // it would settle into its first frame from elsewhere
-            NLDisableTaps(cover);
+            [self nlAdopt:cover over:_art place:^{ cover.frame = self->_art.frame; }];
             _art.hidden = YES;
         }
     }
@@ -1246,15 +1230,26 @@ static void NLDisableTaps(UIView *view) {
 
 // NextUp's row view, when this NextUp build has what the preview calls on it.
 static Class NLNextUpRowClass(void) {
-    Class c = objc_getClass("NUNextUpRowView");
-    return ([c respondsToSelector:@selector(preferredHeightForControlCenter)] &&
+    static Class found;   // once there, for good
+    if (!found) {
+        Class c = objc_getClass("NUNextUpRowView");
+        if ([c respondsToSelector:@selector(preferredHeightForControlCenter)] &&
             [c instancesRespondToSelector:@selector(configureForDynamicIsland)] &&
-            [c instancesRespondToSelector:@selector(refreshFromManager)]) ? c : Nil;
+            [c instancesRespondToSelector:@selector(refreshFromManager)]) found = c;
+    }
+    return found;
 }
 
 // What the rows tweaks add to the open island can come to: NextUp's row with
 // Crescendo's slider above it, or the slider alone. The page keeps that much
 // more room under the preview for it to open into.
+static CGFloat NLExtraRowsHeight(BOOL nextUpRow, BOOL crescendo) {
+    Class rowClass = nextUpRow ? NLNextUpRowClass() : Nil;
+    CGFloat height = rowClass ? [(id)rowClass preferredHeightForControlCenter] : 0;
+    if (crescendo) height += rowClass ? kNLVolumeStripAboveNextUp : kNLVolumeStrip;
+    return height;
+}
+
 // How far down the table the open island reaches from the table's top, with
 // what music adds to it: the room a page keeps when no rows below take part
 // of it (the other pages' header, NLPageTop).
@@ -1264,12 +1259,7 @@ CGFloat NLIslandPreviewOpenBottom(void) {
 
 CGFloat NLIslandPreviewMostExtraHeight(void) {
     BOOL crescendo = NLCrescendoShows(NLCrescendoDynamicIsland);
-    BOOL nextUp = NLNextUpShowsInIsland();
-    if (nextUp) NLNextUpLoad();
-    Class rowClass = nextUp ? NLNextUpRowClass() : Nil;
-    CGFloat height = rowClass ? [(id)rowClass preferredHeightForControlCenter] : 0;
-    if (crescendo) height += rowClass ? kNLVolumeStripAboveNextUp : kNLVolumeStrip;
-    return height;
+    return NLExtraRowsHeight(NLNextUpShowsInIsland(), crescendo);
 }
 
 // NextUp's row is there while NextUp has a next track for what plays.
@@ -1280,10 +1270,7 @@ CGFloat NLIslandPreviewMostExtraHeight(void) {
 // What the rows under the controls add to the open island, as on the real one:
 // NextUp's row at the bottom, Crescendo's slider above it (or alone, lower).
 - (void)nlUpdateExtraHeight {
-    BOOL nextUp = [self nlNextUpShown];
-    CGFloat height = nextUp ? [(id)NLNextUpRowClass() preferredHeightForControlCenter] : 0;
-    if (_crescendoWanted) height += nextUp ? kNLVolumeStripAboveNextUp : kNLVolumeStrip;
-    _extraHeight = height;
+    _extraHeight = NLExtraRowsHeight([self nlNextUpShown], _crescendoWanted);
 }
 
 - (void)nlNextUpChanged {
@@ -1325,11 +1312,7 @@ CGFloat NLIslandPreviewMostExtraHeight(void) {
             [(id)_nextUpRow refreshFromManager];
             [_extrasHost addSubview:_nextUpRow];
             __weak typeof(self) weakSelf = self;
-            _nextUpObserver = [[NSNotificationCenter defaultCenter] addObserverForName:@"NUNextUpDidChangeNotification"
-                                                                                object:nil queue:NSOperationQueue.mainQueue
-                                                                            usingBlock:^(NSNotification *note) {
-                dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf nlNextUpChanged]; });
-            }];
+            _nextUpObserver = NLObserveNextUp(^{ [weakSelf nlNextUpChanged]; });
         }
     }
     _extrasHost.hidden = !_expanded;   // only open: a material on it would show through a mere alpha of 0
@@ -1340,7 +1323,8 @@ CGFloat NLIslandPreviewMostExtraHeight(void) {
     CGFloat rowHeight = nextUp ? [(id)NLNextUpRowClass() preferredHeightForControlCenter] : 0;
     CGFloat bottom = kNLExpandedLive.height + _extraHeight + kNLRing;
     CGFloat transportBottom = 0;
-    Class transport = objc_getClass("MRUNowPlayingTransportControlsView");
+    static Class transport;
+    if (!transport) transport = objc_getClass("MRUNowPlayingTransportControlsView");
     for (UIView *sub in openView.subviews) {
         if (transport && [sub isKindOfClass:transport] && !sub.hidden) transportBottom = MAX(transportBottom, CGRectGetMaxY(sub.frame));
     }
@@ -1376,15 +1360,13 @@ CGFloat NLIslandPreviewMostExtraHeight(void) {
     }
     if (_liveTicks++ % 6 == 0) NLNowPlayingBundleID(^(NSString *bundleID) { self->_liveBundle = bundleID; });
     NLNowPlayingInfo(^(NSDictionary *info) {
-        id title = info[@"kMRMediaRemoteNowPlayingInfoTitle"];
-        BOOL usable = [title isKindOfClass:NSString.class] && [title length];
-        [self nlSetLive:usable ? info : nil];
+        [self nlSetLive:NLInfoTitle(info) ? info : nil];
     });
 }
 
 - (NSDictionary *)nlOffsetsPrefs {
     NSMutableDictionary *prefs = [NSMutableDictionary dictionary];
-    for (NSString *key in @[@"offset", NL_TRACK_OFFSETS_KEY]) {
+    for (NSString *key in NL_ONCE((@[@"offset", NL_TRACK_OFFSETS_KEY]))) {
         id value = NLReadPref(nil, key);
         if (value) prefs[key] = value;
     }
@@ -1395,16 +1377,17 @@ CGFloat NLIslandPreviewMostExtraHeight(void) {
 - (void)nlSetLive:(NSDictionary *)info {
     if (info && ![self nlActivity]) info = nil;   // no such controller on this iOS: keep the sample
     BOOL wasLive = _liveInfo != nil;
+    // Into the real island or out of it, an open island first closes as what
+    // it shows: the real one's close puts its controller back in the closed
+    // layout and its open view, cover and waveform back in their closed places.
+    if (wasLive != (info != nil) && _expanded) [self nlSetExpanded:NO];
     _liveInfo = info;
     if (!info) {
         if (!wasLive) return;
-        if (_expanded) [self nlSetExpanded:NO];
-        _liveArtworkLength = 0;
-        _art.image = _sampleArt;
-        _art.alpha = 1;
+        _liveArtworkPrint = 0;
+        _art.image = NLSampleArtwork();
         _albumColor = NLSampleArtworkColor();   // the sample cover's again
         [self nlApplyValues];
-        [self nlLayoutPill];
         [self nlAnimateBars];
         [self nlNextLine];   // the sample lines again
         [self nlReportTheme];
@@ -1413,29 +1396,29 @@ CGFloat NLIslandPreviewMostExtraHeight(void) {
     if (!wasLive) {
         [self nlWakeKeyLine];
         _generation++;   // the sample cycle stops
-        if (_expanded) [self nlSetExpanded:NO];
     }
 
     // The album color for the line, from the same artwork the island uses
-    // (none for a grey or dark cover: white, as the island does then).
-    NSData *artwork = info[@"kMRMediaRemoteNowPlayingInfoArtworkData"];
-    NSUInteger length = [artwork isKindOfClass:NSData.class] ? artwork.length : 0;
-    if (length != _liveArtworkLength) {
-        _liveArtworkLength = length;
-        _albumColor = length ? NLColorFromArtwork(artwork) : nil;
-        UIImage *cover = length ? [UIImage imageWithData:artwork] : nil;
-        _art.image = cover ?: _sampleArt;
+    // (none for a grey or dark cover: white, as the island does then). A new
+    // cover is told by its print: the next song's can be just as long.
+    NSData *artwork = NLInfoArtwork(info);
+    NSUInteger print = artwork ? NLArtworkPrint(artwork) : 0;
+    if (print != _liveArtworkPrint) {
+        _liveArtworkPrint = print;
+        _albumColor = artwork ? NLArtworkColorCached(artwork) : nil;
+        UIImage *cover = artwork ? [UIImage imageWithData:artwork] : nil;
+        _art.image = cover ?: NLSampleArtwork();
         [self nlApplyValues];
     }
     [self nlReportTheme];
 
-    NSString *title = info[@"kMRMediaRemoteNowPlayingInfoTitle"];
-    BOOL explicitTrack = NLPrefBool(info, @"kMRMediaRemoteNowPlayingInfoIsExplicitTrack", NO);
+    NSString *title = NLInfoTitle(info);
+    BOOL explicitTrack = NLPrefBool(info, NL_MR_EXPLICIT, NO);
     [_strip setText:title explicit:explicitTrack scrollUp:_scrollUp];
     NLShownWords *words = _wordByWord ? NLWordsForShownLine(_liveBundle, title, info, [self nlOffsetsPrefs]) : nil;
     [_strip setWordTexts:words.texts starts:words.starts ends:words.ends position:words.position rate:words.rate];
     [self nlAnimateBars];
-    if (!wasLive) [self nlLayoutPill];   // the island itself only changes going live
+    if (!wasLive && !artwork) [self nlLayoutPill];   // the island itself only changes going live (with a cover, -nlApplyValues above laid it out)
 }
 
 @end

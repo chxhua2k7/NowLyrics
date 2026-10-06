@@ -3,17 +3,19 @@
 //  Apple Music's lyrics come with a subscription only, so everything Apple
 //  Music on these pages stays hidden until one is confirmed: SpringBoard asks
 //  (NLAppleMusicSB.x, NL_AM_CHECK_REQUEST_FILE) and the answer is kept as
-//  `appleMusicVerified` (with `appleMusicVerifiedAt`). A confirmed one is asked
-//  about again after a day; a definite "none" locks it again and turns Apple
-//  Music off, so the apps stop asking. "Could not tell" changes nothing, nor
-//  does a privacy notice not yet agreed to.
+//  `appleMusicVerified`. After that SpringBoard keeps it in step by itself,
+//  checking again when iTunesCloud says the subscription changed, when
+//  SpringBoard starts and when an Apple Music lyrics request fails: a definite
+//  "none", or no Apple ID signed in for Media & Purchases, locks it again and
+//  turns Apple Music off, so the apps stop asking. "Could not tell" changes
+//  nothing, nor does a privacy notice not yet agreed to. The pages read the
+//  result as they appear.
 //
 
 #import "NLLyricsPages.h"
 
 static NSString *const kNLVerifiedKey = @"appleMusicVerified";
-static NSString *const kNLVerifiedAtKey = @"appleMusicVerifiedAt";
-static const NSTimeInterval kNLRecheckAfter = 24 * 60 * 60;
+static NSString *const kNLVerifiedAtKey = @"appleMusicVerifiedAt";   // left by earlier versions; removed with the verification
 static const NSTimeInterval kNLCheckTimeout = 20;
 
 // The lyrics request (MPStoreLyricsMusicKitRequestOperation) is iOS 16 and
@@ -26,14 +28,16 @@ BOOL NLAppleMusicAvailable(void) {
 
 BOOL NLAppleMusicVerified(void) {
     if (!NLAppleMusicAvailable()) return NO;
-    CFPreferencesAppSynchronize((__bridge CFStringRef)NL_PREFS_DOMAIN);
-    return [NLReadPref(nil, kNLVerifiedKey) boolValue];
+    NLSyncPrefs();
+    return NLReadPrefBool(nil, kNLVerifiedKey, NO);
 }
 
-void NLApplyAppleMusicSubscription(NLSubscription result) {
+void NLApplyAppleMusicSubscription(NLSubscription result, BOOL switchOn) {
     if (result == NLSubscriptionActive) {
-        NLWritePrefs(@{kNLVerifiedKey: @YES, kNLVerifiedAtKey: [NSDate date]});
-    } else if (result == NLSubscriptionNone) {
+        NSMutableDictionary *values = [@{kNLVerifiedKey: @YES, kNLVerifiedAtKey: NSNull.null} mutableCopy];
+        if (switchOn) values[@"useAppleMusic"] = @YES;
+        NLWritePrefs(values);
+    } else if (result == NLSubscriptionNone || result == NLSubscriptionSignedOut) {
         NLWritePrefs(@{kNLVerifiedKey: @NO, kNLVerifiedAtKey: NSNull.null, @"useAppleMusic": @NO});
     }
 }
@@ -61,8 +65,9 @@ static void NLCheckAnswered(CFNotificationCenterRef center, void *observer, CFSt
         NSString *result = answer[@"result"];
         NLSubscription subscription = [result isEqual:@"active"] ? NLSubscriptionActive
                                     : [result isEqual:@"none"] ? NLSubscriptionNone
+                                    : [result isEqual:@"signedOut"] ? NLSubscriptionSignedOut
                                     : [result isEqual:@"privacy"] ? NLSubscriptionPrivacy : NLSubscriptionUnknown;
-        NLCheckFinished(subscription, [answer[@"detail"] isKindOfClass:NSString.class] ? answer[@"detail"] : @"");
+        NLCheckFinished(subscription, NLString(answer, @"detail") ?: @"");
     });
 }
 
@@ -70,32 +75,13 @@ void NLCheckAppleMusicSubscription(void (^done)(NLSubscription result, NSString 
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         gWaiting = [NSMutableArray array];
-        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, NLCheckAnswered,
-                                        (__bridge CFStringRef)NL_AM_RESPONSE_NOTIFICATION, NULL,
-                                        CFNotificationSuspensionBehaviorDeliverImmediately);
+        NLObserveDarwin(NL_AM_RESPONSE_NOTIFICATION, NLCheckAnswered, CFNotificationSuspensionBehaviorDeliverImmediately);
     });
     if (done) [gWaiting addObject:[done copy]];
     if (gCheckID) return;   // one on its way already: its answer is for everyone
     gCheckID = NSUUID.UUID.UUIDString;
-    [[NSFileManager defaultManager] createDirectoryAtPath:NL_AM_DIR withIntermediateDirectories:YES attributes:nil error:nil];
-    [@{@"id": gCheckID, @"time": [NSDate date]} writeToFile:NL_AM_CHECK_REQUEST_FILE atomically:YES];
-    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
-                                         (__bridge CFStringRef)NL_AM_REQUEST_NOTIFICATION, NULL, NULL, YES);
+    NLWritePlistAndPost(@{@"id": gCheckID, @"time": [NSDate date]}, NL_AM_CHECK_REQUEST_FILE, NL_AM_REQUEST_NOTIFICATION);
     gCheckTimeout = [NSTimer scheduledTimerWithTimeInterval:kNLCheckTimeout repeats:NO block:^(NSTimer *timer) {
         NLCheckFinished(NLSubscriptionUnknown, NLL(@"SpringBoard did not answer"));
     }];
-}
-
-void NLRecheckAppleMusicIfDue(void (^changed)(void)) {
-    if (!NLAppleMusicAvailable()) return;
-    BOOL verified = NLAppleMusicVerified();
-    NSDate *at = NLReadPref(nil, kNLVerifiedAtKey);
-    BOOL fresh = verified && [at isKindOfClass:NSDate.class] && -[at timeIntervalSinceNow] < kNLRecheckAfter;
-    BOOL onUnchecked = !verified && [NLReadPref(nil, @"useAppleMusic") boolValue];   // switched on before there was a check
-    if (fresh || (!verified && !onUnchecked)) return;
-    NLCheckAppleMusicSubscription(^(NLSubscription result, NSString *detail) {
-        BOOL was = NLAppleMusicVerified();
-        NLApplyAppleMusicSubscription(result);
-        if (changed && NLAppleMusicVerified() != was) changed();
-    });
 }

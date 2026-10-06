@@ -9,7 +9,14 @@
 //
 
 #import "NLLyricsPages.h"
+#import "../NLPlayerTint.h"
 #import <CoreImage/CoreImage.h>
+
+// A rested bar's vertical scale: a dot as tall as it is wide (0.2 while it has no height).
+static CGFloat NLDotScale(CGFloat width, CGFloat height) { return height > 0 ? MAX(MIN(width / height, 1), 0.08) : 0.2; }
+
+// A random value from `low` up to `low + span`, in thousandths.
+static double NLRandom(double low, double span) { return low + span * arc4random_uniform(1000) / 1000.0; }
 
 @implementation NLWaveformView {
     NSArray<UIView *> *_bars;
@@ -50,14 +57,7 @@ static UIImage *NLBlurred(UIImage *image) {
     // one is blurred once.
     static UIImage *lastImage, *lastBlurred;
     if (image == lastImage) return lastBlurred;
-    static CIContext *context;
-    if (!context) context = [CIContext contextWithOptions:nil];
-    CIImage *input = [CIImage imageWithCGImage:source];
-    CGFloat scale = 48 / MAX(input.extent.size.width, 1);
-    input = [input imageByApplyingTransform:CGAffineTransformMakeScale(scale, scale)];
-    CGRect extent = input.extent;
-    CIImage *blurred = [[input imageByClampingToExtent] imageByApplyingGaussianBlurWithSigma:4];
-    CGImageRef cg = [context createCGImage:[blurred imageByCroppingToRect:extent] fromRect:extent];
+    CGImageRef cg = NLCreateBlurredImage([CIImage imageWithCGImage:source], 48, 4);
     if (!cg) return image;
     UIImage *out = [UIImage imageWithCGImage:cg];
     CGImageRelease(cg);
@@ -66,7 +66,8 @@ static UIImage *NLBlurred(UIImage *image) {
     return out;
 }
 
-// The cover behind the bars, or plain bars again for nil.
+// The cover behind the bars, which become a window onto it. Given once, by the
+// island preview as it makes the view, so nothing goes back to plain bars.
 - (void)setArtwork:(UIImage *)artwork {
     if (artwork == _artwork) return;
     _artwork = artwork;
@@ -75,9 +76,8 @@ static UIImage *NLBlurred(UIImage *image) {
             _fill = [UIImageView new];
             _fill.contentMode = UIViewContentModeScaleAspectFill;
             _fill.clipsToBounds = YES;
-            UIView *lighten = [UIView new];
+            UIView *lighten = [UIView new];   // sized by -layoutSubviews
             lighten.backgroundColor = [UIColor colorWithWhite:1 alpha:0.22];
-            lighten.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
             [_fill addSubview:lighten];
         }
         _fill.image = NLBlurred(artwork);
@@ -86,10 +86,6 @@ static UIImage *NLBlurred(UIImage *image) {
             [self addSubview:_fill];
             _fill.maskView = _barsHost;
         }
-    } else if (_fill.superview) {
-        _fill.maskView = nil;
-        [_fill removeFromSuperview];
-        [self addSubview:_barsHost];
     }
     [self nlApplyColor];
     [self setNeedsLayout];
@@ -114,7 +110,7 @@ static UIImage *NLBlurred(UIImage *image) {
         bar.bounds = CGRectMake(0, 0, width, b.size.height);
         bar.center = CGPointMake(pitch * (i + 0.5), CGRectGetMidY(b));
         bar.layer.cornerRadius = width / 2;
-        if (!_playing) bar.layer.transform = CATransform3DMakeScale(1, MAX(MIN(width / MAX(b.size.height, 1), 1), 0.08), 1);
+        if (!_playing) bar.layer.transform = CATransform3DMakeScale(1, NLDotScale(width, MAX(b.size.height, 1)), 1);
     }
 }
 
@@ -129,7 +125,7 @@ static UIImage *NLBlurred(UIImage *image) {
 - (void)nlBounce {
     [_bars enumerateObjectsUsingBlock:^(UIView *bar, NSUInteger i, BOOL *stop) {
         NSMutableArray *values = [NSMutableArray array];
-        for (int k = 0; k < 8; k++) [values addObject:@(0.22 + 0.78 * arc4random_uniform(1000) / 1000.0)];
+        for (int k = 0; k < 8; k++) [values addObject:@(NLRandom(0.22, 0.78))];
         [values addObject:values.firstObject];
         CAKeyframeAnimation *a = [CAKeyframeAnimation animationWithKeyPath:@"transform.scale.y"];
         a.values = values;
@@ -137,7 +133,7 @@ static UIImage *NLBlurred(UIImage *image) {
         a.calculationMode = kCAAnimationCubic;
         a.repeatCount = HUGE_VALF;
         a.removedOnCompletion = NO;
-        a.beginTime = CACurrentMediaTime() - arc4random_uniform(1000) / 1000.0;
+        a.beginTime = CACurrentMediaTime() - NLRandom(0, 1);
         [bar.layer addAnimation:a forKey:@"bounce"];
     }];
 }
@@ -148,8 +144,7 @@ static UIImage *NLBlurred(UIImage *image) {
         CALayer *shown = bar.layer.presentationLayer ?: bar.layer;
         CATransform3D from = shown.transform;
         [bar.layer removeAnimationForKey:@"bounce"];
-        CGFloat dot = bar.bounds.size.height > 0 ? MIN(bar.bounds.size.width / bar.bounds.size.height, 1) : 0.2;
-        bar.layer.transform = CATransform3DMakeScale(1, MAX(dot, 0.08), 1);
+        bar.layer.transform = CATransform3DMakeScale(1, NLDotScale(bar.bounds.size.width, bar.bounds.size.height), 1);
         CABasicAnimation *settle = [CABasicAnimation animationWithKeyPath:@"transform"];
         settle.fromValue = [NSValue valueWithCATransform3D:from];
         settle.duration = 0.3;
@@ -166,6 +161,8 @@ static UIImage *NLBlurred(UIImage *image) {
 - (instancetype)initWithAmplitudes:(NSArray<NSNumber *> *)amplitudes;
 - (void)setWaveformData:(id)data;
 @end
+
+enum { kNLDriverBars = 6 };   // the levels MRUWaveformData takes
 
 // The display link's target. A link keeps its target while it runs, so with
 // the driver itself as the target, a driver its owner let go of would run on
@@ -186,7 +183,7 @@ static UIImage *NLBlurred(UIImage *image) {
 @implementation NLWaveformDriver {
     NSHashTable<UIView *> *_views;
     CADisplayLink *_link;
-    double _from[6], _to[6], _start[6], _length[6];
+    double _from[kNLDriverBars], _to[kNLDriverBars], _start[kNLDriverBars], _length[kNLDriverBars];
 }
 
 - (instancetype)init {
@@ -229,12 +226,13 @@ static void NLCollectWaveforms(UIView *view, Class waveformClass, NSHashTable<UI
 }
 
 // The link again after resting (-nlFrame:). Resting, each bar would have gone
-// on with 0.3 s stretches from 0 to 0; it picks its stretch up where that
-// rhythm would be now, so the bars rise when they would have.
+// on with its stretches (when stopped, 0.3 s ones from 0 to 0); it picks its
+// stretch up where that rhythm would be now, so the bars rise when they would
+// have.
 - (void)nlWake {
     if (!_link.paused) return;
     CFTimeInterval now = CACurrentMediaTime();
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < kNLDriverBars; i++) {
         if (_length[i] > 0) _start[i] = now - fmod(now - _start[i], _length[i]);
     }
     _link.paused = NO;
@@ -249,19 +247,29 @@ static double NLEase(double t) {
     static Class dataClass;
     if (!dataClass) dataClass = NSClassFromString(@"MRUWaveformData");   // once MediaControls has it
     if (!dataClass) return;
+    // Drawn nowhere (its page covered, or its views gone): nothing to write,
+    // so the link rests too, until -driveViewsIn: or playing wakes it.
+    BOOL shown = NO;
+    for (UIView *view in _views) {
+        if (view.window) { shown = YES; break; }
+    }
+    if (!shown) {
+        link.paused = YES;
+        return;
+    }
     CFTimeInterval now = CACurrentMediaTime();
     BOOL still = !_playing;   // stopped, every bar settled at 0, on every view
-    NSMutableArray<NSNumber *> *amplitudes = [NSMutableArray arrayWithCapacity:6];
-    for (int i = 0; i < 6; i++) {
+    NSMutableArray<NSNumber *> *amplitudes = [NSMutableArray arrayWithCapacity:kNLDriverBars];
+    for (int i = 0; i < kNLDriverBars; i++) {
         double t = _length[i] > 0 ? (now - _start[i]) / _length[i] : 1;
         double level = _from[i] + (_to[i] - _from[i]) * NLEase(t);
-        double target = _playing ? 0.2 + 0.8 * arc4random_uniform(1000) / 1000.0 : 0;
+        double target = _playing ? NLRandom(0.2, 0.8) : 0;
         // A new stretch once this one is done, or at once when playing stops.
         if (t >= 1 || (!_playing && _to[i] != 0)) {
             _from[i] = level;
             _to[i] = target;
             _start[i] = now;
-            _length[i] = _playing ? 0.24 + 0.14 * arc4random_uniform(1000) / 1000.0 : 0.3;
+            _length[i] = _playing ? NLRandom(0.24, 0.14) : 0.3;
         }
         if (level != 0 || _from[i] != 0) still = NO;   // from 0 to 0: it stays at 0
         [amplitudes addObject:@(level)];

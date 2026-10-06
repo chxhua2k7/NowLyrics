@@ -14,6 +14,7 @@
 #import <UIKit/UIKit.h>
 
 #define NL_PLAYER_TINT_KEY @"playerTint"   // preference, default on
+#define NL_PLAYER_TINT_CLEAR_KEY @"playerTintClear"   // preference: how clear, a percentage, default 50
 
 // iOS 26's lock screen player is glass, which shows what is behind the platter
 // over a tint inside it, and its Control Center's media module takes the
@@ -24,6 +25,29 @@ static inline BOOL NLPlayerTintAvailable(void) {
     if (@available(iOS 26.0, *)) return NO;
     return YES;
 }
+
+// `tint` right above `material` among its siblings (moved there unless it is
+// already), exactly over it: its transform, anchor point, size and centre.
+// Not its frame, which under a transform is the transformed box (and setting
+// one there is undefined), so a scaled material would get a tint of the wrong
+// size. The centre is where the anchor point sits, so the anchor goes too.
+static inline void NLPlaceTintAbove(UIView *tint, UIView *material) {
+    UIView *container = material.superview;
+    if (tint.superview != container ||
+        [container.subviews indexOfObject:tint] != [container.subviews indexOfObject:material] + 1) {
+        [container insertSubview:tint aboveSubview:material];
+    }
+    CGAffineTransform transform = material.transform;
+    if (!CGAffineTransformEqualToTransform(tint.transform, transform)) tint.transform = transform;
+    CGPoint anchor = material.layer.anchorPoint;
+    if (!CGPointEqualToPoint(tint.layer.anchorPoint, anchor)) tint.layer.anchorPoint = anchor;
+    tint.bounds = (CGRect){tint.bounds.origin, material.bounds.size};
+    tint.center = material.center;
+}
+@class CIImage;
+// `input` scaled to `width` pixels wide and blurred by `sigma`, its edges
+// clamped so they do not darken; NULL on failure. One shared CIContext; any queue.
+CGImageRef NLCreateBlurredImage(CIImage *input, CGFloat width, CGFloat sigma) CF_RETURNS_RETAINED;
 
 @interface NLPlayerTintView : UIView
 // `info`: MediaRemote's now-playing info (its title and artwork are used).

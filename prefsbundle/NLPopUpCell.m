@@ -5,32 +5,32 @@
 //  a PSLinkListCell's page of its own.
 //
 //  In a plist: `cell` PSDefaultCell, `cellClass` NLPopUpCell, and the usual
-//  `key`, `defaults`, `default`, `validValues`, `validTitles` (localized
-//  here), `PostNotification`. A pick goes through the page's
-//  -setPreferenceValue:specifier:, like any other row's.
+//  `key`, `default`, `validValues`, `validTitles` (localized here),
+//  `PostNotification`; the page adds `defaults`. A pick goes through the
+//  page's -setPreferenceValue:specifier:, like any other row's.
 //
 
 #import "NLLyricsPages.h"
-#import <Preferences/PSSpecifier.h>
-#import <Preferences/PSTableCell.h>
 
-@interface PSListController (NLPopUp)
-- (id)readPreferenceValue:(PSSpecifier *)specifier;
-- (void)setPreferenceValue:(id)value specifier:(PSSpecifier *)specifier;
-@end
-
-UIButton *NLPopUpButton(NSArray<NSString *> *titles, NSArray *values, id current, void (^picked)(id value)) {
+NSArray<UIAction *> *NLChoiceActions(NSArray<NSString *> *titles, NSArray<NSString *> *symbols, NSArray *values,
+                                     id current, void (^picked)(id value)) {
     NSMutableArray<UIAction *> *actions = [NSMutableArray array];
-    NSString *currentTitle = titles.firstObject ?: @"";
     for (NSUInteger i = 0; i < values.count && i < titles.count; i++) {
         id value = values[i];
         BOOL on = [value isEqual:current];
-        if (on) currentTitle = titles[i];
-        UIAction *action = [UIAction actionWithTitle:titles[i] image:nil identifier:nil
+        UIImage *image = i < symbols.count ? [UIImage systemImageNamed:symbols[i]] : nil;
+        UIAction *action = [UIAction actionWithTitle:titles[i] image:image identifier:nil
                                              handler:^(UIAction *a) { if (!on && picked) picked(value); }];
         action.state = on ? UIMenuElementStateOn : UIMenuElementStateOff;
         [actions addObject:action];
     }
+    return actions;
+}
+
+UIButton *NLPopUpButton(NSArray<NSString *> *titles, NSArray *values, id current, void (^picked)(id value)) {
+    NSArray<UIAction *> *actions = NLChoiceActions(titles, nil, values, current, picked);
+    NSString *currentTitle = titles.firstObject ?: @"";
+    for (UIAction *action in actions) if (action.state == UIMenuElementStateOn) currentTitle = action.title;
     UIButtonConfiguration *config = [UIButtonConfiguration plainButtonConfiguration];
     config.title = currentTitle;
     config.image = [UIImage systemImageNamed:@"chevron.up.chevron.down"
@@ -82,7 +82,7 @@ UIButton *NLPopUpButton(NSArray<NSString *> *titles, NSArray *values, id current
     for (NSString *title in rawTitles) [titles addObject:NLL(title)];
 
     PSListController *page = [specifier.target isKindOfClass:PSListController.class] ? specifier.target : nil;
-    id current = [page respondsToSelector:@selector(readPreferenceValue:)] ? [page readPreferenceValue:specifier] : nil;
+    id current = [page readPreferenceValue:specifier];
     if (![values containsObject:current]) current = [specifier propertyForKey:@"default"];
 
     __weak typeof(self) weakSelf = self;

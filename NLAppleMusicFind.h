@@ -11,7 +11,7 @@
 #import <Foundation/Foundation.h>
 
 // By title and artist, then by title alone. Calls back on the main queue with
-// the match (@"id", @"title", @"artist", @"apart"), or nil and what went
+// the match (@"id", @"title", @"artist"), or nil and what went
 // wrong (nil and nil: not on Apple Music).
 void NLFindOnAppleMusic(NSString *title, NSString *artist, NSTimeInterval duration,
                         void (^done)(NSDictionary *match, NSString *problem));

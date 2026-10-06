@@ -28,6 +28,7 @@
 //
 
 #import "NLLyricsPages.h"
+#import "../NLIslandStrip.h"
 #import <notify.h>
 #import <objc/runtime.h>
 
@@ -57,37 +58,30 @@
 
 #define kNLCrescendoDylib NLJBPath(@"/Library/MobileSubstrate/DynamicLibraries/Crescendo.dylib")
 
-// Crescendo's CRPrefs.h: bit 63 = published; value bit n, and bit n + 32 when
-// the publishing build knew that key.
-static const uint64_t kNLCRValid = 1ULL << 63;
+BOOL NLTweakStatePref(const char *state, int *token, CFStringRef domain, NSString *key, uint64_t bit, BOOL fallback) {
+    if (*token == -1 && notify_register_check(state, token) != NOTIFY_STATUS_OK) *token = -2;
+    uint64_t value = 0;
+    if (*token >= 0 && notify_get_state(*token, &value) == NOTIFY_STATUS_OK &&
+        (value & (1ULL << 63)) && (value & (bit << 32))) {
+        return (value & bit) != 0;
+    }
+    return NLLooseBool(CFBridgingRelease(CFPreferencesCopyAppValue((__bridge CFStringRef)key, domain)), fallback);
+}
 
 static BOOL NLCrescendoPref(NSString *key, uint64_t bit, BOOL fallback) {
     static int token = -1;
-    if (token == -1 && notify_register_check("com.yves.crescendo.state", &token) != NOTIFY_STATUS_OK) token = -2;
-    uint64_t state = 0;
-    if (token >= 0 && notify_get_state(token, &state) == NOTIFY_STATUS_OK &&
-        (state & kNLCRValid) && (state & (bit << 32))) {
-        return (state & bit) != 0;
-    }
-    id value = CFBridgingRelease(CFPreferencesCopyAppValue((__bridge CFStringRef)key, CFSTR("com.yves.crescendo")));
-    return [value respondsToSelector:@selector(boolValue)] ? [value boolValue] : fallback;
+    return NLTweakStatePref("com.yves.crescendo.state", &token, CFSTR("com.yves.crescendo"), key, bit, fallback);
 }
 
-BOOL NLCrescendoInstalled(void) {
-    static BOOL installed;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{ installed = [[NSFileManager defaultManager] fileExistsAtPath:kNLCrescendoDylib]; });
-    return installed;
-}
+BOOL NLCrescendoInstalled(void) { return NL_ONCE([[NSFileManager defaultManager] fileExistsAtPath:kNLCrescendoDylib]); }
 
 // Advanced › Supported Tweaks › Crescendo (on unless switched off).
 static BOOL NLCrescendoWanted(void) {
-    id on = NLReadPref(nil, @"tweakCrescendo");
-    return ![on respondsToSelector:@selector(boolValue)] || [on boolValue];
+    return NLReadPrefBool(nil, @"tweakCrescendo", YES);
 }
 
 BOOL NLCrescendoShows(NLCrescendoPlace place) {
-    if (@available(iOS 17.0, *)) return NO;   // the system's own setting, see the top
+    if (!NLCrescendoUsed()) return NO;   // the system's own setting, see the top
     if (!NLCrescendoInstalled() || !NLCrescendoWanted() || !NLCrescendoPref(@"Enabled", 1ULL << 0, YES)) return NO;
     return place == NLCrescendoLockScreen ? NLCrescendoPref(@"showLockScreen", 1ULL << 2, YES)
                                           : NLCrescendoPref(@"showDynamicIsland", 1ULL << 3, YES);
@@ -133,11 +127,10 @@ static UIView *NLFindView(UIView *root, Class cls) {
     return nil;
 }
 
-static UIViewController *NLOwner(UIView *view) {
-    for (UIResponder *r = view.nextResponder; r; r = r.nextResponder) {
-        if ([r isKindOfClass:UIViewController.class]) return (UIViewController *)r;
-    }
-    return nil;
+// The platter's MRUNowPlayingView, nil before its view loads.
+static UIView *NLPlatterPlayer(UIViewController *platter) {
+    Class playerClass = objc_getClass("MRUNowPlayingView");
+    return playerClass && platter.isViewLoaded ? NLFindView(platter.view, playerClass) : nil;
 }
 
 // iOS 17 and later: Always Show Volume Control, as the lock screen reads it.
@@ -147,20 +140,24 @@ static BOOL NLSystemShowsVolume(void) {
     return [settings respondsToSelector:@selector(alwaysShowVolumeControls)] && [settings alwaysShowVolumeControls];
 }
 
+static BOOL gForcedOnce;   // a player was forced here once: from then on there may be something to undo
+
 BOOL NLCrescendoSyncPlayer(UIViewController *platter) {
-    Class playerClass = objc_getClass("MRUNowPlayingView");
-    UIView *player = playerClass && platter.isViewLoaded ? NLFindView(platter.view, playerClass) : nil;
-    if (!player || ![player respondsToSelector:@selector(setShowVolumeControlsView:)]) return NO;
-    NLHookPlayerView(playerClass);
+    if (!platter.isViewLoaded) return NO;
     BOOL want = NO;
     if (@available(iOS 17.0, *)) want = NLSystemShowsVolume();
     else want = NLCrescendoShows(NLCrescendoLockScreen);
+    if (!want && !gForcedOnce) return NO;   // nothing forced yet: the player's own say, no walk
+    UIView *player = NLPlatterPlayer(platter);
+    if (!player || ![player respondsToSelector:@selector(setShowVolumeControlsView:)]) return NO;
+    NLHookPlayerView(objc_getClass("MRUNowPlayingView"));
     if (!want && !NLForced(player)) return NO;   // not ours: the player's own say
     if (want && NLForced(player) && player.showVolumeControlsView) return NO;
 
     objc_setAssociatedObject(player, &kNLForceVolumeKey, @(want), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    if (want) gForcedOnce = YES;
     player.showVolumeControlsView = want;
-    UIViewController *owner = NLOwner(player);
+    UIViewController *owner = NLViewControllerOf(player);
     if (want) {
         // Apple's wiring pass, then the row seeded so it shows the volume at once.
         if ([owner respondsToSelector:@selector(updateVolumeControls)]) [owner updateVolumeControls];
@@ -185,8 +182,7 @@ BOOL NLCrescendoSyncPlayer(UIViewController *platter) {
 }
 
 CGFloat NLPlayerFittingHeight(UIViewController *platter, CGFloat width) {
-    Class playerClass = objc_getClass("MRUNowPlayingView");
-    UIView *player = playerClass && platter.isViewLoaded ? NLFindView(platter.view, playerClass) : nil;
+    UIView *player = NLPlatterPlayer(platter);
     if (!player) return 0;
     CGFloat around = MAX(platter.view.bounds.size.height - player.bounds.size.height, 0);
     CGFloat inner = player.bounds.size.width > 0 ? player.bounds.size.width : width;

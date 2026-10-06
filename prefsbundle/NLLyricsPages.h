@@ -9,6 +9,8 @@
 #import <UIKit/UIKit.h>
 #import <Preferences/PSViewController.h>
 #import <Preferences/PSListController.h>
+#import <Preferences/PSSpecifier.h>
+#import <Preferences/PSTableCell.h>
 #import "../NowLyrics.h"
 #import "../NLLocate.h"
 
@@ -19,11 +21,47 @@ NSString *NLL(NSString *key);
 NSString *NLAppName(NSString *bundleID);
 UIImage *NLAppIcon(NSString *bundleID);
 void NLAlert(UIViewController *controller, NSString *title, NSString *message);
+@interface UIImage (NLPrivate)
++ (UIImage *)_applicationIconImageForBundleIdentifier:(NSString *)bundleID format:(int)format scale:(CGFloat)scale;
+@end
+// An alert with these actions, presented over `controller`; returned so its
+// message can change while it is up.
+static inline UIAlertController *NLPresentAlert(UIViewController *controller, NSString *title, NSString *message, NSArray<UIAlertAction *> *actions) {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:message preferredStyle:UIAlertControllerStyleAlert];
+    for (UIAlertAction *action in actions) [alert addAction:action];
+    [controller presentViewController:alert animated:YES completion:nil];
+    return alert;
+}
+// A question with Cancel and one destructive answer, `action`, which runs `confirmed`.
+static inline void NLConfirm(UIViewController *controller, NSString *title, NSString *message, NSString *action, void (^confirmed)(void)) {
+    NLPresentAlert(controller, title, message, @[
+        [UIAlertAction actionWithTitle:NLL(@"Cancel") style:UIAlertActionStyleCancel handler:nil],
+        [UIAlertAction actionWithTitle:action style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) { confirmed(); }],
+    ]);
+}
+// Another app, or the App Store, by its URL.
+static inline void NLOpenURL(NSString *url) {
+    [UIApplication.sharedApplication openURL:[NSURL URLWithString:url] options:@{} completionHandler:nil];
+}
 // The song on screen, from its app's nowplaying.plist (the now-playing title
 // MediaRemote has is a lyric line): the app MediaRemote names, else whichever
 // wrote its nowplaying.plist last. Looked up off the main queue, answered on
 // it; both nil when no app has one.
 void NLPlayingSong(void (^done)(NSString *bundleID, NSDictionary *np));
+// When an app last wrote this nowplaying.plist, as a CFAbsoluteTime: its
+// stamp, to the fraction of a second; for an app not restarted since NowLyrics
+// was (no stamp yet), its date, which the plist keeps to whole seconds only
+// (`*wholeSeconds` says which, when asked). NAN when it has neither, which no
+// comparison takes.
+static inline CFAbsoluteTime NLNowPlayingWritten(NSDictionary *np, BOOL *wholeSeconds) {
+    if (wholeSeconds) *wholeSeconds = NO;
+    id stamp = np[NL_NP_STAMP];
+    if ([stamp respondsToSelector:@selector(doubleValue)]) return [stamp doubleValue];
+    NSDate *updated = np[NL_NP_UPDATED];
+    if (![updated isKindOfClass:NSDate.class]) return NAN;
+    if (wholeSeconds) *wholeSeconds = YES;
+    return updated.timeIntervalSinceReferenceDate;
+}
 
 // NLLyricsImport.m. Pasted or imported text as it should be stored: LRC
 // (word-by-word too) as given, with the track named on top when it is not;
@@ -35,7 +73,7 @@ NSString *NLLyricsFileText(NSString *text, NSString *title, NSString *artist);
 @interface NLWaveformView : UIView
 - (instancetype)initWithBars:(NSUInteger)count;
 @property (nonatomic, assign) BOOL playing;
-@property (nonatomic, strong) UIImage *artwork;   // colors the bars the way the system's are; nil for plain bars
+@property (nonatomic, strong) UIImage *artwork;   // colors the bars the way the system's are: a window onto the cover
 @end
 
 // Moves the system's own waveform views (MRUWaveformView) found under a view
@@ -51,14 +89,78 @@ NSString *NLLyricsFileText(NSString *text, NSString *title, NSString *artist);
 - (instancetype)initWithPath:(NSString *)path title:(NSString *)title;
 @property (nonatomic, copy) void (^onChange)(void);   // saved or deleted
 @end
+// This bundle (NowLyricsPrefs.bundle): the one these pages and their
+// resources are in. Looked up once per file.
+static inline NSBundle *NLPrefsBundle(void) { return NL_ONCE([NSBundle bundleForClass:NLLyricsEditorController.class]); }
+// A lyrics file written (UTF-8, atomically) and the apps told; on failure,
+// why, over `controller`, and NO.
+static inline BOOL NLSaveLyricsFile(UIViewController *controller, NSString *text, NSString *path) {
+    NSError *error = nil;
+    if (![text writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:&error]) {
+        NLAlert(controller, NLL(@"Could not save"), error.localizedDescription);
+        return NO;
+    }
+    NLPostLyricsChanged();
+    return YES;
+}
+// A lyrics file deleted and the apps told.
+static inline void NLDeleteLyricsFile(NSString *path) {
+    [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
+    NLPostLyricsChanged();
+}
+// The lines' texts that are sung (not empty), in order, at most `limit` of them.
+static inline NSArray<NSString *> *NLSungTexts(NSArray<NLLyricLine *> *lines, NSUInteger limit) {
+    NSMutableArray<NSString *> *sung = [NSMutableArray array];
+    for (NLLyricLine *line in lines) {
+        if (sung.count >= limit) break;
+        if (line.text.length) [sung addObject:line.text];
+    }
+    return sung;
+}
+// A row that only says something (nothing playing, no results): secondary text, not selectable.
+static inline UITableViewCell *NLNoteCell(NSString *text) {
+    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+    cell.textLabel.text = text;
+    cell.textLabel.textColor = UIColor.secondaryLabelColor;
+    cell.selectionStyle = UITableViewCellSelectionStyleNone;
+    return cell;
+}
+// An action row: its title and symbol in one tint.
+static inline UITableViewCell *NLActionCell(NSString *title, NSString *symbol, UIColor *tint) {
+    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+    cell.textLabel.text = title;
+    cell.textLabel.textColor = tint;
+    cell.imageView.image = [UIImage systemImageNamed:symbol];
+    cell.imageView.tintColor = tint;
+    return cell;
+}
+// The pages that are a table of their own: inset grouped, filling `owner`'s
+// view, `owner` its data source and delegate, the keyboard going on a drag.
+static inline UITableView *NLMakeTable(UIViewController *owner) {
+    UITableView *table = [[UITableView alloc] initWithFrame:owner.view.bounds style:UITableViewStyleInsetGrouped];
+    table.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    table.dataSource = (id<UITableViewDataSource>)owner;
+    table.delegate = (id<UITableViewDelegate>)owner;
+    table.keyboardDismissMode = UIScrollViewKeyboardDismissModeOnDrag;
+    [owner.view addSubview:table];
+    return table;
+}
 
 @interface NLNowPlayingController : PSViewController
 @end
 
-@interface NLLibraryController : PSViewController
+// A page that is a table of its own under the main page's top (NLPageTop):
+// -viewDidLoad makes both (NLMakeTable), and the top follows the page's
+// appearance and layout. Subclasses call super first in -viewDidLoad and
+// -viewWillAppear:. NLSourceOrderController.m.
+@interface NLTablePage : PSViewController {
+@protected
+    UITableView *_table;
+}
 @end
-
-@interface NLSourceOrderController : PSViewController
+@interface NLLibraryController : NLTablePage
+@end
+@interface NLSourceOrderController : NLTablePage
 @end
 // Every source's name once, in the order they are tried, read through
 // `controller` (the page that shows them), or from the domain without one.
@@ -66,35 +168,57 @@ NSArray<NSString *> *NLSourceOrder(PSListController *controller);
 // A preference read through `controller` the way its rows read theirs, or
 // from the domain without one.
 id NLReadPref(PSListController *controller, NSString *key);
-void NLWritePref(PSListController *controller, NSString *key, id value);   // the same way
-// Straight into the domain (NSNull removes one), then one reload notice to
-// the apps.
-void NLWritePrefs(NSDictionary<NSString *, id> *values);
+void NLWritePref(PSListController *controller, NSString *key, id value);   // the same way; several straight into the domain: NLWritePrefs (NLShared.h)
+// A switch read the same way: its value, or `fallback` when unset (or not a number or numeric string).
+static inline BOOL NLReadPrefBool(PSListController *controller, NSString *key, BOOL fallback) {
+    return NLLooseBool(NLReadPref(controller, key), fallback);
+}
+// The domain read again, for what SpringBoard, an app or another page just wrote.
+static inline void NLSyncPrefs(void) { CFPreferencesAppSynchronize((__bridge CFStringRef)NL_PREFS_DOMAIN); }
+// A page pushed from a list page reads and writes the preferences through it,
+// the way its own rows do (that page writes them and posts the reload
+// notification); without one, the domain. NLSourceOrderController.m.
+@interface PSViewController (NLPrefs)
+- (PSListController *)nlParentList;
+- (id)nlPref:(NSString *)key;
+- (void)nlSetPref:(id)value forKey:(NSString *)key;
+- (BOOL)nlBoolPref:(NSString *)key fallback:(BOOL)fallback;
+@end
+// Whether a source's switch is on, read through `controller`, its default when
+// unset; NO for a name that is not a source. NLSourceOrderController.m.
+BOOL NLSourceSwitchOn(PSListController *controller, NSString *name);
 
-// The pages the main page links to for its details (Lyrics Sources, Advanced,
-// Apple Music): the plist named by the link's `subPlist`, from this bundle,
-// localized by the <name>.strings copies the Makefile puts there
-// (NLRootListController.m).
-@interface NLSubListController : PSListController
+// The pages loaded from a plist of this bundle (NLRootListController.m): rows
+// prepared (icons, links, defaults, the island preview's room), shown as their
+// showIf rules want, cells themed.
+@interface NLListController : PSListController
+@end
+// The pages loaded from the plist a link's `subPlist` names: Lyrics Sources
+// and Advanced from the main page, Musixmatch and Apple Music
+// (NLAppleMusicController, a subclass) from Lyrics Sources, Supported Tweaks
+// from Advanced; localized by the <name>.strings copies the Makefile puts there.
+@interface NLSubListController : NLListController
 @end
 
 // NLPlayerHeader.m: the lock screen's player as `table`'s header, behind it
 // its cover blurred. The owner calls -layout from viewDidLayoutSubviews (and
-// when the platter's preferred size changes), -appear / -disappear, and -tick
-// while on screen; -remove takes it off the table again.
+// when the platter's preferred size changes), -appear / -disappear, -tick
+// while on screen and -refresh every fourth tick (NLPageTick); -remove takes
+// it off the table again.
 @interface NLPlayerHeader : NSObject
 - (instancetype)initWithOwner:(UIViewController *)owner table:(UITableView *)table;
 - (void)layout;
 - (void)appear;
 - (void)disappear;
 - (void)tick;
+- (void)refresh;   // the background from the cover again
 - (void)remove;
 @end
 
 // NLRootListController.m: what Advanced › Top of main page puts there,
 // "player", "island" or "none", read through `controller` (or from the domain
-// without one); and an island preview's values away from the Lyrics Island
-// page, from that page's plist.
+// without one); and any island preview's values, from the Lyrics Island
+// page's plist.
 NSString *NLMainPageTop(PSListController *controller);
 NSDictionary *NLIslandPreviewValuesFromPlist(PSListController *controller);
 
@@ -106,7 +230,6 @@ NSDictionary *NLIslandPreviewValuesFromPlist(PSListController *controller);
 // viewWillAppear: super (and when either setting changes), -layout from
 // viewDidLayoutSubviews (and when a child's preferred size changes), -appear
 // and -disappear; while appeared it follows what is playing on its own.
-BOOL NLTopOnEveryPage(void);
 @interface NLPageTop : NSObject
 - (instancetype)initWithOwner:(UIViewController *)owner table:(UITableView *)table;
 - (void)update;
@@ -114,6 +237,7 @@ BOOL NLTopOnEveryPage(void);
 - (void)appear;
 - (void)disappear;
 @end
+static const NSTimeInterval kNLPageRefreshInterval = 0.75;   // how often a page looks at what is playing
 
 // The pages' theme: the color of what the island preview shows
 // (NLIslandPreviewCell.m), the album's or NowLyrics' own. NLThemeSetColor takes
@@ -126,7 +250,20 @@ void NLThemeRefresh(void);   // from the preferences and what is playing
 UIColor *NLNowLyricsColor(void);   // NLIslandPreviewCell.m
 void NLThemeCell(UITableViewCell *cell);
 void NLThemeTable(UITableView *table);
+UIColor *NLArtworkColorCached(NSData *artwork);   // NLPlayerHeader.m: NLColorFromArtwork, the last cover remembered; nil for no data. Main queue.
+// One tick of a page's refresh timer: the player follows what plays, and every
+// fourth tick its background and the theme are refreshed together (one
+// MediaRemote request answers both).
+static inline void NLPageTick(NLPlayerHeader *player, NSUInteger *ticks) {
+    [player tick];
+    if ((*ticks)++ % 4 == 0) {
+        [player refresh];
+        NLThemeRefresh();
+    }
+}
 
+static const CGFloat kNLIconSize = 29;            // what a Settings row shows
+static const CGFloat kNLIconCornerRadius = 6.5;
 // NLRootListController.m: a Settings row icon, a white SF Symbol on a rounded
 // tile of `hex` ("#RRGGBB").
 UIImage *NLSettingsIcon(NSString *symbol, NSString *hex);
@@ -134,9 +271,16 @@ UIImage *NLSampleCoverIcon(void);   // the main switch's: a warm gradient with a
 // A row's icon as the plists give it: the installed app's (`app`), else the
 // symbol on a tile of `hex`.
 UIImage *NLRowIcon(NSString *app, NSString *symbol, NSString *hex);
-// NLAppListController.m: Choose Apps' list (AltList's, with a filter for music
-// apps), made once AltList is loaded (NLOffsetCell.m).
-void NLRegisterAppListController(void);
+// An image at a row icon's size: drawn into the tile, clipped to its rounded
+// corners when `rounded`; as it is when it is that size already and not to be rounded.
+static inline UIImage *NLRowSizedImage(UIImage *image, BOOL rounded) {
+    if (!rounded && fabs(image.size.width - kNLIconSize) < 0.5 && fabs(image.size.height - kNLIconSize) < 0.5) return image;
+    CGRect tile = CGRectMake(0, 0, kNLIconSize, kNLIconSize);
+    return [[[UIGraphicsImageRenderer alloc] initWithSize:tile.size] imageWithActions:^(UIGraphicsImageRendererContext *context) {
+        if (rounded) [[UIBezierPath bezierPathWithRoundedRect:tile cornerRadius:kNLIconCornerRadius] addClip];
+        [image drawInRect:tile];
+    }];
+}
 
 // NLSourceOrderController.m: a lyrics source's icon by its preference name
 // ("applemusic", …; "" for automatic), as Lyrics Sources shows it.
@@ -153,28 +297,48 @@ BOOL NLCrescendoSyncPlayer(UIViewController *platter);   // YES when it changed 
 // -[MRUNowPlayingView sizeThatFits:] (Crescendo, NextUp 3). 0 without a player.
 CGFloat NLPlayerFittingHeight(UIViewController *platter, CGFloat width);
 UIView *NLCrescendoMakeVolumeRow(UIView *host);           // nil when this iOS lacks the parts
+// Supported Tweaks: Crescendo's slider is the system's own from iOS 17 on, and
+// NextUp's rows here were made against iOS 16.
+static inline BOOL NLCrescendoUsed(void) {
+    if (@available(iOS 17.0, *)) return NO;
+    return YES;
+}
+static inline BOOL NLNextUpUsed(void) {
+    if (@available(iOS 16.0, *)) return YES;
+    return NO;
+}
+// Crescendo's CRPrefs.h and NextUp 3's NUPrefs.h publish their switches the
+// same way, as a notify state (`state`): bit 63 = published; value bit n, and
+// bit n + 32 when the publishing build knew that key. Without one, the
+// tweak's preferences (`domain`). `token` is the caller's, -1 until
+// registered. NLCrescendo.m.
+BOOL NLTweakStatePref(const char *state, int *token, CFStringRef domain, NSString *key, uint64_t bit, BOOL fallback);
 
 // NLPopUpCell.m: a choice picked in place, as Settings' pop-up rows: the
 // title in use with a chevron, the others in a menu. `picked` gets a new value.
 UIButton *NLPopUpButton(NSArray<NSString *> *titles, NSArray *values, id current, void (^picked)(id value));
+// One action per choice, the current one checked; `picked` gets another
+// one's value. `symbols` may be nil. NLPopUpCell.m.
+NSArray<UIAction *> *NLChoiceActions(NSArray<NSString *> *titles, NSArray<NSString *> *symbols, NSArray *values, id current, void (^picked)(id value));
 
 // NLAppleMusicAccess.m: Apple Music stays hidden until SpringBoard confirms a
-// subscription (kept as `appleMusicVerified`); a lapsed one locks it again.
+// subscription (kept as `appleMusicVerified`); SpringBoard keeps it in step
+// from then on (NLAppleMusicSB.x), so a lapsed one locks it again and the
+// pages show that as they appear.
 // Privacy: Apple Music's privacy notice is not agreed to here yet, so nothing
-// past iTunesCloud was asked (NLAppleMusicSB.x).
-typedef NS_ENUM(NSInteger, NLSubscription) { NLSubscriptionUnknown = 0, NLSubscriptionActive, NLSubscriptionNone, NLSubscriptionPrivacy };
+// past iTunesCloud was asked (NLAppleMusicSB.x). SignedOut: no Apple ID is
+// signed in for Media & Purchases, so nothing was asked; it locks as None does.
+typedef NS_ENUM(NSInteger, NLSubscription) { NLSubscriptionUnknown = 0, NLSubscriptionActive, NLSubscriptionNone, NLSubscriptionPrivacy, NLSubscriptionSignedOut };
 BOOL NLAppleMusicAvailable(void);   // this iOS can ask Apple Music for lyrics (16 and later)
 BOOL NLAppleMusicVerified(void);
 void NLCheckAppleMusicSubscription(void (^done)(NLSubscription result, NSString *detail));   // main queue
-void NLApplyAppleMusicSubscription(NLSubscription result);   // active: unlocked; none: locked, Apple Music off
-void NLRecheckAppleMusicIfDue(void (^changed)(void));        // silent; `changed` when it locked or unlocked
+void NLApplyAppleMusicSubscription(NLSubscription result, BOOL switchOn);   // active: unlocked (and Apple Music on with `switchOn`); none or signed out: locked, Apple Music off
 
 // NLMusixmatchAccess.m: Musixmatch stays behind "Unlock Musixmatch lyrics"
 // until its app is installed (`musixmatchVerified`); with the app gone it stays
 // while a User Token or API key is saved.
 extern NSString *const NLMusixmatchBundleID;
 extern NSString *const NLMusixmatchStoreURL;   // its App Store page
-BOOL NLMusixmatchInstalled(void);
 BOOL NLMusixmatchVerified(void);
 BOOL NLUnlockMusixmatch(void);    // unlocked and on; NO without the app
 BOOL NLRecheckMusixmatch(void);   // YES when it changed anything
@@ -183,13 +347,31 @@ BOOL NLAppInstalled(NSString *bundleID);   // NLRootListController.m
 // NLNextUp.m: NextUp 3's Up Next row in these pages' copies of the players.
 BOOL NLNextUpInstalled(void);
 void NLNextUpLoad(void);            // its library, once: the settings player then gets its row as the lock screen's does
-BOOL NLNextUpShowsInIsland(void);   // its switches want the island's row
+BOOL NLNextUpShowsInIsland(void);   // its switches want the island's row; its library is loaded then
 BOOL NLNextUpActive(void);          // it has a next track for what plays
 void NLNextUpStart(void);
 void NLNextUpKeepOut(UIView *view);   // the island preview's view: none of NextUp's own row or layout
+#define NL_NEXTUP_CHANGED_NOTIFICATION @"NUNextUpDidChangeNotification"   // NextUp 3's own; also posted when Supported Tweaks changes
+// `changed` on the main queue a turn after each NextUp change (its row lays
+// itself out first). The observer goes to -removeObserver: in the owner's
+// dealloc. NLNextUp.m.
+id NLObserveNextUp(void (^changed)(void));
 
 // NLIslandPreviewCell.m: the most the open island preview grows by for the rows
 // tweaks add, which the island page keeps room for under it.
 CGFloat NLIslandPreviewMostExtraHeight(void);
 CGFloat NLIslandPreviewOpenBottom(void);   // the open island's bottom, from the table's top
-BOOL NLDeviceHasDynamicIsland(void);   // NLRootListController.m
+BOOL NLIslandPreviewCanGoLive(void);   // whether this iOS lets the preview show what is playing
+// NLIslandPreviewCell.m: the island preview row (its page posts
+// NLIslandPreviewChangedNotification after an island setting changed).
+@interface NLIslandPreviewCell : PSTableCell
+@end
+extern NSString *const NLIslandPreviewChangedNotification;
+NSArray<NSString *> *NLPreviewLinePool(NSBundle *bundle);   // NLPreviewLines.m: what the preview sings now
+
+// `selector`'s implementation on `cls` replaced by `replacement`; the one it
+// had, or NULL without such a method (or class).
+static inline IMP NLReplaceMethod(Class cls, SEL selector, IMP replacement) {
+    Method method = cls ? class_getInstanceMethod(cls, selector) : NULL;
+    return method ? method_setImplementation(method, replacement) : NULL;
+}

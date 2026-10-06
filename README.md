@@ -48,11 +48,14 @@ Sold on Havoc as `com.c3x14n.nowlyrics`; listing material in `havoc/`.
   `am-response.plist` back. Everything Apple Music stays hidden until
   "Unlock" confirms a subscription (SpringBoard asks iTunesCloud's
   `ICMusicSubscriptionStatusController`, then StoreKit, then tries one song's
-  lyrics); it is checked again daily, and a lapsed one locks it again. While
-  Apple Music's privacy notice waits to be agreed to (`AMSAcknowledgePrivacyTask`,
-  `com.apple.onboarding.applemusic`), nothing past iTunesCloud is asked and no
-  lyrics are fetched: StoreKit would put the notice up over whatever is on
-  screen. The settings page sends you to Music to agree to it.
+  lyrics). SpringBoard checks again when iTunesCloud says the subscription
+  changed, when SpringBoard starts, and when an Apple Music lyrics request
+  fails; a lapsed one, or no Apple ID signed in for Media & Purchases, locks
+  it again. While Apple Music's privacy notice waits to be agreed to
+  (`AMSAcknowledgePrivacyTask`, `com.apple.onboarding.applemusic`), nothing
+  past iTunesCloud is asked and no lyrics are fetched: StoreKit would put the
+  notice up over whatever is on screen. The settings page sends you to Music
+  to agree to it.
 - **Word by word**: Apple Music, Musixmatch (`track.richsync.get`, with a token), NetEase
   (`yrc` from `/api/song/lyric/v1`) and imported TTML or word-by-word LRC carry
   word times, stored as enhanced LRC (`<mm:ss.xx>`). The lock screen still shows

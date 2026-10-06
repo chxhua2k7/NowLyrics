@@ -15,8 +15,8 @@
 //    the Makefile).
 //  - Rows that follow a switch: a plist entry with `showIf` = <key> is shown
 //    only while that switch is on (NLUpdateShownSpecifiers).
-//  - The "Now Playing" and "Lyrics Library" pages are their own controllers
-//    (NLLyricsPages.h); this one writes the per-song offsets for the first.
+//  - The "Now Playing" page is its own controller (NLLyricsPages.h), linked
+//    from here; this one writes the per-song offsets for it.
 //  - The lock screen's player at the top (NLPlayerHeader), or the island
 //    preview, or nothing (Advanced › Top of main page), and the pages' theme:
 //    the color the island preview shows (NLThemeRefresh).
@@ -31,9 +31,6 @@
 //  PreferenceLoader itself links it.
 //
 
-#import <UIKit/UIKit.h>
-#import <Preferences/PSListController.h>
-#import <Preferences/PSSpecifier.h>
 #import <libprefs/prefs.h>
 #import <dlfcn.h>
 #import <objc/message.h>
@@ -43,7 +40,6 @@
 #import "../NLPlayerTint.h"
 
 @interface PSListController (NLPreferences)
-- (void)setPreferenceValue:(id)value specifier:(PSSpecifier *)specifier;
 // Moves a shown row and its table row, the table animating it (iOS 15 to 26).
 - (void)_moveSpecifierAtIndex:(NSUInteger)from toIndex:(NSUInteger)to animated:(BOOL)animated;
 @end
@@ -53,23 +49,14 @@
 #error NL_VERSION comes from PACKAGE_VERSION in the Makefile
 #endif
 
-@interface UIImage (NLPrivate)
-+ (UIImage *)_applicationIconImageForBundleIdentifier:(NSString *)bundleID format:(int)format scale:(CGFloat)scale;
-@end
-
 @interface NLRootListController : PLLocalizedListController
 @end
 
-@interface NLIslandListController : PSListController
+@interface NLIslandListController : NLListController
 @end
-
-
-extern NSString *const NLIslandPreviewChangedNotification;          // NLIslandPreviewCell.m
 
 #pragma mark - Icons
 
-static const CGFloat kNLIconSize = 29;            // what a Settings row shows
-static const CGFloat kNLIconCornerRadius = 6.5;
 static const CGFloat kNLIconGlyphPointSize = 15;
 
 // "#RRGGBB" → UIColor, nil for anything else.
@@ -131,9 +118,20 @@ UIImage *NLSampleCoverIcon(void) {
     }];
 }
 
+// Drawn once per symbol, color and text weight: Now Playing and Source order
+// ask for one on every cell. Main queue.
 UIImage *NLSettingsIcon(NSString *symbol, NSString *hex) {
+    static NSMutableDictionary<NSString *, UIImage *> *drawn;
+    NSString *key = [NSString stringWithFormat:@"%@\n%@\n%d", symbol, hex, UIAccessibilityIsBoldTextEnabled()];
+    UIImage *icon = drawn[key];
+    if (icon) return icon;
     UIColor *color = NLColorFromHex(hex);
-    return color ? NLTileIcon(symbol, color) : nil;
+    icon = color ? NLTileIcon(symbol, color) : nil;
+    if (icon) {
+        if (!drawn) drawn = [NSMutableDictionary dictionary];
+        drawn[key] = icon;
+    }
+    return icon;
 }
 
 @interface NSObject (NLWorkspace)
@@ -155,15 +153,6 @@ UIImage *NLRowIcon(NSString *app, NSString *symbol, NSString *hex) {
     return NLSettingsIcon(symbol, hex);
 }
 
-// A tweak's own icon at a row icon's size.
-static UIImage *NLRowSized(UIImage *image) {
-    if (fabs(image.size.width - kNLIconSize) < 0.5 && fabs(image.size.height - kNLIconSize) < 0.5) return image;
-    CGRect tile = CGRectMake(0, 0, kNLIconSize, kNLIconSize);
-    return [[[UIGraphicsImageRenderer alloc] initWithSize:tile.size] imageWithActions:^(UIGraphicsImageRendererContext *context) {
-        [image drawInRect:tile];
-    }];
-}
-
 static void NLApplyIcon(PSSpecifier *specifier) {
     if ([specifier propertyForKey:PSIconImageKey]) return;   // drawn already, or a real image from the plist
     if ([[specifier propertyForKey:@"iconDrawn"] isEqual:@"sampleCover"]) {
@@ -177,7 +166,7 @@ static void NLApplyIcon(PSSpecifier *specifier) {
         NSBundle *bundle = [NSBundle bundleWithPath:NLJBPath(tweakBundle)];
         UIImage *image = bundle ? [UIImage imageNamed:@"icon" inBundle:bundle compatibleWithTraitCollection:nil] : nil;
         if (image) {
-            [specifier setProperty:NLRowSized(image) forKey:PSIconImageKey];
+            [specifier setProperty:NLRowSizedImage(image, NO) forKey:PSIconImageKey];
             return;
         }
     }
@@ -196,8 +185,8 @@ static void NLApplyIcon(PSSpecifier *specifier) {
 // shown only while the switch with that key (every one of them) is on;
 // flipping a switch inserts or removes those rows, animated. A key with no
 // switch on the page is read from the preferences (off when unset), and
-// "!<key>" wants it off. Both pages keep the full list and show the wanted
-// subset.
+// "!<key>" wants it off. A group's rule covers its rows. Every page keeps the
+// full list and shows the wanted subset.
 static PSSpecifier *NLSwitchFor(NSArray<PSSpecifier *> *all, NSString *key) {
     for (PSSpecifier *s in all) {
         if ([[s propertyForKey:@"key"] isEqual:key]) return s;
@@ -223,19 +212,6 @@ NSString *NLMainPageTop(PSListController *controller) {
     return [value isEqual:@"island"] || [value isEqual:@"none"] ? value : @"player";
 }
 
-// Advanced › Supported Tweaks: Crescendo's slider is the system's own from
-// iOS 17 on (NLCrescendo.m), and NextUp's rows here were made against iOS 16
-// (NLNextUp.m).
-static BOOL NLCrescendoUsed(void) {
-    if (@available(iOS 17.0, *)) return NO;
-    return YES;
-}
-
-static BOOL NLNextUpUsed(void) {
-    if (@available(iOS 16.0, *)) return YES;
-    return NO;
-}
-
 static BOOL NLSpecifierWanted(PSListController *controller, NSArray<PSSpecifier *> *all, PSSpecifier *specifier) {
     for (NSString *rule in NLShowIfKeys(specifier)) {
         NSString *key = NLShowIfKey(rule);
@@ -254,18 +230,40 @@ static BOOL NLSpecifierWanted(PSListController *controller, NSArray<PSSpecifier 
     return YES;
 }
 
+// A row is also hidden while its group is: a group's showIf covers its rows.
+static BOOL NLRowWanted(PSListController *controller, NSArray<PSSpecifier *> *all, PSSpecifier *s, BOOL *groupWanted) {
+    BOOL want = NLSpecifierWanted(controller, all, s);
+    if (s.cellType == PSGroupCell) return *groupWanted = want;
+    return *groupWanted && want;
+}
+
 static NSMutableArray *NLWantedSpecifiers(PSListController *controller, NSArray<PSSpecifier *> *all) {
     NSMutableArray *wanted = [NSMutableArray array];
+    BOOL group = YES;
     for (PSSpecifier *s in all) {
-        if (NLSpecifierWanted(controller, all, s)) [wanted addObject:s];
+        if (NLRowWanted(controller, all, s, &group)) [wanted addObject:s];
     }
     return wanted;
 }
 
-// Both pages: icons, the link fix below, then the rows to show of `specifiers`,
-// which is kept whole in *all.
-static NSMutableArray *NLPrepareSpecifiers(PSListController *controller, NSArray<PSSpecifier *> *specifiers,
-                                           NSArray<PSSpecifier *> **all) {
+// The island preview's row (`islandPreview`, on the island page and at the
+// top of the main page): room for the open island, taller by the rows tweaks
+// add to it (Crescendo's volume row, NextUp 3's Up Next row), at the most it
+// can be.
+static void NLMakeRoomForIslandPreview(PSSpecifier *s) {
+    if (![s.identifier isEqualToString:@"islandPreview"]) return;   // shown or not
+    // iOS 26's grouped tables leave less between the row's group and the next
+    // card than 16's: the open island touched that card.
+    CGFloat slack = 0;
+    if (@available(iOS 26.0, *)) slack = 12;
+    id base = [s propertyForKey:@"nlBaseHeight"] ?: [s propertyForKey:@"height"];
+    if (![base respondsToSelector:@selector(doubleValue)]) return;
+    [s setProperty:base forKey:@"nlBaseHeight"];
+    [s setProperty:@([base doubleValue] + NLIslandPreviewMostExtraHeight() + slack) forKey:@"height"];
+}
+
+// Every page: icons, the link fix, the domain, the island preview's room.
+static NSArray<PSSpecifier *> *NLPrepareSpecifiers(NSArray<PSSpecifier *> *specifiers) {
     for (PSSpecifier *specifier in specifiers) {
         NLApplyIcon(specifier);
         // libprefs' PLCustomListController turns every PSLinkCell without a bundle
@@ -276,23 +274,21 @@ static NSMutableArray *NLPrepareSpecifiers(PSListController *controller, NSArray
         if (detailClass && specifier.detailControllerClass != detailClass) {
             [specifier setValue:detailClass forKey:@"detailControllerClass"];
         }
+        // Every setting lives in NowLyrics' domain; the plists leave `defaults` out.
+        if ([specifier propertyForKey:@"key"] && ![specifier propertyForKey:@"defaults"]) {
+            [specifier setProperty:NL_PREFS_DOMAIN forKey:@"defaults"];
+        }
+        NLMakeRoomForIslandPreview(specifier);
     }
-    *all = [specifiers copy];
-    return NLWantedSpecifiers(controller, *all);
-}
-
-static void NLShowAlert(UIViewController *controller, NSString *title, NSString *message, NSArray<UIAlertAction *> *actions) {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:message
-                                                            preferredStyle:UIAlertControllerStyleAlert];
-    for (UIAlertAction *action in actions) [alert addAction:action];
-    [controller presentViewController:alert animated:YES completion:nil];
+    return [specifiers copy];
 }
 
 // Bring the shown rows in line with the full list.
 static void NLRefreshShownSpecifiers(PSListController *controller, NSArray<PSSpecifier *> *all) {
     PSSpecifier *previous = nil;
+    BOOL group = YES;
     for (PSSpecifier *s in all) {
-        BOOL want = NLSpecifierWanted(controller, all, s);
+        BOOL want = NLRowWanted(controller, all, s, &group);
         BOOL shown = [controller indexOfSpecifier:s] != NSNotFound;
         if (want && !shown) {
             if (previous) [controller insertSpecifier:s afterSpecifier:previous animated:YES];
@@ -317,58 +313,90 @@ static void NLUpdateShownSpecifiers(PSListController *controller, NSArray<PSSpec
     }
 }
 
+// Whether a row that follows one of `keys` is shown, or hidden, against what
+// the preferences say now: another process (SpringBoard) may have written
+// them since the rows were laid out.
+static BOOL NLRowsFollowingOutOfStep(PSListController *controller, NSArray<PSSpecifier *> *all, NSArray<NSString *> *keys) {
+    NLSyncPrefs();
+    BOOL group = YES;
+    for (PSSpecifier *s in all) {
+        BOOL want = NLRowWanted(controller, all, s, &group);   // every row, in order: a group's rule covers its rows
+        BOOL follows = NO;
+        for (NSString *rule in NLShowIfKeys(s)) follows = follows || [keys containsObject:NLShowIfKey(rule)];
+        if (follows && want != ([controller indexOfSpecifier:s] != NSNotFound)) return YES;
+    }
+    return NO;
+}
+
+#pragma mark - Lyrics Island
+
+// Whether this iPhone has a Dynamic Island, as SpringBoard decides it:
+// SpringBoardServices' SBSIsSystemApertureAvailable (iOS 16 and later), which
+// goes by the artwork subtype MobileGestalt reports, so an iPhone made to show
+// the island by changing that (iOS 16) counts too. Without that function, a
+// status bar taller than a notch's (59 pt and up with the island, 44 to 50
+// with a notch); not known yet (no window) counts as yes, so the note below
+// never shows by mistake.
+static BOOL NLDeviceHasDynamicIsland(void) {
+    if (@available(iOS 16.0, *)) {} else return NO;
+    if (UIDevice.currentDevice.userInterfaceIdiom != UIUserInterfaceIdiomPhone) return NO;
+    static BOOL (*available)(void);
+    static BOOL has;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        dlopen("/System/Library/PrivateFrameworks/SpringBoardServices.framework/SpringBoardServices", RTLD_LAZY);
+        available = (BOOL (*)(void))dlsym(RTLD_DEFAULT, "SBSIsSystemApertureAvailable");
+        if (available) has = available();
+    });
+    if (available) return has;
+    CGFloat top = 0;
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if (![scene isKindOfClass:UIWindowScene.class]) continue;
+        UIWindowScene *windowScene = (UIWindowScene *)scene;
+        for (UIWindow *window in windowScene.windows) top = MAX(top, window.safeAreaInsets.top);
+        top = MAX(top, CGRectGetHeight(windowScene.statusBarManager.statusBarFrame));
+    }
+    return top == 0 || top > 51;
+}
+
+static NSString *const kNLNoIslandNote = @"Lyrics Island needs an iPhone with the Dynamic Island, on iOS 16 or later, so it does not show on this one. The lyrics on the lock screen, in Control Center and in CarPlay work as usual.";
+
+// Without a Dynamic Island, a note on the group that holds `anchor`: the
+// island row's (its detail class) on the main page, the switch's on the
+// island page. Ahead of whatever the group already says.
+static void NLNoteNoIsland(NSArray<PSSpecifier *> *all, NSString *anchor) {
+    if (NLDeviceHasDynamicIsland()) return;
+    PSSpecifier *group = nil;
+    for (PSSpecifier *s in all) {
+        if (s.cellType == PSGroupCell) group = s;
+        BOOL hit = [NSStringFromClass(s.detailControllerClass) isEqualToString:anchor] ||
+                   [[s propertyForKey:@"key"] isEqual:anchor];
+        if (hit) break;
+    }
+    if (!group) return;
+    NSString *note = NLL(kNLNoIslandNote);
+    NSString *had = [group propertyForKey:@"footerText"];
+    [group setProperty:NLJoinNonEmpty(note, had, @"\n\n") forKey:@"footerText"];
+}
+
 #pragma mark - Controller
 
-static void NLNoteNoIsland(NSArray<PSSpecifier *> *all, NSString *anchor);   // below, by the island page
-
-// The island preview's row (`islandPreview`, on the island page and at the
-// top of the main page): room for the open island, taller by the rows tweaks
-// add to it (Crescendo's volume row, NextUp 3's Up Next row), at the most it
-// can be.
-static void NLMakeRoomForIslandPreview(NSArray<PSSpecifier *> *all) {
-    // iOS 26's grouped tables leave less between the row's group and the next
-    // card than 16's: the open island touched that card.
-    CGFloat slack = 0;
-    if (@available(iOS 26.0, *)) slack = 12;
-    for (PSSpecifier *s in all) {
-        if (![s.identifier isEqualToString:@"islandPreview"]) continue;   // shown or not
-        id base = [s propertyForKey:@"nlBaseHeight"] ?: [s propertyForKey:@"height"];
-        if (![base respondsToSelector:@selector(doubleValue)]) continue;
-        [s setProperty:base forKey:@"nlBaseHeight"];
-        [s setProperty:@([base doubleValue] + NLIslandPreviewMostExtraHeight() + slack) forKey:@"height"];
-    }
-}
-
-// For the preview (NLIslandPreviewCell): each island setting's current value,
-// or its plist default when it was never changed.
-static NSDictionary *NLIslandPreviewValues(PSListController *controller, NSArray<PSSpecifier *> *specifiers) {
-    NSMutableDictionary *values = [NSMutableDictionary dictionary];
-    for (PSSpecifier *specifier in specifiers) {
-        NSString *key = [specifier propertyForKey:@"key"];
-        if (![key isKindOfClass:NSString.class]) continue;
-        id value = [controller readPreferenceValue:specifier] ?: [specifier propertyForKey:@"default"];
-        if (value) values[key] = value;
-    }
-    return values;
-}
-
-// An island preview away from the Lyrics Island page (the main page's, the
-// other pages'): each island setting's current value, read through
+// Every island preview's values (the Lyrics Island page's own, the main
+// page's, the other pages'): each island setting's current value, read through
 // `controller` (or from the domain without one), else its default. Read from
-// that page's plist rather than loaded as its specifiers, which would give the
-// page asking that page's title.
+// the Lyrics Island page's plist rather than loaded as its specifiers, which
+// would give the page asking that page's title.
 NSDictionary *NLIslandPreviewValuesFromPlist(PSListController *controller) {
     static NSArray<NSDictionary *> *items;
     if (!items) {
         // This bundle's: the main page's own bundle is PreferenceLoader's folder.
-        NSString *path = [[NSBundle bundleForClass:NLIslandListController.class] pathForResource:@"Island" ofType:@"plist"];
-        id loaded = path ? [NSDictionary dictionaryWithContentsOfFile:path][@"items"] : nil;
-        items = [loaded isKindOfClass:NSArray.class] ? loaded : @[];
+        NSString *path = [NLPrefsBundle() pathForResource:@"Island" ofType:@"plist"];
+        items = NLArray(path ? [NSDictionary dictionaryWithContentsOfFile:path] : nil, @"items") ?: @[];
     }
     NSMutableDictionary *values = [NSMutableDictionary dictionary];
     for (NSDictionary *item in items) {
-        NSString *key = [item isKindOfClass:NSDictionary.class] ? item[@"key"] : nil;
-        if (![key isKindOfClass:NSString.class]) continue;
+        NSString *key = NLString(item, @"key");
+        if (!key) continue;
         id value = NLReadPref(controller, key) ?: item[@"default"];
         if (value) values[key] = value;
     }
@@ -385,7 +413,7 @@ NSDictionary *NLIslandPreviewValuesFromPlist(PSListController *controller) {
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:[self nlLocalized:@"Apply"]
+    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:NLL(@"Apply")
                                                                               style:UIBarButtonItemStyleDone
                                                                              target:self
                                                                              action:@selector(nlApply:)];
@@ -395,7 +423,6 @@ NSDictionary *NLIslandPreviewValuesFromPlist(PSListController *controller) {
 }
 
 - (void)dealloc {
-    [[NSNotificationCenter defaultCenter] removeObserver:self];
     [_refresh invalidate];
 }
 
@@ -418,10 +445,9 @@ NSDictionary *NLIslandPreviewValuesFromPlist(PSListController *controller) {
     [super viewWillAppear:animated];
     [self nlApplyTheme];
     NLThemeRefresh();
-    NLRecheckAppleMusicIfDue(nil);   // a lapsed subscription locks Apple Music again
     [_refresh invalidate];
     __weak typeof(self) weakSelf = self;
-    _refresh = [NSTimer scheduledTimerWithTimeInterval:0.75 repeats:YES block:^(NSTimer *timer) { [weakSelf nlTick]; }];
+    _refresh = [NSTimer scheduledTimerWithTimeInterval:kNLPageRefreshInterval repeats:YES block:^(NSTimer *timer) { [weakSelf nlTick]; }];
 }
 
 - (void)viewDidAppear:(BOOL)animated {
@@ -439,13 +465,12 @@ NSDictionary *NLIslandPreviewValuesFromPlist(PSListController *controller) {
 }
 
 - (void)nlTick {
-    [_player tick];
-    if (_ticks++ % 4 == 0) NLThemeRefresh();
+    NLPageTick(_player, &_ticks);
 }
 
 // The top of the page as Advanced › Top of main page sets it: the lock
 // screen's player as the table's header, the island preview as the first row
-// (shown by its showIf), or neither.
+// (shown by its group's showIf), or neither.
 - (void)nlApplyHeader {
     BOOL player = [NLMainPageTop(self) isEqualToString:@"player"];
     if (player && !_player) {
@@ -458,21 +483,17 @@ NSDictionary *NLIslandPreviewValuesFromPlist(PSListController *controller) {
     if (_allSpecifiers) NLRefreshShownSpecifiers(self, _allSpecifiers);
 }
 
-// The island preview at the top: what the island page's settings make it.
-- (NSDictionary *)nlIslandPreviewValues {
-    return NLIslandPreviewValuesFromPlist(self);
-}
-
 // The tint reaches every NowLyrics page through the navigation controller's
 // view; the switches are set one by one.
 - (void)nlApplyTheme {
-    if (self.navigationController.topViewController != self && ![self.navigationController.viewControllers containsObject:self]) return;
+    UINavigationController *navigation = self.navigationController;
+    if (![navigation.viewControllers containsObject:self]) return;
     // Set plainly: a transition on the navigation controller's view would
     // replace the push and pop animations running under it.
-    UIView *view = self.navigationController.view ?: self.view;
+    UIView *view = navigation.view;
     UIColor *color = NLThemeColor();
-    if (view.tintColor != color && ![view.tintColor isEqual:color]) view.tintColor = color;
-    for (UIViewController *controller in self.navigationController.viewControllers) {
+    if (![view.tintColor isEqual:color]) view.tintColor = color;
+    for (UIViewController *controller in navigation.viewControllers) {
         if ([controller isKindOfClass:PSListController.class]) NLThemeTable([(PSListController *)controller table]);
     }
 }
@@ -483,18 +504,12 @@ NSDictionary *NLIslandPreviewValuesFromPlist(PSListController *controller) {
 }
 
 - (void)nlApply:(id)sender {
-    NLShowAlert(self, [self nlLocalized:@"Apply"], [self nlLocalized:@"Restart SpringBoard to apply?"], @[
-        [UIAlertAction actionWithTitle:[self nlLocalized:@"Cancel"] style:UIAlertActionStyleCancel handler:nil],
-        [UIAlertAction actionWithTitle:[self nlLocalized:@"Respring"] style:UIAlertActionStyleDestructive
-                               handler:^(UIAlertAction *action) { [self nlRespring]; }],
-    ]);
+    NLConfirm(self, NLL(@"Apply"), NLL(@"Restart SpringBoard to apply?"), NLL(@"Respring"), ^{ [self nlRespring]; });
 }
 
 - (void)nlRespring {
-    dlopen("/System/Library/PrivateFrameworks/FrontBoardServices.framework/FrontBoardServices", RTLD_NOW);
-    dlopen("/System/Library/PrivateFrameworks/SpringBoardServices.framework/SpringBoardServices", RTLD_NOW);
-    Class actionClass = objc_getClass("SBSRelaunchAction");
-    Class serviceClass = objc_getClass("FBSSystemService");
+    Class serviceClass = NLLoadedClass("FBSSystemService", "/System/Library/PrivateFrameworks/FrontBoardServices.framework/FrontBoardServices");
+    Class actionClass = NLLoadedClass("SBSRelaunchAction", "/System/Library/PrivateFrameworks/SpringBoardServices.framework/SpringBoardServices");
     if (!actionClass || !serviceClass) return;
     // SBSRelaunchActionOptionsRestartRenderServer = 1 << 0
     id action = ((id (*)(id, SEL, id, NSUInteger, id))objc_msgSend)(actionClass, @selector(actionWithReason:options:targetURL:), @"NowLyrics", 1, nil);
@@ -504,11 +519,9 @@ NSDictionary *NLIslandPreviewValuesFromPlist(PSListController *controller) {
 
 - (NSMutableArray *)specifiers {
     if (_specifiers && _allSpecifiers) return _specifiers;
-    NSArray<PSSpecifier *> *all = nil;
-    _specifiers = NLPrepareSpecifiers(self, [super specifiers], &all);
-    _allSpecifiers = all;
-    NLNoteNoIsland(all, @"NLIslandListController");
-    NLMakeRoomForIslandPreview(all);
+    _allSpecifiers = NLPrepareSpecifiers([super specifiers]);
+    _specifiers = NLWantedSpecifiers(self, _allSpecifiers);
+    NLNoteNoIsland(_allSpecifiers, @"NLIslandListController");
     return _specifiers;
 }
 
@@ -520,10 +533,6 @@ NSDictionary *NLIslandPreviewValuesFromPlist(PSListController *controller) {
 - (void)setPreferenceValue:(id)value specifier:(PSSpecifier *)specifier {
     [super setPreferenceValue:value specifier:specifier];
     NLUpdateShownSpecifiers(self, _allSpecifiers, specifier);
-}
-
-- (NSString *)nlLocalized:(NSString *)key {
-    return [self.bundle localizedStringForKey:key value:key table:nil] ?: key;
 }
 
 // The About group's Version row (`get = nlVersion:` in the plist).
@@ -556,74 +565,35 @@ NSDictionary *NLIslandPreviewValuesFromPlist(PSListController *controller) {
 
 @end
 
-#pragma mark - Lyrics Island
+#pragma mark - The pages from this bundle's plists
 
-// Whether this iPhone has a Dynamic Island, as SpringBoard decides it:
-// SpringBoardServices' SBSIsSystemApertureAvailable (iOS 16 and later), which
-// goes by the artwork subtype MobileGestalt reports, so an iPhone made to show
-// the island by changing that (iOS 16) counts too. Without that function, a
-// status bar taller than a notch's (59 pt and up with the island, 44 to 50
-// with a notch); not known yet (no window) counts as yes, so the note below
-// never shows by mistake.
-BOOL NLDeviceHasDynamicIsland(void) {
-    if (@available(iOS 16.0, *)) {} else return NO;
-    if (UIDevice.currentDevice.userInterfaceIdiom != UIUserInterfaceIdiomPhone) return NO;
-    static BOOL (*available)(void);
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        dlopen("/System/Library/PrivateFrameworks/SpringBoardServices.framework/SpringBoardServices", RTLD_LAZY);
-        available = (BOOL (*)(void))dlsym(RTLD_DEFAULT, "SBSIsSystemApertureAvailable");
-    });
-    if (available) return available();
-    CGFloat top = 0;
-    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-        if (![scene isKindOfClass:UIWindowScene.class]) continue;
-        UIWindowScene *windowScene = (UIWindowScene *)scene;
-        for (UIWindow *window in windowScene.windows) top = MAX(top, window.safeAreaInsets.top);
-        top = MAX(top, CGRectGetHeight(windowScene.statusBarManager.statusBarFrame));
-    }
-    return top == 0 || top > 51;
+@interface NLListController ()
+@property (nonatomic, copy) NSArray<PSSpecifier *> *nlAllSpecifiers;   // every row from the plist, shown or not
+- (NSArray<PSSpecifier *> *)nlLoadSpecifiers;                // the page's rows
+- (void)nlDidLoadSpecifiers:(NSArray<PSSpecifier *> *)all;   // notes on groups
+@end
+
+@implementation NLListController
+
+- (NSArray<PSSpecifier *> *)nlLoadSpecifiers {
+    return @[];
 }
 
-static NSString *const kNLNoIslandNote = @"Lyrics Island needs an iPhone with the Dynamic Island, on iOS 16 or later, so it does not show on this one. The lyrics on the lock screen, in Control Center and in CarPlay work as usual.";
-
-// Without a Dynamic Island, a note on the group that holds `anchor`: the
-// island row's (its detail class) on the main page, the switch's on the
-// island page. Ahead of whatever the group already says.
-static void NLNoteNoIsland(NSArray<PSSpecifier *> *all, NSString *anchor) {
-    if (NLDeviceHasDynamicIsland()) return;
-    PSSpecifier *group = nil;
-    for (PSSpecifier *s in all) {
-        if (s.cellType == PSGroupCell) group = s;
-        BOOL hit = [NSStringFromClass(s.detailControllerClass) isEqualToString:anchor] ||
-                   [[s propertyForKey:@"key"] isEqual:anchor];
-        if (hit) break;
-    }
-    if (!group) return;
-    NSString *note = NLL(kNLNoIslandNote);
-    NSString *had = [group propertyForKey:@"footerText"];
-    [group setProperty:had.length ? [NSString stringWithFormat:@"%@\n\n%@", note, had] : note forKey:@"footerText"];
-}
-
-@implementation NLIslandListController {
-    NSArray<PSSpecifier *> *_allSpecifiers;
+- (void)nlDidLoadSpecifiers:(NSArray<PSSpecifier *> *)all {
 }
 
 - (NSMutableArray *)specifiers {
     if (!_specifiers) {
-        NSArray<PSSpecifier *> *all = nil;
-        _specifiers = NLPrepareSpecifiers(self, [self loadSpecifiersFromPlistName:@"Island" target:self], &all);
-        _allSpecifiers = all;
-        NLNoteNoIsland(all, @"islandLyrics");
-        NLMakeRoomForIslandPreview(all);
+        self.nlAllSpecifiers = NLPrepareSpecifiers([self nlLoadSpecifiers]);
+        _specifiers = NLWantedSpecifiers(self, self.nlAllSpecifiers);
+        [self nlDidLoadSpecifiers:self.nlAllSpecifiers];
     }
     return _specifiers;
 }
 
 - (void)setPreferenceValue:(id)value specifier:(PSSpecifier *)specifier {
     [super setPreferenceValue:value specifier:specifier];
-    NLUpdateShownSpecifiers(self, _allSpecifiers, specifier);
-    [[NSNotificationCenter defaultCenter] postNotificationName:NLIslandPreviewChangedNotification object:self];
+    NLUpdateShownSpecifiers(self, self.nlAllSpecifiers, specifier);
 }
 
 - (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -631,8 +601,21 @@ static void NLNoteNoIsland(NSArray<PSSpecifier *> *all, NSString *anchor) {
     NLThemeCell(cell);
 }
 
-- (NSDictionary *)nlIslandPreviewValues {
-    return NLIslandPreviewValues(self, _allSpecifiers);
+@end
+
+@implementation NLIslandListController
+
+- (NSArray<PSSpecifier *> *)nlLoadSpecifiers {
+    return [self loadSpecifiersFromPlistName:@"Island" target:self];
+}
+
+- (void)nlDidLoadSpecifiers:(NSArray<PSSpecifier *> *)all {
+    NLNoteNoIsland(all, @"islandLyrics");
+}
+
+- (void)setPreferenceValue:(id)value specifier:(PSSpecifier *)specifier {
+    [super setPreferenceValue:value specifier:specifier];
+    [[NSNotificationCenter defaultCenter] postNotificationName:NLIslandPreviewChangedNotification object:self];
 }
 
 @end
@@ -642,23 +625,20 @@ static void NLNoteNoIsland(NSArray<PSSpecifier *> *all, NSString *anchor) {
 // Lyrics Sources: the rows of the sources (`source` in the plist) in the order
 // they are tried, as Source order sets it, in the places those rows take.
 static NSArray<PSSpecifier *> *NLInSourceOrder(PSListController *controller, NSArray<PSSpecifier *> *specifiers) {
-    NSMutableArray<NSNumber *> *places = [NSMutableArray array];
-    NSMutableArray<PSSpecifier *> *rows = [NSMutableArray array];
-    [specifiers enumerateObjectsUsingBlock:^(PSSpecifier *s, NSUInteger i, BOOL *stop) {
-        if (![[s propertyForKey:@"source"] isKindOfClass:NSString.class]) return;
-        [places addObject:@(i)];
-        [rows addObject:s];
+    NSIndexSet *places = [specifiers indexesOfObjectsPassingTest:^BOOL(PSSpecifier *s, NSUInteger i, BOOL *stop) {
+        return [[s propertyForKey:@"source"] isKindOfClass:NSString.class];
     }];
-    if (rows.count < 2) return specifiers;
+    if (places.count < 2) return specifiers;
     NSArray<NSString *> *order = NLSourceOrder(controller);
     // Stable: Apple Music's two rows (only one is ever shown) keep theirs.
-    [rows sortWithOptions:NSSortStable usingComparator:^NSComparisonResult(PSSpecifier *a, PSSpecifier *b) {
+    NSArray<PSSpecifier *> *rows = [[specifiers objectsAtIndexes:places] sortedArrayWithOptions:NSSortStable
+                                                                                usingComparator:^NSComparisonResult(PSSpecifier *a, PSSpecifier *b) {
         NSUInteger x = [order indexOfObject:[a propertyForKey:@"source"]];
         NSUInteger y = [order indexOfObject:[b propertyForKey:@"source"]];
         return x < y ? NSOrderedAscending : x > y ? NSOrderedDescending : NSOrderedSame;
     }];
     NSMutableArray<PSSpecifier *> *sorted = [specifiers mutableCopy];
-    for (NSUInteger k = 0; k < rows.count; k++) sorted[places[k].unsignedIntegerValue] = rows[k];
+    [sorted replaceObjectsAtIndexes:places withObjects:rows];
     return sorted;
 }
 
@@ -683,19 +663,17 @@ static void NLMarkMissingTweaks(NSArray<PSSpecifier *> *all) {
         [s setProperty:@NO forKey:@"enabled"];
         NSString *had = [group propertyForKey:@"footerText"];
         NSString *note = NLL(@"Not installed.");
-        if (group) [group setProperty:had.length ? [NSString stringWithFormat:@"%@ %@", had, note] : note forKey:@"footerText"];
+        if (group) [group setProperty:NLJoinNonEmpty(had, note, @" ") forKey:@"footerText"];
     }
 }
 
 @implementation NLSubListController {
-    NSArray<PSSpecifier *> *_allSpecifiers;
     NLPageTop *_pageTop;   // the top as the main page's (Advanced › Other pages too)
 }
 
 - (void)viewDidLoad {
     [super viewDidLoad];
     _pageTop = [[NLPageTop alloc] initWithOwner:self table:self.table];
-    [_pageTop update];
 }
 
 - (void)viewDidLayoutSubviews {
@@ -713,16 +691,14 @@ static void NLMarkMissingTweaks(NSArray<PSSpecifier *> *all) {
     [_pageTop disappear];
 }
 
-- (NSMutableArray *)specifiers {
-    if (!_specifiers) {
-        NSString *name = [self.specifier propertyForKey:@"subPlist"];
-        NSArray<PSSpecifier *> *loaded = [name isKindOfClass:NSString.class] ? [self loadSpecifiersFromPlistName:name target:self] : @[];
-        NSArray<PSSpecifier *> *all = nil;
-        _specifiers = NLPrepareSpecifiers(self, NLInSourceOrder(self, loaded), &all);
-        _allSpecifiers = all;
-        NLMarkMissingTweaks(all);
-    }
-    return _specifiers;
+- (NSArray<PSSpecifier *> *)nlLoadSpecifiers {
+    NSString *name = [self.specifier propertyForKey:@"subPlist"];
+    NSArray<PSSpecifier *> *loaded = [name isKindOfClass:NSString.class] ? [self loadSpecifiersFromPlistName:name target:self] : @[];
+    return NLInSourceOrder(self, loaded);
+}
+
+- (void)nlDidLoadSpecifiers:(NSArray<PSSpecifier *> *)all {
+    NLMarkMissingTweaks(all);
 }
 
 // Back from Source order: the sources' rows move to their new places.
@@ -733,15 +709,15 @@ static void NLMarkMissingTweaks(NSArray<PSSpecifier *> *all) {
 }
 
 - (void)nlFollowSourceOrder {
-    if (!_allSpecifiers) return;
-    NSArray<PSSpecifier *> *sorted = NLInSourceOrder(self, _allSpecifiers);
-    if (NLSameRows(sorted, _allSpecifiers)) return;
-    _allSpecifiers = sorted;
-    NSArray<PSSpecifier *> *wanted = NLWantedSpecifiers(self, sorted);
+    if (!self.nlAllSpecifiers) return;
+    NSArray<PSSpecifier *> *sorted = NLInSourceOrder(self, self.nlAllSpecifiers);
+    if (NLSameRows(sorted, self.nlAllSpecifiers)) return;
+    self.nlAllSpecifiers = sorted;
+    NSMutableArray<PSSpecifier *> *wanted = NLWantedSpecifiers(self, sorted);
     BOOL sameRows = wanted.count == _specifiers.count;
-    for (PSSpecifier *s in wanted) if (sameRows && [_specifiers indexOfObjectIdenticalTo:s] == NSNotFound) sameRows = NO;
+    for (PSSpecifier *s in wanted) if ([_specifiers indexOfObjectIdenticalTo:s] == NSNotFound) { sameRows = NO; break; }
     if (!sameRows || ![self respondsToSelector:@selector(_moveSpecifierAtIndex:toIndex:animated:)]) {
-        [self setSpecifiers:[wanted mutableCopy]];
+        [self setSpecifiers:wanted];
         return;
     }
     // One move per row out of place, the rows between shifting along.
@@ -753,14 +729,13 @@ static void NLMarkMissingTweaks(NSArray<PSSpecifier *> *all) {
 
 - (void)setPreferenceValue:(id)value specifier:(PSSpecifier *)specifier {
     [super setPreferenceValue:value specifier:specifier];
-    NLUpdateShownSpecifiers(self, _allSpecifiers, specifier);
     // Advanced › Top of main page or Other pages too: this page's top at once.
     NSString *key = [specifier propertyForKey:@"key"];
     if ([key isEqual:@"topOnEveryPage"] || [key isEqual:@"pageHeader"]) [_pageTop update];
     // Supported Tweaks: the players and island previews take their rows in or
     // out now (NextUp's own views and our players redo theirs on its notice).
     if ([key isEqual:@"tweakCrescendo"] || [key isEqual:@"tweakNextUp"]) {
-        [[NSNotificationCenter defaultCenter] postNotificationName:@"NUNextUpDidChangeNotification" object:nil];
+        [[NSNotificationCenter defaultCenter] postNotificationName:NL_NEXTUP_CHANGED_NOTIFICATION object:nil];
         [[NSNotificationCenter defaultCenter] postNotificationName:NLIslandPreviewChangedNotification object:self];
         [_pageTop layout];
     }
@@ -769,37 +744,37 @@ static void NLMarkMissingTweaks(NSArray<PSSpecifier *> *all) {
 // After Apple Music or Musixmatch was unlocked or locked: their rows, and
 // their links' states.
 - (void)nlRefreshLockedRows {
-    NLRefreshShownSpecifiers(self, _allSpecifiers);
-    for (NSString *link in @[@"appleMusicLink", @"musixmatchLink"]) {
-        if ([self specifierForID:link]) [self reloadSpecifierID:link animated:NO];
+    NLRefreshShownSpecifiers(self, self.nlAllSpecifiers);
+    [self nlReloadLinkStates];
+}
+
+// The link rows that show a switch's state (`stateKey` in Sources.plist),
+// shown ones only.
+- (void)nlReloadLinkStates {
+    for (PSSpecifier *s in [_specifiers copy]) {
+        if ([s propertyForKey:@"stateKey"]) [self reloadSpecifier:s animated:NO];
     }
 }
 
 // "Unlock Apple Music lyrics": SpringBoard checks for a subscription; with
 // one, Apple Music shows and is switched on, without one it stays hidden.
 // Before Apple Music's privacy notice is agreed to there is nothing to ask:
-// Music, where it is agreed to, is one tap away.
+// Music, where it is agreed to, is one tap away. Without an Apple ID signed in
+// for Media & Purchases it stays locked, and the alert says where to sign in.
 - (void)nlUnlockAppleMusic:(PSSpecifier *)specifier {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:NLL(@"Apple Music subscription")
-                                                                   message:NLL(@"Checking your Apple Music subscription…")
-                                                            preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:NLL(@"OK") style:UIAlertActionStyleCancel handler:nil]];
-    [self presentViewController:alert animated:YES completion:nil];
+    UIAlertController *alert = NLPresentAlert(self, NLL(@"Apple Music subscription"), NLL(@"Checking your Apple Music subscription…"),
+                                              @[[UIAlertAction actionWithTitle:NLL(@"OK") style:UIAlertActionStyleCancel handler:nil]]);
     __weak typeof(self) weakSelf = self;
     NLCheckAppleMusicSubscription(^(NLSubscription result, NSString *detail) {
-        NLApplyAppleMusicSubscription(result);
-        if (result == NLSubscriptionActive) NLWritePrefs(@{@"useAppleMusic": @YES});
+        NLApplyAppleMusicSubscription(result, YES);   // active: Apple Music on too, in one write
         [weakSelf nlRefreshLockedRows];
         if (result == NLSubscriptionPrivacy) {
             void (^ask)(void) = ^{
-                UIAlertAction *open = [UIAlertAction actionWithTitle:NLL(@"Open Music") style:UIAlertActionStyleDefault
-                                                             handler:^(UIAlertAction *action) {
-                    [UIApplication.sharedApplication openURL:[NSURL URLWithString:@"music://"] options:@{} completionHandler:nil];
-                }];
-                UIAlertAction *ok = [UIAlertAction actionWithTitle:NLL(@"OK") style:UIAlertActionStyleCancel handler:nil];
-                if (weakSelf) NLShowAlert(weakSelf, NLL(@"Apple Music subscription"),
-                                          NLL(@"Apple Music’s privacy notice is not agreed to on this iPhone yet. Agree to it in Music, then unlock again."),
-                                          @[open, ok]);
+                if (weakSelf) NLPresentAlert(weakSelf, NLL(@"Apple Music subscription"),
+                                             NLL(@"Apple Music’s privacy notice is not agreed to on this iPhone yet. Agree to it in Music, then unlock again."),
+                                             @[[UIAlertAction actionWithTitle:NLL(@"Open Music") style:UIAlertActionStyleDefault
+                                                                      handler:^(UIAlertAction *action) { NLOpenURL(@"music://"); }],
+                                               [UIAlertAction actionWithTitle:NLL(@"OK") style:UIAlertActionStyleCancel handler:nil]]);
             };
             if (alert.presentingViewController) [alert dismissViewControllerAnimated:YES completion:ask];
             else ask();
@@ -809,6 +784,8 @@ static void NLMarkMissingTweaks(NSArray<PSSpecifier *> *all) {
             ? NLL(@"Subscription confirmed. Apple Music lyrics are unlocked and on, in Music and in other apps such as Spotify.")
             : result == NLSubscriptionNone
             ? NLL(@"There is no Apple Music subscription on this Apple ID, so Apple Music lyrics stay hidden.")
+            : result == NLSubscriptionSignedOut
+            ? NLL(@"No Apple ID is signed in for Media & Purchases. Sign in under Settings › your name › Media & Purchases, then unlock again.")
             : [NSString stringWithFormat:NLL(@"Could not check the subscription (%@). Try again later."), detail];
     });
 }
@@ -818,33 +795,24 @@ static void NLMarkMissingTweaks(NSArray<PSSpecifier *> *all) {
 - (void)nlUnlockMusixmatch:(PSSpecifier *)specifier {
     BOOL unlocked = NLUnlockMusixmatch();
     if (unlocked) [self nlRefreshLockedRows];
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Musixmatch"
-                                                                   message:unlocked
+    NSMutableArray<UIAlertAction *> *actions = [NSMutableArray array];
+    if (!unlocked) [actions addObject:[UIAlertAction actionWithTitle:@"App Store" style:UIAlertActionStyleDefault
+                                                             handler:^(UIAlertAction *action) { NLOpenURL(NLMusixmatchStoreURL); }]];
+    [actions addObject:[UIAlertAction actionWithTitle:NLL(@"OK") style:UIAlertActionStyleCancel handler:nil]];
+    NLPresentAlert(self, @"Musixmatch", unlocked
         ? NLL(@"The Musixmatch app is installed. Musixmatch lyrics are unlocked and on; paste your User Token on the Musixmatch page.")
-        : NLL(@"Musixmatch lyrics need the Musixmatch app, where the User Token comes from. Install it, then unlock again.")
-                                                            preferredStyle:UIAlertControllerStyleAlert];
-    if (!unlocked) {
-        [alert addAction:[UIAlertAction actionWithTitle:@"App Store" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-            [UIApplication.sharedApplication openURL:[NSURL URLWithString:NLMusixmatchStoreURL] options:@{} completionHandler:nil];
-        }]];
-    }
-    [alert addAction:[UIAlertAction actionWithTitle:NLL(@"OK") style:UIAlertActionStyleCancel handler:nil]];
-    [self presentViewController:alert animated:YES completion:nil];
+        : NLL(@"Musixmatch lyrics need the Musixmatch app, where the User Token comes from. Install it, then unlock again."), actions);
 }
 
 // The Apple Music and Musixmatch rows on Lyrics Sources: on or off, as Settings
 // shows a page's state beside its link; read again on coming back from it.
 static NSString *NLSwitchState(NSString *key) {
-    CFPreferencesAppSynchronize((__bridge CFStringRef)NL_PREFS_DOMAIN);
-    return [NLReadPref(nil, key) boolValue] ? NLL(@"On") : NLL(@"Off");
+    NLSyncPrefs();
+    return NLReadPrefBool(nil, key, NO) ? NLL(@"On") : NLL(@"Off");
 }
 
-- (NSString *)nlAppleMusicState:(PSSpecifier *)specifier {
-    return NLSwitchState(@"useAppleMusic");
-}
-
-- (NSString *)nlMusixmatchState:(PSSpecifier *)specifier {
-    return NLSwitchState(@"useMusixmatch");
+- (NSString *)nlLinkState:(PSSpecifier *)specifier {
+    return NLSwitchState([specifier propertyForKey:@"stateKey"]);
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -853,17 +821,11 @@ static NSString *NLSwitchState(NSString *key) {
     [_pageTop update];
     [super viewWillAppear:animated];
     // Musixmatch's app removed with nothing saved to work without it: locked again.
-    if (NLRecheckMusixmatch()) [self nlRefreshLockedRows];
-    for (NSString *link in @[@"appleMusicLink", @"musixmatchLink"]) {
-        if ([self specifierForID:link]) [self reloadSpecifierID:link animated:NO];
-    }
-    __weak typeof(self) weakSelf = self;
-    NLRecheckAppleMusicIfDue(^{ [weakSelf nlRefreshLockedRows]; });
-}
-
-- (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {
-    if ([PSListController instancesRespondToSelector:_cmd]) [super tableView:tableView willDisplayCell:cell forRowAtIndexPath:indexPath];
-    NLThemeCell(cell);
+    if (NLRecheckMusixmatch()) NLRefreshShownSpecifiers(self, self.nlAllSpecifiers);
+    [self nlReloadLinkStates];
+    // Apple Music locked, unlocked or switched off since the rows were laid
+    // out: SpringBoard keeps it in step with the subscription (NLAppleMusicSB.x).
+    if (NLRowsFollowingOutOfStep(self, self.nlAllSpecifiers, @[@"appleMusicVerified", @"useAppleMusic"])) [self nlRefreshLockedRows];
 }
 
 @end

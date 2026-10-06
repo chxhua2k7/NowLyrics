@@ -17,6 +17,7 @@
 //
 
 #import "NowLyrics.h"
+#import "NLStoreLyrics.h"
 #import <MediaPlayer/MediaPlayer.h>
 #import <objc/runtime.h>
 #import <pthread.h>
@@ -33,14 +34,6 @@
 @property (nonatomic, readonly) double calculatedElapsedTime;
 @property (nonatomic, assign, getter=isExplicitItem) BOOL explicitItem;
 - (void)setElapsedTime:(double)elapsedTime playbackRate:(float)playbackRate;
-@end
-
-// The request Music's lyrics view makes: by the song's catalog (adam) ID,
-// through the MusicKit lyrics endpoint, as the signed-in subscriber.
-@interface NSObject (NLStoreLyrics)
-- (void)setSongAdamID:(long long)adamID;
-- (void)setResponseHandler:(void (^)(id response, NSError *error))handler;
-- (NSString *)lyricsContent;   // MPStoreLyricsResponse
 @end
 
 #pragma mark - State
@@ -69,7 +62,8 @@ static BOOL gWritingItem = NO;           // main queue: we are the ones changing
 
 // What the player reported, with the rewrites the system must never see the raw
 // version of. Returns `info` itself when there is nothing to change.
-static NSDictionary *NLCleanInfo(NSDictionary *info, NLSettings *settings) {
+static NSDictionary *NLCleanInfo(NSDictionary *info) {
+    NLSettings *settings = NLSettingsCurrent();
     NSMutableDictionary *clean = nil;
 
     // Spotify Connect reports "Title • Artist" / "Playing on X": the real pair.
@@ -125,23 +119,33 @@ static void NLPushInfo(NSDictionary *info) {
     gBypass = NO;
 }
 
+// `info` with the elapsed time as of now: pushed with the player's own, the
+// scrubber would jump back.
+static NSMutableDictionary *NLInfoNow(NSDictionary *info) {
+    NSMutableDictionary *now = [info mutableCopy];
+    now[MPNowPlayingInfoPropertyElapsedPlaybackTime] = @(NLEnginePosition());
+    return now;
+}
+
 static void NLPublishInfo(NSString *title, NSString *artist) {
     if (!gCenter || gBaseInfo.count == 0) return;
     // A flip during a long gap, or a settings change that moved nothing:
     // the system already shows exactly this.
-    if (gBaseInfo == gPushedBase && (title == gPushedTitle || [title isEqualToString:gPushedTitle]) &&
-        (artist == gPushedArtist || [artist isEqualToString:gPushedArtist])) return;
+    if (gBaseInfo == gPushedBase && NLSame(title, gPushedTitle) && NLSame(artist, gPushedArtist)) return;
 
-    NSMutableDictionary *info = [gBaseInfo mutableCopy];
-    double elapsed = MAX(NLEnginePosition(), 0);
-    info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = @(elapsed);   // otherwise the scrubber jumps back
+    NSMutableDictionary *info = NLInfoNow(gBaseInfo);
     if (title) info[MPMediaItemPropertyTitle] = title;
     if (artist) info[MPMediaItemPropertyArtist] = artist;
     gPushedBase = gBaseInfo;
     gPushedTitle = title;
     gPushedArtist = artist;
-    gPushedElapsed = elapsed;
+    gPushedElapsed = [info[MPNowPlayingInfoPropertyElapsedPlaybackTime] doubleValue];
     NLPushInfo(info);
+}
+
+// `value` is what our last push put there (and that was not empty).
+static BOOL NLIsPushed(id value, NSString *pushed) {
+    return pushed.length && [value isKindOfClass:NSString.class] && [value isEqualToString:pushed];
 }
 
 // Some apps read nowPlayingInfo back, edit it and push it again. What they
@@ -150,22 +154,16 @@ static void NLPublishInfo(NSString *title, NSString *artist) {
 // lines and words would run that much late until the player next reported a
 // position itself. Main queue.
 static BOOL NLIsOwnEcho(NSDictionary *info) {
-    NSNumber *elapsed = info[MPNowPlayingInfoPropertyElapsedPlaybackTime];
-    if (gPushedElapsed < 0 || ![elapsed isKindOfClass:NSNumber.class] || elapsed.doubleValue != gPushedElapsed) return NO;
+    if (gPushedElapsed < 0 || NLNum(info[MPNowPlayingInfoPropertyElapsedPlaybackTime], -1) != gPushedElapsed) return NO;
     NSString *title = info[MPMediaItemPropertyTitle], *artist = info[MPMediaItemPropertyArtist];
-    return (gPushedTitle.length && [title isKindOfClass:NSString.class] && [title isEqualToString:gPushedTitle]) ||
-           (gPushedArtist.length && [artist isKindOfClass:NSString.class] && [artist isEqualToString:gPushedArtist]);
+    return NLIsPushed(title, gPushedTitle) || NLIsPushed(artist, gPushedArtist);
 }
 
 // Switched off: put the player's own title back now instead of leaving the
 // last line up until the player happens to publish again, and forget its
 // info, which goes stale while nothing is listening.
 static void NLRestoreInfo(void) {
-    if (gCenter && gBaseInfo.count) {
-        NSMutableDictionary *info = [gBaseInfo mutableCopy];
-        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = @(MAX(NLEnginePosition(), 0));
-        NLPushInfo(info);
-    }
+    if (gCenter && gBaseInfo.count) NLPushInfo(NLInfoNow(gBaseInfo));
     gBaseInfo = nil;
     gPushedBase = nil;
     gPushedTitle = nil;
@@ -191,8 +189,8 @@ static void NLIngestInfo(MPNowPlayingInfoCenter *center, NSDictionary *info, BOO
     // line, so restore the real values first.
     NSString *realTitle = NLEngineTrackTitle();
     NSString *realArtist = NLEngineTrackArtist();
-    BOOL titleEchoed = gPushedTitle.length && [title isEqualToString:gPushedTitle] && realTitle.length;
-    BOOL artistEchoed = gPushedArtist.length && [artist isEqualToString:gPushedArtist] && realArtist.length;
+    BOOL titleEchoed = NLIsPushed(title, gPushedTitle) && realTitle.length;
+    BOOL artistEchoed = NLIsPushed(artist, gPushedArtist) && realArtist.length;
     if (titleEchoed || artistEchoed) {
         NSMutableDictionary *restored = [info mutableCopy];
         if (titleEchoed) { title = realTitle; restored[MPMediaItemPropertyTitle] = realTitle; }
@@ -258,12 +256,6 @@ static void NLIngestItem(MPNowPlayingContentItem *item) {
     NLEngineIngest(title, artist, item.albumName, duration, @(NLItemElapsed(item)), @(item.playbackRate));
 }
 
-static void NLAdoptItem(MPNowPlayingContentItem *item);
-
-static void NLAdoptItemLater(MPNowPlayingContentItem *item) {
-    dispatch_async(dispatch_get_main_queue(), ^{ NLAdoptItem(item); });
-}
-
 // Main queue. MediaPlayer sometimes hands over a copy of the item we already
 // decorated; it is recognised by its identifier so the real title survives the
 // swap instead of the lyric line being taken for it.
@@ -280,9 +272,18 @@ static void NLAdoptItem(MPNowPlayingContentItem *item) {
 
     gMusicItem = item;
     gMusicItemPtr = (__bridge void *)item;
+    // An item made before the hooks went in (the app started switched off)
+    // has its explicit flag set without the setter hook's say; cleared here
+    // the way that hook would have. Any other item went through the hook.
+    if (gEnabled && NLSettingsCurrent().hideExplicit &&
+        [item respondsToSelector:@selector(isExplicitItem)] && item.isExplicitItem) item.explicitItem = NO;
     NLEngineCancelFlip();   // whatever was scheduled belonged to the old item
     NLLog(@"now playing item %p (%@)", item, item.identifier);
     NLIngestItem(item);
+}
+
+static void NLAdoptItemLater(MPNowPlayingContentItem *item) {
+    dispatch_async(dispatch_get_main_queue(), ^{ NLAdoptItem(item); });
 }
 
 // Any thread. A cheap pointer check, then one ingest on the main queue no
@@ -364,27 +365,6 @@ static long long NLItemAdamID(MPNowPlayingContentItem *item) {
     return 0;
 }
 
-// Asks the store for the song's lyrics directly. Calls back on any queue.
-static BOOL NLRequestStoreLyrics(long long adamID, void (^done)(NSString *text)) {
-    Class operationClass = objc_getClass("MPStoreLyricsMusicKitRequestOperation");
-    if (adamID <= 0 || !operationClass) return NO;
-    static NSOperationQueue *queue;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        queue = [NSOperationQueue new];
-        queue.name = @"app.nowlyrics.applemusic";
-    });
-    NSOperation *operation = [operationClass new];
-    [(id)operation setSongAdamID:adamID];
-    [(id)operation setResponseHandler:^(id response, NSError *error) {
-        NSString *text = [response respondsToSelector:@selector(lyricsContent)] ? [response lyricsContent] : nil;
-        if (error) NLLog(@"Apple Music store lyrics error: %@", error);
-        done([text isKindOfClass:[NSString class]] ? text : nil);
-    }];
-    [queue addOperation:operation];
-    return YES;
-}
-
 // Fetch queue. What Music's own lyrics view shows: the storefront's text
 // (Traditional Chinese in Taiwan) and, where Apple has it, word timing, as
 // TTML. The item is read on the main queue, where it lives; the store answers
@@ -395,18 +375,20 @@ NSString *NLAppleMusicLyrics(NSString *title, NSTimeInterval timeout) {
     dispatch_async(dispatch_get_main_queue(), ^{
         MPNowPlayingContentItem *item = gMusicItem;
         // The real title, not the lyric line the item shows by now.
-        NSString *real = item ? (NLItemGet(item, &kNLRealTitleKey) ?: item.title) : nil;
+        NSString *real = NLItemGet(item, &kNLRealTitleKey) ?: item.title;
         long long adamID = [real isEqualToString:title] ? NLItemAdamID(item) : 0;
         NLLog(@"Apple Music lyrics: adam ID %lld", adamID);
-        BOOL asked = NLRequestStoreLyrics(adamID, ^(NSString *text) {
+        BOOL asked = adamID > 0 && NLAskStoreLyrics(adamID, ^(NSString *text, id response, NSError *error) {
+            if (error) NLLog(@"Apple Music store lyrics error: %@", error);
+            if (NLStoreLyricsFailed(error)) NLPostDarwin(NL_AM_FAILED_NOTIFICATION);   // SpringBoard checks the subscription
             @synchronized (box) {
-                if (text.length) [box addObject:[text copy]];
+                if (text) [box addObject:[text copy]];
             }
             dispatch_semaphore_signal(done);
         });
         if (!asked) dispatch_semaphore_signal(done);   // another track, or not from the catalog
     });
-    dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeout * NSEC_PER_SEC)));
+    dispatch_semaphore_wait(done, NLTimeIn(timeout));
     @synchronized (box) {
         return box.firstObject;
     }
@@ -424,14 +406,15 @@ void NLPublishRestore(void) {
     else NLRestoreInfo();
 }
 
-// "Hide explicit badge" just went on. New info is cleaned on its way in; this
-// is for what the player published before.
+// "Hide explicit badge" just went on, or the app was just switched on with it
+// on. New info is cleaned on its way in; this is for what the player
+// published before (which went through untouched while switched off).
 static void NLHideExplicitNow(void) {
     if (gContentItemMode) {
         MPNowPlayingContentItem *item = gMusicItem;
         if ([item respondsToSelector:@selector(isExplicitItem)] && item.isExplicitItem) item.explicitItem = NO;
     } else if (gBaseInfo) {
-        gBaseInfo = NLCleanInfo(gBaseInfo, NLSettingsCurrent());
+        gBaseInfo = NLCleanInfo(gBaseInfo);
     }
 }
 
@@ -458,16 +441,12 @@ static void NLHideExplicitNow(void) {
 
     // Cleaned before the system sees it; otherwise the raw values show for a
     // moment at every track change until our first push lands.
-    snapshot = NLCleanInfo(snapshot, NLSettingsCurrent());
+    snapshot = NLCleanInfo(snapshot);
     // Our own push read back: the system gets the position as of now, not as
     // of that push. Only on the main queue, which our state belongs to;
     // elsewhere the ingest finds it and pushes the right one right after.
-    BOOL ownEcho = NSThread.isMainThread && NLIsOwnEcho(snapshot);
-    if (ownEcho) {
-        NSMutableDictionary *fresh = [snapshot mutableCopy];
-        fresh[MPNowPlayingInfoPropertyElapsedPlaybackTime] = @(MAX(NLEnginePosition(), 0));
-        snapshot = [fresh copy];
-    }
+    BOOL ownEcho = pthread_main_np() && NLIsOwnEcho(snapshot);
+    if (ownEcho) snapshot = [NLInfoNow(snapshot) copy];
     %orig(snapshot);
 
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -513,9 +492,10 @@ static void NLHideExplicitNow(void) {
 %hook MPNowPlayingContentItem
 
 // Music's explicit flag, the "E" after the title. Cleared on the way in when
-// the setting is on; MediaRemote reads it straight off the item.
+// the setting is on; MediaRemote reads it straight off the item. Switched
+// off, it goes through as it is, like everything else.
 - (void)setExplicitItem:(BOOL)explicitItem {
-    %orig(explicitItem && !NLSettingsCurrent().hideExplicit);
+    %orig(explicitItem && !(gEnabled && NLSettingsCurrent().hideExplicit));
 }
 
 - (void)setTrackArtistName:(NSString *)name {
@@ -583,7 +563,7 @@ static void NLPrefsChanged(CFNotificationCenterRef center, void *observer,
         BOOL forget = ![old.sourceSignature isEqualToString:now.sourceSignature] ||
                       (clearDue && NLClearCacheIfRequested(now.cacheClearedAt));
         if (forget) NLEngineForgetLyrics();   // also looks the current track up again
-        if (gEnabled && now.hideExplicit && !old.hideExplicit) NLHideExplicitNow();
+        if (gEnabled && now.hideExplicit && !(old.enabled && old.hideExplicit)) NLHideExplicitNow();
 
         if (!gEnabled) {
             if (old.enabled) {
@@ -598,7 +578,16 @@ static void NLPrefsChanged(CFNotificationCenterRef center, void *observer,
 
         NLLog(@"preferences reloaded, enabled %d → %d", old.enabled, now.enabled);
 
-        if (now.killOnChange && (now.enabled || old.enabled)) {
+        // Only for a change this app acts on: the settings page and SpringBoard
+        // also write values only they read (whether Apple Music is unlocked,
+        // which SpringBoard keeps in step, the library's filter, the island's
+        // options), and every write posts this same notification. Nor for
+        // Apple Music locked, which switches it off too: SpringBoard does that
+        // by itself when the subscription lapses (NLAppleMusicSB.x), likely
+        // while this app plays, and it is no change made in Settings. The app
+        // goes on with the other sources (`forget` above).
+        BOOL locked = old.useAppleMusic && !now.useAppleMusic && !now.appleMusicVerified;
+        if (now.killOnChange && !locked && (now.enabled || old.enabled) && ![now sameEffectAs:old]) {
             exit(0);
         }
     });
@@ -618,13 +607,13 @@ static void NLLyricsChanged(CFNotificationCenterRef center, void *observer,
         static CFAbsoluteTime lastLookup = 0;
         NSString *lookupPath = [[NLNowPlayingPath() stringByDeletingLastPathComponent] stringByAppendingPathComponent:NL_LOOKUP_FILE];
         NSDictionary *lookup = [NSDictionary dictionaryWithContentsOfFile:lookupPath];
-        double stamp = [lookup[@"stamp"] respondsToSelector:@selector(doubleValue)] ? [lookup[@"stamp"] doubleValue] : 0;
-        BOOL fresh = stamp > lastLookup && CFAbsoluteTimeGetCurrent() - stamp < 30 && [lookup[@"key"] isKindOfClass:[NSString class]];
+        double stamp = NLLooseNum(lookup[NL_LOOKUP_STAMP], 0);
+        NSString *key = NLString(lookup, NL_LOOKUP_KEY);
+        BOOL fresh = stamp > lastLookup && CFAbsoluteTimeGetCurrent() - stamp < 30 && key;
         NLSettings *now;
         if (fresh) {
             lastLookup = stamp;
-            id source = lookup[@"source"];
-            now = NLSettingsReloadPicking(lookup[@"key"], [source isKindOfClass:[NSString class]] ? source : @"");
+            now = NLSettingsReloadPicking(key, NLString(lookup, NL_LOOKUP_SOURCE) ?: @"");
         } else {
             now = NLSettingsReload();
         }
@@ -648,18 +637,8 @@ static void NLLyricsChanged(CFNotificationCenterRef center, void *observer,
         if (gEnabled) NLEngineClearCacheLater(settings.cacheClearedAt);   // a clear tapped while this app was not running
 
         // Registered even when inactive, so a later switch-on is noticed.
-        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
-                                        NULL,
-                                        NLPrefsChanged,
-                                        (__bridge CFStringRef)NL_RELOAD_NOTIFICATION,
-                                        NULL,
-                                        CFNotificationSuspensionBehaviorCoalesce);
-        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
-                                        NULL,
-                                        NLLyricsChanged,
-                                        (__bridge CFStringRef)NL_LYRICS_CHANGED_NOTIFICATION,
-                                        NULL,
-                                        CFNotificationSuspensionBehaviorCoalesce);
+        NLObserveDarwin(NL_RELOAD_NOTIFICATION, NLPrefsChanged, CFNotificationSuspensionBehaviorCoalesce);
+        NLObserveDarwin(NL_LYRICS_CHANGED_NOTIFICATION, NLLyricsChanged, CFNotificationSuspensionBehaviorCoalesce);
 
         NLLog(@"%@ enabled=%d contentItems=%d", [[NSBundle mainBundle] bundleIdentifier], gEnabled, gContentItemMode);
 

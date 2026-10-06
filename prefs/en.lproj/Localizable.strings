@@ -1,7 +1,6 @@
-/* NowLyrics settings page. Keys are the English strings in NowLyrics.plist. */
+/* NowLyrics settings. Keys are the English text itself: label/footerText/validTitles/title/placeholder in prefs/NowLyrics.plist and bundle/*.plist, and NLL(@"…") in prefsbundle/. Copied into NowLyricsPrefs.bundle as <page>.strings at stage time. A key with no entry shows itself (brand names have none). */
 
 "Enabled" = "Enabled";
-"Apps" = "Apps";
 "Choose Apps" = "Choose Apps";
 "Music Apps" = "Music Apps";
 "All Apps" = "All Apps";
@@ -13,22 +12,15 @@
 "Leave alone" = "Leave alone";
 "Offset" = "Offset";
 "Lyrics Sources" = "Lyrics Sources";
-"Musixmatch" = "Musixmatch";
-"LRCLIB" = "LRCLIB";
 "NetEase Music" = "NetEase Music";
-"User Token" = "User Token";
-"API Key" = "API Key";
 "paste debug info" = "paste debug info";
 "your own key" = "your own key";
 "Advanced" = "Advanced";
 "Diagnostics" = "Diagnostics";
 "Fix Spotify Connect titles" = "Fix Spotify Connect titles";
 "Quit app on change" = "Quit app on change";
-"About" = "About";
 "Version" = "Version";
 "Shows the current lyric line in place of the track title on the lock screen, in Control Center, the Dynamic Island and CarPlay." = "Shows the current lyric line in place of the track title on the lock screen, in Control Center, the Dynamic Island and CarPlay.";
-"Applies immediately. Only players that publish now-playing info will show anything." = "Applies immediately. Only players that publish now-playing info will show anything.";
-"A positive offset shows lyrics earlier. Drag the slider, or tap the value to type one, e.g. 0.25 or -300ms." = "A positive offset shows lyrics earlier. Drag the slider, or tap the value to type one, e.g. 0.25 or -300ms.";
 "Diagnostics shows which source answered in the artist field. Quit app on change kills the app on every settings change. Fix Spotify Connect titles turns “Title • Artist / Playing on a device” back into the real title and artist." = "Diagnostics shows which source answered in the artist field. Quit app on change kills the app on every settings change. Fix Spotify Connect titles turns “Title • Artist / Playing on a device” back into the real title and artist.";
 "© 2026 chxhua2k7. Inspired by AMLyrics." = "© 2026 chxhua2k7. Inspired by AMLyrics.";
 "Clear lyrics cache" = "Clear lyrics cache";
@@ -142,6 +134,7 @@
 "There is no Apple Music subscription on this Apple ID, so Apple Music lyrics stay hidden." = "There is no Apple Music subscription on this Apple ID, so Apple Music lyrics stay hidden.";
 "Could not check the subscription (%@). Try again later." = "Could not check the subscription (%@). Try again later.";
 "Apple Music’s privacy notice is not agreed to on this iPhone yet. Agree to it in Music, then unlock again." = "Apple Music’s privacy notice is not agreed to on this iPhone yet. Agree to it in Music, then unlock again.";
+"No Apple ID is signed in for Media & Purchases. Sign in under Settings › your name › Media & Purchases, then unlock again." = "No Apple ID is signed in for Media & Purchases. Sign in under Settings › your name › Media & Purchases, then unlock again.";
 "Open Music" = "Open Music";
 "SpringBoard did not answer" = "SpringBoard did not answer";
 "Sources are tried in the order set under Source order. NetEase lyrics are Simplified Chinese. Apple Music lyrics need an Apple Music subscription, Musixmatch lyrics the Musixmatch app: unlocking checks for them." = "Sources are tried in the order set under Source order. NetEase lyrics are Simplified Chinese. Apple Music lyrics need an Apple Music subscription, Musixmatch lyrics the Musixmatch app: unlocking checks for them.";

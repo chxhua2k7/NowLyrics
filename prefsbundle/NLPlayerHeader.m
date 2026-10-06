@@ -12,13 +12,8 @@
 //
 
 #import "NLLyricsPages.h"
-#import <Preferences/PSSpecifier.h>
-#import <Preferences/PSTableCell.h>
 #import "../NLIslandStrip.h"
 #import "../NLPlayerTint.h"
-#import <dlfcn.h>
-#import <objc/runtime.h>
-#import <objc/message.h>
 
 @interface NSObject (NLPlatter)
 + (UIViewController *)coverSheetPlatterViewController;   // MRPlatterViewController, as the lock screen makes it
@@ -29,8 +24,16 @@
 static const CGFloat kNLGlassRadius = 28;   // the lock screen player's corners on iOS 26
 static const CGFloat kNLPlatterRadius = 20;   // below that, as the tint's
 
+// `header` as `table`'s header, `height` tall at the table's width; re-set so
+// the table takes a new height.
+static void NLSetTableHeader(UITableView *table, UIView *header, CGFloat height) {
+    CGRect frame = CGRectMake(0, 0, table.bounds.size.width, height);
+    if (CGRectEqualToRect(header.frame, frame) && table.tableHeaderView == header) return;
+    header.frame = frame;
+    table.tableHeaderView = header;
+}
+
 @implementation NLPlayerHeader {
-    __weak UIViewController *_owner;
     __weak UITableView *_table;
     UIViewController *_platter;
     UIView *_host;
@@ -40,17 +43,14 @@ static const CGFloat kNLPlatterRadius = 20;   // below that, as the tint's
     BOOL _tintedOnce;                // shown once: changes fade after that
     id _infoObserver;                // MediaRemote's now-playing changes
     id _nextUpObserver;              // NextUp 3's next track changes
-    NSUInteger _ticks;
 }
 
 
 - (instancetype)initWithOwner:(UIViewController *)owner table:(UITableView *)table {
     if (!(self = [super init])) return nil;
-    _owner = owner;
     _table = table;
-    dlopen("/System/Library/PrivateFrameworks/MediaControls.framework/MediaControls", RTLD_NOW);
     NLNextUpLoad();   // NextUp 3, if installed: its Up Next row, as on the lock screen
-    Class platterClass = objc_getClass("MRPlatterViewController");
+    Class platterClass = NLLoadedClass("MRPlatterViewController", "/System/Library/PrivateFrameworks/MediaControls.framework/MediaControls");
     if (![platterClass respondsToSelector:@selector(coverSheetPlatterViewController)]) return self;
     _platter = [platterClass coverSheetPlatterViewController];
     if (!_platter) return self;
@@ -99,11 +99,7 @@ static const CGFloat kNLPlatterRadius = 20;   // below that, as the tint's
     });
     __weak typeof(self) weakSelf = self;
     // NextUp's row comes and goes with the queue: the player's height with it.
-    _nextUpObserver = [[NSNotificationCenter defaultCenter] addObserverForName:@"NUNextUpDidChangeNotification"
-                                                                        object:nil queue:NSOperationQueue.mainQueue
-                                                                    usingBlock:^(NSNotification *note) {
-        dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf layout]; });
-    }];
+    _nextUpObserver = NLObserveNextUp(^{ [weakSelf layout]; });
     _infoObserver = [[NSNotificationCenter defaultCenter] addObserverForName:@"kMRMediaRemoteNowPlayingInfoDidChangeNotification"
                                                                       object:nil queue:NSOperationQueue.mainQueue
                                                                   usingBlock:^(NSNotification *note) {
@@ -116,13 +112,6 @@ static const CGFloat kNLPlatterRadius = 20;   // below that, as the tint's
 - (void)dealloc {
     if (_infoObserver) [[NSNotificationCenter defaultCenter] removeObserver:_infoObserver];
     if (_nextUpObserver) [[NSNotificationCenter defaultCenter] removeObserver:_nextUpObserver];
-}
-
-// Behind the player, while the switch is on: the cover blurred and darkened
-// (NLPlayerTintView). Off: the background under the player.
-- (BOOL)tintWanted {
-    id on = NLReadPref(nil, NL_PLAYER_TINT_KEY);
-    return ![on respondsToSelector:@selector(boolValue)] || [on boolValue];
 }
 
 - (void)refreshTint {
@@ -144,36 +133,36 @@ static const CGFloat kNLPlatterRadius = 20;   // below that, as the tint's
 
 // Under the player, in its frame and corners: its background, and the tint.
 - (void)layoutBackground {
+    // Below 26 the backdrop's corners and the tint follow the player's
+    // material; on 26 nothing asks for it.
+    UIView *material = nil;
+    if (@available(iOS 26.0, *)) {} else material = [self material];
     if (_backdrop) {
         CGRect frame = _platter.view.frame;
         if (!CGRectEqualToRect(_backdrop.frame, frame)) _backdrop.frame = frame;
         CGFloat radius = kNLGlassRadius;
-        if (@available(iOS 26.0, *)) {} else radius = MAX([self material].layer.cornerRadius, kNLPlatterRadius);
+        if (@available(iOS 26.0, *)) {} else radius = MAX(material.layer.cornerRadius, kNLPlatterRadius);
         _backdrop.layer.cornerRadius = radius;
     }
-    [self layoutTint];
+    [self layoutTintOver:material];
 }
 
 // Right over the player's material, in its shape: it covers it (with nothing
 // playing, in NowLyrics' coral).
-- (void)layoutTint {
+- (void)layoutTintOver:(UIView *)material {
     if (!_tint) return;
-    UIView *material = [self material];
-    _tint.hidden = ![self tintWanted];
-    id clear = NLReadPref(nil, @"playerTintClear");
-    _tint.clearness = MIN(MAX([clear respondsToSelector:@selector(doubleValue)] ? [clear doubleValue] : 50, 0), 100) / 100;
+    // Behind the player while the switch is on: the cover blurred and darkened
+    // (NLPlayerTintView). Off: the background under the player.
+    _tint.hidden = !NLReadPrefBool(nil, NL_PLAYER_TINT_KEY, YES);
+    _tint.clearness = NLLooseNum(NLReadPref(nil, NL_PLAYER_TINT_CLEAR_KEY), 50) / 100;   // the tint clamps it to 0…1
     _tint.material = material;
     if (material.superview) {
         material.alpha = 1;
-        UIView *container = material.superview;
-        NSUInteger above = [container.subviews indexOfObject:material] + 1;
-        if (_tint.superview != container || [container.subviews indexOfObject:_tint] != above) {
-            [container insertSubview:_tint aboveSubview:material];
-        }
-        _tint.frame = material.frame;
+        NLPlaceTintAbove(_tint, material);
         _tint.layer.cornerRadius = MAX(material.layer.cornerRadius, kNLPlatterRadius);
     } else {
         if (_tint.superview != _platter.view) [_platter.view insertSubview:_tint atIndex:0];
+        if (!CGAffineTransformIsIdentity(_tint.transform)) _tint.transform = CGAffineTransformIdentity;   // the frame below is exact only without a transform
         _tint.frame = _platter.view.bounds;
         _tint.layer.cornerRadius = 24;
         [_platter.view sendSubviewToBack:_tint];
@@ -196,11 +185,7 @@ static const CGFloat kNLPlatterRadius = 20;   // below that, as the tint's
     if (height < 60) height = 200;
     CGRect frame = CGRectMake(inset, 16, width, height);
     if (!CGRectEqualToRect(_platter.view.frame, frame)) _platter.view.frame = frame;
-    CGRect host = CGRectMake(0, 0, table.bounds.size.width, 16 + height + 24);
-    if (!CGRectEqualToRect(_host.frame, host) || table.tableHeaderView != _host) {
-        _host.frame = host;
-        table.tableHeaderView = _host;   // re-set so the table takes the new height
-    }
+    NLSetTableHeader(table, _host, 16 + height + 24);
     [_platter.view layoutIfNeeded];
     [self layoutBackground];
     [self syncWaveform];
@@ -245,35 +230,21 @@ static const CGFloat kNLPlatterRadius = 20;   // below that, as the tint's
 }
 
 - (void)tick {
-    [self syncWaveform];
-    if (NLCrescendoSyncPlayer(_platter)) [self layout];
-    if (_ticks++ % 4 == 0) {
-        [self refreshTint];
-        [self layoutBackground];
-    }
+    if (NLCrescendoSyncPlayer(_platter)) [self layout];   // which drives the waveform too
+    else [self syncWaveform];
+}
+
+- (void)refresh {
+    [self refreshTint];
+    [self layoutBackground];
 }
 
 @end
 
 #pragma mark - The other pages
 
-BOOL NLTopOnEveryPage(void) {
-    id on = NLReadPref(nil, @"topOnEveryPage");
-    return ![on respondsToSelector:@selector(boolValue)] || [on boolValue];
-}
-
 static const CGFloat kNLIslandRoomBelow = 12;   // between the open island and the first card
-
-// What the other pages' island previews ask for their values (their
-// specifier's target, which the specifier keeps): the island page's settings.
-@interface NLIslandPreviewValuesSource : NSObject
-@end
-
-@implementation NLIslandPreviewValuesSource
-- (NSDictionary *)nlIslandPreviewValues {
-    return NLIslandPreviewValuesFromPlist(nil);
-}
-@end
+static CGFloat NLIslandHeaderHeight(void) { return NLIslandPreviewOpenBottom() + kNLIslandRoomBelow; }   // the open island and the room under it
 
 @implementation NLPageTop {
     __weak UIViewController *_owner;
@@ -281,7 +252,7 @@ static const CGFloat kNLIslandRoomBelow = 12;   // between the open island and t
     NSString *_shown;            // "player", "island" or "none"
     NLPlayerHeader *_player;
     UIView *_islandHost;         // the table's header, holding the island preview
-    PSTableCell *_island;        // NLIslandPreviewCell
+    NLIslandPreviewCell *_island;
     PSSpecifier *_islandRow;     // its specifier, which a cell does not keep (its page does)
     NSTimer *_refresh;
     NSUInteger _ticks;
@@ -303,7 +274,7 @@ static const CGFloat kNLIslandRoomBelow = 12;   // between the open island and t
 - (void)update {
     UIViewController *owner = _owner;
     UITableView *table = _table;
-    NSString *wanted = owner && table && NLTopOnEveryPage() ? NLMainPageTop(nil) : @"none";
+    NSString *wanted = owner && table && NLReadPrefBool(nil, @"topOnEveryPage", YES) ? NLMainPageTop(nil) : @"none";   // Advanced › Other pages too, on by default
     if ([wanted isEqualToString:_shown]) return;
     [_refresh invalidate];
     _refresh = nil;
@@ -333,35 +304,25 @@ static const CGFloat kNLIslandRoomBelow = 12;   // between the open island and t
 // so the header holds all of it.
 - (void)addIslandPreview {
     UITableView *table = _table;
-    Class cellClass = NSClassFromString(@"NLIslandPreviewCell");
-    if (!table || !cellClass) return;
-    static NLIslandPreviewValuesSource *source;
-    if (!source) source = [NLIslandPreviewValuesSource new];
-    PSSpecifier *specifier = [PSSpecifier preferenceSpecifierNamed:@"" target:source set:nil get:nil detail:nil cell:PSStaticTextCell edit:nil];
+    if (!table) return;
+    PSSpecifier *specifier = [PSSpecifier preferenceSpecifierNamed:@"" target:nil set:nil get:nil detail:nil cell:PSStaticTextCell edit:nil];
     specifier.identifier = @"islandPreview";
-    CGFloat height = NLIslandPreviewOpenBottom() + kNLIslandRoomBelow;
+    CGFloat height = NLIslandHeaderHeight();
     [specifier setProperty:@(height) forKey:@"height"];
     _islandRow = specifier;
-    _island = [[cellClass alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"islandPreview" specifier:specifier];
+    _island = [[NLIslandPreviewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"islandPreview" specifier:specifier];
     _island.specifier = specifier;   // what a table sets on the cells it shows
     _islandHost = [[UIView alloc] initWithFrame:CGRectMake(0, 0, table.bounds.size.width, height)];
     _island.frame = _islandHost.bounds;
     _island.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     [_islandHost addSubview:_island];
-    table.tableHeaderView = _islandHost;
+    NLSetTableHeader(table, _islandHost, height);
 }
 
 - (void)layout {
     [_player layout];
     UITableView *table = _table;
-    if (_islandHost && table) {
-        CGFloat height = NLIslandPreviewOpenBottom() + kNLIslandRoomBelow;
-        CGRect frame = CGRectMake(0, 0, table.bounds.size.width, height);
-        if (!CGRectEqualToRect(_islandHost.frame, frame) || table.tableHeaderView != _islandHost) {
-            _islandHost.frame = frame;
-            table.tableHeaderView = _islandHost;   // re-set so the table takes the new height
-        }
-    }
+    if (_islandHost && table) NLSetTableHeader(table, _islandHost, NLIslandHeaderHeight());
 }
 
 // While the page is up the player follows what is playing, as the main page's
@@ -373,7 +334,7 @@ static const CGFloat kNLIslandRoomBelow = 12;   // between the open island and t
     _refresh = nil;
     if ([_shown isEqualToString:@"none"]) return;
     __weak typeof(self) weakSelf = self;
-    _refresh = [NSTimer scheduledTimerWithTimeInterval:0.75 repeats:YES block:^(NSTimer *timer) { [weakSelf tick]; }];
+    _refresh = [NSTimer scheduledTimerWithTimeInterval:kNLPageRefreshInterval repeats:YES block:^(NSTimer *timer) { [weakSelf tick]; }];
 }
 
 - (void)disappear {
@@ -384,8 +345,7 @@ static const CGFloat kNLIslandRoomBelow = 12;   // between the open island and t
 }
 
 - (void)tick {
-    [_player tick];
-    if (_ticks++ % 4 == 0) NLThemeRefresh();
+    NLPageTick(_player, &_ticks);
 }
 
 @end
@@ -421,30 +381,34 @@ void NLThemeSetColor(UIColor *color) {
     [[NSNotificationCenter defaultCenter] postNotificationName:NLThemeChangedNotification object:nil];
 }
 
-// The cover the theme's color was last taken from, and that color: refreshes
-// bring the same cover back (every few seconds, and with each line NowLyrics
-// publishes as the title), and decoding it is the costly part.
-static NSData *gThemeArtwork;
-static UIColor *gThemeArtworkColor;
+// The cover a color was last taken from, and that color: refreshes bring the
+// same cover back (every few seconds, and with each line NowLyrics publishes
+// as the title), the island preview brings it back too, and decoding it is the
+// costly part.
+UIColor *NLArtworkColorCached(NSData *artwork) {
+    static NSData *last;
+    static UIColor *color;
+    if (!artwork.length) return nil;
+    if (![artwork isEqual:last]) {
+        last = artwork;
+        color = NLColorFromArtwork(artwork);
+    }
+    return color;
+}
 
 // What the island preview shows, without it on screen: what is playing, when
-// its "Preview what's playing" switch is on and the cover has a color;
-// NowLyrics' sample otherwise.
+// its "Preview what's playing" switch is on, this iOS lets it show that and
+// the cover has a color; NowLyrics' sample otherwise.
 void NLThemeRefresh(void) {
-    id live = NLReadPref(nil, @"islandPreviewLive");
-    if (![live respondsToSelector:@selector(boolValue)] || ![live boolValue]) {
+    if (!NLReadPrefBool(nil, @"islandPreviewLive", NO)) {
         NLThemeSetColor(NLNowLyricsColor());
         return;
     }
     NLNowPlayingInfo(^(NSDictionary *info) {
-        NSData *artwork = info[@"kMRMediaRemoteNowPlayingInfoArtworkData"];
-        id title = info[@"kMRMediaRemoteNowPlayingInfoTitle"];
-        BOOL usable = [title isKindOfClass:NSString.class] && [title length] && [artwork isKindOfClass:NSData.class] && artwork.length;
-        if (usable && ![artwork isEqual:gThemeArtwork]) {
-            gThemeArtwork = artwork;
-            gThemeArtworkColor = NLColorFromArtwork(artwork);
-        }
-        UIColor *color = usable ? gThemeArtworkColor : nil;
+        NSData *artwork = NLInfoArtwork(info);
+        // Asked last: the first ask loads MediaControls, which only a song
+        // with a cover needs, as for the preview itself.
+        UIColor *color = (NLInfoTitle(info) && artwork && NLIslandPreviewCanGoLive()) ? NLArtworkColorCached(artwork) : nil;
         NLThemeSetColor(color ?: NLNowLyricsColor());
     });
 }

@@ -34,9 +34,8 @@
 //
 
 #import <UIKit/UIKit.h>
-#import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
-#import "NowLyrics.h"
+#import "NLShared.h"
 #import "NLIslandStrip.h"
 #import "NLLocate.h"
 
@@ -49,15 +48,7 @@ static void NLIFileLog(NSString *format, ...) {
     va_start(args, format);
     NSString *line = [[NSString alloc] initWithFormat:format arguments:args];
     va_end(args);
-    NSString *path = @"/var/mobile/Library/Logs/NowLyricsIsland.log";
-    NSFileHandle *h = [NSFileHandle fileHandleForWritingAtPath:path];
-    if (!h) {
-        [[NSFileManager defaultManager] createFileAtPath:path contents:nil attributes:nil];
-        h = [NSFileHandle fileHandleForWritingAtPath:path];
-    }
-    [h seekToEndOfFile];
-    [h writeData:[[NSString stringWithFormat:@"%@ %@\n", [NSDate date], line] dataUsingEncoding:NSUTF8StringEncoding]];
-    [h closeFile];
+    NLIAppendLog(@"/var/mobile/Library/Logs/NowLyricsIsland.log", [NSString stringWithFormat:@"%@ %@\n", [NSDate date], line]);
 }
 #define NLI_LOG(...) NLIFileLog(__VA_ARGS__)
 // Logs a state description only when it differs from the last one logged here.
@@ -94,11 +85,6 @@ static void NLIFileLog(NSString *format, ...) {
 - (NSInteger)layoutMode;
 @end
 
-@interface SBMediaController : NSObject
-+ (instancetype)sharedInstance;
-- (id)nowPlayingApplication;   // an SBApplication
-@end
-
 @interface SBSystemApertureViewController : UIViewController
 @property (readonly, nonatomic) CGRect minimumSensorRegionFrame;
 - (void)preferredEdgeOutsetsDidInvalidateForLayoutSpecifier:(id)specifier;
@@ -123,8 +109,6 @@ static NLIslandSettings gSettings;   // read in %ctor
 static NSDictionary *gPrefs = nil;   // the file itself, for the lyrics offsets
 
 // Ranges and defaults match bundle/Island.plist.
-static const CGFloat kNLDefaultFontSize = 11;
-
 static CGFloat NLIslandNum(NSDictionary *prefs, NSString *key, CGFloat fallback, CGFloat lo, CGFloat hi) {
     CGFloat n = NLPrefNum(prefs, key, fallback);
     return isnan(n) ? fallback : MIN(MAX(n, lo), hi);
@@ -164,27 +148,26 @@ static void *gAttachedPillPtr = NULL;          // the same, for the per-frame la
 // a line placed between them moved sideways with every change.
 static const CGFloat kNLDefaultExtra = 11;     // 14 Pro: compact bottom 48 pt, status bar line 59 pt
 static CGFloat gExtra = kNLDefaultExtra;
-static CGFloat gSensorWidth = 125;
+static CGFloat gSensorWidth = kNLDefaultSensorWidth;
 static __weak UIWindow *gMeasuredWindow = nil;  // the window gExtra was measured in
-static const CGFloat kNLContentGap = 4;   // kept clear on each side of the line
 
 static NSString *gTitle = nil;
 static BOOL gExplicit = NO;   // the track is flagged explicit (and NowLyrics was not told to hide that)
 static UIColor *gArtworkColor = nil;
 static NSUInteger gArtworkPrint = 0;           // the artwork gArtworkColor is (being) taken from
+static NSUInteger gArtworkMissing = 0;         // the wait for a missing cover that is on (0: none)
 
 // Word by word: the shown line's pieces and the playback clock they run on
-// (the app's lookup position, offsets included), as of gWordClockAt.
-static NSArray<NSString *> *gWordTexts = nil;
-static NSArray<NSNumber *> *gWordStarts = nil, *gWordEnds = nil;
-static NSTimeInterval gWordClock = 0;
-static CFTimeInterval gWordClockAt = 0;
-static double gWordRate = 0;
+// (the app's lookup position, offsets included), as of gWordsAt.
+static NLShownWords *gWords = nil;
+static CFTimeInterval gWordsAt = 0;
 
 static BOOL NLIsNowPlaying(id element) {
     NSString *client = [element respondsToSelector:@selector(clientIdentifier)] ? [element clientIdentifier] : nil;
-    return [client isEqualToString:@"com.apple.MediaRemoteUI"];
+    return [client isEqualToString:NL_MEDIAREMOTEUI_ID];
 }
+
+static Class NLRotatingContentClass(void) { return NL_ONCE(objc_getClass("_SBSystemApertureContainerViewRotatingContentView")); }   // iOS 17 and later; Nil on 16
 
 // Where SpringBoard has _SBSystemApertureContainerViewRotatingContentView
 // (iOS 17 and later; 16.5.1 has no such class): the element's own view, the one
@@ -195,9 +178,7 @@ static BOOL NLIsNowPlaying(id element) {
 // still scales with the island. Without that class, -addContentSubview: adds
 // to the content view instead of replacing.
 static UIView *NLElementWrapperView(UIView *sceneContainer, UIView *pill) {
-    static Class rotating;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{ rotating = objc_getClass("_SBSystemApertureContainerViewRotatingContentView"); });
+    Class rotating = NLRotatingContentClass();
     if (!rotating) return nil;
     for (UIView *v = sceneContainer.superview; v && v != pill; v = v.superview) {
         if ([v.superview isKindOfClass:rotating]) return v;
@@ -207,12 +188,7 @@ static UIView *NLElementWrapperView(UIView *sceneContainer, UIView *pill) {
 
 // The black pill on screen.
 static UIView *NLPillFor(UIView *view) {
-    static Class pill;
-    if (!pill) pill = objc_getClass("SBSystemApertureContainerView");
-    for (UIView *v = view; v; v = v.superview) {
-        if (pill && [v isKindOfClass:pill]) return v;
-    }
-    return nil;
+    return NLAncestorOfClass(view, NL_ONCE(objc_getClass("SBSystemApertureContainerView")));   // no such class: nil
 }
 
 
@@ -251,24 +227,15 @@ static BOOL gInWrapper = NO;
 
 #pragma mark - Updating
 
-static UIColor *NLTextColor(void) {
-    if (gSettings.artworkColor && gArtworkColor) return gArtworkColor;
-    static UIColor *white;
-    if (!white) white = [UIColor colorWithWhite:1 alpha:0.92];
-    return white;
-}
-
-// The line's box height, the font's exact line height, for the current size.
-static CGFloat NLIslandLineHeight(void) {
-    static CGFloat size = -1, height = 0;
-    if (gSettings.fontSize != size) {
-        size = gSettings.fontSize;
-        height = [UIFont systemFontOfSize:size weight:UIFontWeightSemibold].lineHeight;
+// The height lives in the element's outsets, so SpringBoard has to ask again.
+static void NLIslandInvalidateHeight(void) {
+    SBSystemApertureViewController *vc = gApertureVC;
+    SBSystemApertureSceneElement *element = gElement;
+    if (element && [vc respondsToSelector:@selector(preferredEdgeOutsetsDidInvalidateForLayoutSpecifier:)]) {
+        [vc preferredEdgeOutsetsDidInvalidateForLayoutSpecifier:element];
     }
-    return height;
+    [vc.view setNeedsLayout];
 }
-
-static void NLIslandInvalidateHeight(void);
 
 // Where the island should end: the top safe-area inset, the line apps start
 // their content under. SpringBoard's own windows may report none, so the
@@ -305,13 +272,6 @@ static void NLIslandMeasureExtra(UIView *pill) {
     dispatch_async(dispatch_get_main_queue(), ^{ NLIslandInvalidateHeight(); });
 }
 
-// Frames, set only from the pill's layoutSubviews (hooked below) or right
-// after attaching. That pass runs inside SpringBoard's resize animations, so
-// the line moves in the same animation as the artwork and waveform even when
-// resizes come quickly one after another; frames set from anywhere else jumped
-// to the end of whatever animation was running.
-static CGFloat gLaidOutFontSize = 0;   // font size of the last layout, to know when one is due
-
 #ifdef NLI_FILELOG
 static void NLIDumpLayout(UIView *host, UIView *pill) {
     NSMutableArray *chain = [NSMutableArray array];
@@ -335,6 +295,13 @@ static void NLIDumpLayout(UIView *host, UIView *pill) {
 #endif
 
 static void NLIslandRevealWhenStill(UIView *pill, int attempt);
+
+// Frames, set only from the pill's layoutSubviews (hooked below) or right
+// after attaching. That pass runs inside SpringBoard's resize animations, so
+// the line moves in the same animation as the artwork and waveform even when
+// resizes come quickly one after another; frames set from anywhere else jumped
+// to the end of whatever animation was running.
+static CGFloat gLaidOutFontSize = 0;   // font size of the last layout, to know when one is due
 
 static void NLIslandLayout(UIView *pill) {
     UIView *host = gClip.superview;
@@ -360,10 +327,9 @@ static void NLIslandLayout(UIView *pill) {
         });
     }
     laidOutSize = b.size;
-    CGFloat h = MIN(NLIslandLineHeight(), CGRectGetHeight(b));
-    CGFloat y = CGRectGetHeight(b) - h;
+    CGFloat h = MIN(NLIslandLineHeight(gSettings.fontSize), CGRectGetHeight(b));
     CGFloat width = MAX(MIN(gSensorWidth, CGRectGetWidth(b)) - kNLContentGap * 2, 0);
-    CGRect strip = CGRectMake(round((CGRectGetWidth(b) - width) / 2), y, width, h);
+    CGRect strip = NLIslandStripFrame(b.size, width, h);
     if (!CGRectEqualToRect(gClip.frame, b)) gClip.frame = b;
     if (!CGRectEqualToRect(gStrip.frame, strip)) gStrip.frame = strip;
     gLaidOutFontSize = gSettings.fontSize;
@@ -380,10 +346,6 @@ static BOOL NLLayerAnimating(CALayer *layer) {
     return layer.animationKeys.count > 0;
 }
 
-// Fades the line in once the pill has finished moving. Attached while the
-// island is still growing (playback just started, a collapse), its frames are
-// the final ones inside a pill that is not there yet, which read as the line
-// drifting into place. Polls the pill's layers rather than guessing a delay.
 // Where the view is on screen right now, mid-animation included.
 static CGRect NLPresentedFrame(UIView *view) {
     CALayer *layer = view.layer.presentationLayer ?: view.layer;
@@ -396,10 +358,21 @@ static BOOL NLRectsClose(CGRect a, CGRect b) {
            fabs(a.size.width - b.size.width) < 0.5 && fabs(a.size.height - b.size.height) < 0.5;
 }
 
+// Fades the line in once the pill has finished moving. Attached while the
+// island is still growing (playback just started, a collapse), its frames are
+// the final ones inside a pill that is not there yet, which read as the line
+// drifting into place. Polls the pill's layers rather than guessing a delay.
+// One poll at a time: a hide calls it off (gRevealPending), and a poll that
+// starts after that is a new one (gRevealPoll), so a look the old one had
+// already scheduled stops instead of polling, and counting still looks,
+// alongside it.
 static BOOL gRevealPending = NO;
+static NSUInteger gRevealPoll = 0;   // the poll that is on; each new one counts up
 static void NLIslandRevealWhenStill(UIView *pill, int attempt) {
     if (gRevealPending && attempt == 0) return;
+    if (attempt == 0) gRevealPoll++;
     gRevealPending = YES;
+    NSUInteger poll = gRevealPoll;
     UIView *host = gClip.superview;
     BOOL moving = NLLayerAnimating(pill.layer) || NLLayerAnimating(host.layer) || NLLayerAnimating(pill.superview.layer);
     if (gInWrapper) {
@@ -416,8 +389,10 @@ static void NLIslandRevealWhenStill(UIView *pill, int attempt) {
     }
     if (moving && attempt < 30) {
         __weak UIView *weakPill = pill;
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.07 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            if (!gRevealPending) return;   // hidden again meanwhile (expanded, app opened)
+        NLAfter(0.07, ^{
+            // Hidden again meanwhile (expanded, app opened), or shown again
+            // since, with a poll of its own.
+            if (!gRevealPending || poll != gRevealPoll) return;
             UIView *p = weakPill;
             if (p && gClip.superview && p == gAttachedPill) NLIslandRevealWhenStill(p, attempt + 1);
             else gRevealPending = NO;
@@ -440,10 +415,7 @@ static BOOL NLPillShowsNowPlaying(UIView *pill) {
     UIView *scene = gSceneContainer;
     if (!shown || !scene) return YES;
     if (![scene isDescendantOfView:pill]) return NO;
-    UIViewController *ours = nil;
-    for (UIResponder *r = scene.nextResponder; r; r = r.nextResponder) {
-        if ([r isKindOfClass:UIViewController.class]) { ours = (UIViewController *)r; break; }
-    }
+    UIViewController *ours = NLViewControllerOf(scene);
     if (!ours) return YES;
     for (UIViewController *vc = ours; vc; vc = vc.parentViewController) {
         if (vc == shown) return YES;
@@ -453,8 +425,7 @@ static BOOL NLPillShowsNowPlaying(UIView *pill) {
 
 static BOOL gShowsNowPlaying = YES;   // as last seen by the pill's layout
 
-static void NLIslandUpdate(void) {
-    UIView *pill = NLPillFor(gSceneContainer);
+static void NLIslandUpdateIn(UIView *pill) {
     SBSystemApertureSceneElement *element = gElement;
     BOOL compact = [element respondsToSelector:@selector(layoutMode)] && element.layoutMode == kNLCompactLayoutMode;
     gShowsNowPlaying = NLPillShowsNowPlaying(pill);
@@ -483,14 +454,13 @@ static void NLIslandUpdate(void) {
     // of chasing the pill's frame from outside.
     // The full walk, not just gAttachedPill: SpringBoard can replace the
     // element's view and leave the strip in one that is no longer in the pill.
-    BOOL fresh = !gClip.superview || NLPillFor(gClip.superview) != pill;
+    BOOL fresh = NLPillFor(gClip.superview) != pill;
     if (fresh) {
         UIView *wrapper = NLElementWrapperView(gSceneContainer, pill);
         // -addContentSubview: adds on 16.5 but replaces on 17 and later (it
         // would swap the player out of the island): only where no wrapper
         // can exist.
-        BOOL canAdd = !objc_getClass("_SBSystemApertureContainerViewRotatingContentView") &&
-                      [pill respondsToSelector:@selector(addContentSubview:)];
+        BOOL canAdd = !NLRotatingContentClass() && [pill respondsToSelector:@selector(addContentSubview:)];
         if (!wrapper && !canAdd) return;   // neither layout known: stay off rather than guess
         gClip.alpha = 0;
         gAttachedPill = pill;
@@ -506,35 +476,29 @@ static void NLIslandUpdate(void) {
         // size changes them outside one.
         if (gSettings.fontSize != gLaidOutFontSize) [pill setNeedsLayout];
     }
-    [gStrip applyFontSize:gSettings.fontSize color:NLTextColor() speed:gSettings.speed];
+    [gStrip applyFontSize:gSettings.fontSize color:NLIslandTextColor(gSettings.artworkColor, gArtworkColor) speed:gSettings.speed];
     [gStrip setText:gTitle explicit:gExplicit scrollUp:gSettings.scrollUp];
-    [gStrip setWordTexts:gWordTexts starts:gWordStarts ends:gWordEnds
-                position:gWordClock + (CACurrentMediaTime() - gWordClockAt) * gWordRate rate:gWordRate];
+    [gStrip setWordTexts:gWords.texts starts:gWords.starts ends:gWords.ends
+                position:NLClockAt(gWords.position, gWordsAt, gWords.rate) rate:gWords.rate];
     if (gClip.alpha < 1) NLIslandRevealWhenStill(pill, 0);
 }
+
+static void NLIslandUpdate(void) { NLIslandUpdateIn(NLPillFor(gSceneContainer)); }
 
 #pragma mark - Word by word
 
 // The pieces of the line on screen, when it has word times (NLLocate.m).
 static void NLIslandUpdateWords(NSDictionary *info) {
-    gWordTexts = nil;
-    gWordStarts = gWordEnds = nil;
+    gWords = nil;
     if (!gSettings.wordByWord) return;
-    id app = [[objc_getClass("SBMediaController") sharedInstance] nowPlayingApplication];
-    NSString *bundleID = [app respondsToSelector:@selector(bundleIdentifier)] ? [app bundleIdentifier] : nil;
-    NLShownWords *words = NLWordsForShownLine(bundleID, gTitle, info, gPrefs);
+    NSString *bundleID = NLSpringBoardPlayingBundleID();
+    gWords = NLWordsForShownLine(bundleID, gTitle, info, gPrefs);
 #ifdef NLI_FILELOG
     NSDictionary *np = NLReadNowPlaying(bundleID);
     NLI_LOG(@"words app=%@ title=%@ np.words=%@ np.file=%@ elapsed=%@ got=%lu", bundleID, gTitle, np[NL_NP_WORDS],
-            [np[NL_NP_PATH] lastPathComponent], info[@"kMRMediaRemoteNowPlayingInfoElapsedTime"], (unsigned long)words.texts.count);
+            [np[NL_NP_PATH] lastPathComponent], info[NL_MR_ELAPSED], (unsigned long)gWords.texts.count);
 #endif
-    if (!words) return;
-    gWordTexts = words.texts;
-    gWordStarts = words.starts;
-    gWordEnds = words.ends;
-    gWordClock = words.position;
-    gWordClockAt = CACurrentMediaTime();
-    gWordRate = words.rate;
+    gWordsAt = CACurrentMediaTime();
 }
 
 static void NLIslandRefreshInfo(void) {
@@ -545,14 +509,29 @@ static void NLIslandRefreshInfo(void) {
     if (inFlight) { again = YES; return; }
     inFlight = YES;
     NLNowPlayingInfo(^(NSDictionary *info) {
-        id title = info[@"kMRMediaRemoteNowPlayingInfoTitle"];
-        gTitle = [title isKindOfClass:NSString.class] ? title : nil;
+        gTitle = NLString(info, NL_MR_TITLE);
         // Cleared by the players already when "Hide explicit badge" is on.
-        gExplicit = NLPrefBool(info, @"kMRMediaRemoteNowPlayingInfoIsExplicitTrack", NO);
+        gExplicit = NLPrefBool(info, NL_MR_EXPLICIT, NO);
         NLIslandUpdateWords(info);
 
-        NSData *artwork = info[@"kMRMediaRemoteNowPlayingInfoArtworkData"];
-        NSUInteger print = (gSettings.artworkColor && [artwork isKindOfClass:NSData.class]) ? NLArtworkPrint(artwork) : 0;
+        NSData *artwork = gSettings.artworkColor ? NLInfoArtwork(info) : nil;   // empty data is no cover, as for the player tint
+        NSUInteger print = artwork ? NLArtworkPrint(artwork) : 0;
+        if (print) {
+            gArtworkMissing = 0;   // a cover is here: a wait for one is called off
+        } else if (gSettings.artworkColor && (gArtworkColor || gArtworkPrint) && !gArtworkMissing) {
+            // No cover. Between songs that lasts a moment, and the album color
+            // stays through it; still none after kNLMissingGrace (NLLocate.h,
+            // as the player tint waits), the song has none: the island's white.
+            static NSUInteger waits = 0;
+            NSUInteger wait = gArtworkMissing = ++waits;
+            NLAfter(kNLMissingGrace, ^{
+                if (gArtworkMissing != wait) return;   // a cover came meanwhile
+                gArtworkMissing = 0;
+                gArtworkPrint = 0;
+                gArtworkColor = nil;
+                NLIslandUpdate();
+            });
+        }
         if (print && print != gArtworkPrint) {
             gArtworkPrint = print;   // claimed now, so the burst at a track change decodes it once
             dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
@@ -571,16 +550,6 @@ static void NLIslandRefreshInfo(void) {
             NLIslandRefreshInfo();
         }
     });
-}
-
-// The height lives in the element's outsets, so SpringBoard has to ask again.
-static void NLIslandInvalidateHeight(void) {
-    SBSystemApertureViewController *vc = gApertureVC;
-    SBSystemApertureSceneElement *element = gElement;
-    if (element && [vc respondsToSelector:@selector(preferredEdgeOutsetsDidInvalidateForLayoutSpecifier:)]) {
-        [vc preferredEdgeOutsetsDidInvalidateForLayoutSpecifier:element];
-    }
-    [vc.view setNeedsLayout];
 }
 
 #pragma mark - Hooks
@@ -611,7 +580,8 @@ static void NLIslandInvalidateHeight(void) {
     if (!NLIsNowPlaying(self)) return;
     // iOS 18 also lays the scene out in containers outside the pill (mirrors,
     // snapshots); adopting those hid the line every other layout.
-    if (!NLPillFor(container)) return;
+    UIView *pill = NLPillFor(container);
+    if (!pill) return;
 #ifdef NLI_FILELOG
     {
         NSMutableArray *chain = [NSMutableArray array];
@@ -624,8 +594,8 @@ static void NLIslandInvalidateHeight(void) {
     gElement = self;
     gSceneContainer = container;
     if (!gSettings.on && !gClip.superview) return;   // off and nothing up: nothing to show or fade
-    if (gSettings.on && !gTitle) NLIslandRefreshInfo();
-    NLIslandUpdate();
+    if (!gTitle) NLIslandRefreshInfo();
+    NLIslandUpdateIn(pill);
 }
 
 %end
@@ -695,7 +665,7 @@ static void NLIslandPrefsChanged(CFNotificationCenterRef center, void *observer,
         gSettings = now;
         if (colorChanged) gArtworkPrint = 0;   // fetch the artwork again
         if (heightChanged) NLIslandInvalidateHeight();
-        if (now.on) NLIslandRefreshInfo();   // an offset or the word-by-word switch may have changed too
+        NLIslandRefreshInfo();   // an offset or the word-by-word switch may have changed too
         NLIslandUpdate();
     });
 }
@@ -709,9 +679,7 @@ static void NLIslandPrefsChanged(CFNotificationCenterRef center, void *observer,
         if (NLI_DEBUG_HOOKS) {
             %init(NLIDebug);
         }
-        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, NLIslandPrefsChanged,
-                                        (__bridge CFStringRef)NL_RELOAD_NOTIFICATION, NULL,
-                                        CFNotificationSuspensionBehaviorCoalesce);
+        NLObserveDarwin(NL_RELOAD_NOTIFICATION, NLIslandPrefsChanged, CFNotificationSuspensionBehaviorCoalesce);
         %init;
     }
 }

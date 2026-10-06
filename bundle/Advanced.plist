@@ -19,8 +19,6 @@
 			<string>NLOffsetCell</string>
 			<key>default</key>
 			<real>0.0</real>
-			<key>defaults</key>
-			<string>app.nowlyrics</string>
 			<key>height</key>
 			<integer>92</integer>
 			<key>iconColor</key>
@@ -31,10 +29,6 @@
 			<string>offset</string>
 			<key>label</key>
 			<string>Default offset</string>
-			<key>max</key>
-			<real>3.0</real>
-			<key>min</key>
-			<real>-3.0</real>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -51,8 +45,6 @@
 			<string>NLPopUpCell</string>
 			<key>default</key>
 			<string>player</string>
-			<key>defaults</key>
-			<string>app.nowlyrics</string>
 			<key>iconColor</key>
 			<string>#5E5CE6</string>
 			<key>iconSymbol</key>
@@ -79,8 +71,6 @@
 			<string>PSSwitchCell</string>
 			<key>default</key>
 			<true/>
-			<key>defaults</key>
-			<string>app.nowlyrics</string>
 			<key>iconColor</key>
 			<string>#FF9F0A</string>
 			<key>iconSymbol</key>
@@ -105,8 +95,6 @@
 			<string>PSSwitchCell</string>
 			<key>default</key>
 			<true/>
-			<key>defaults</key>
-			<string>app.nowlyrics</string>
 			<key>iconColor</key>
 			<string>#FF6482</string>
 			<key>iconSymbol</key>
@@ -115,8 +103,6 @@
 			<string>playerTint</string>
 			<key>label</key>
 			<string>Player over its cover</string>
-			<key>showIf</key>
-			<string>nlPlayerTintAvailable</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -127,8 +113,6 @@
 			<string>NLOffsetCell</string>
 			<key>default</key>
 			<real>50</real>
-			<key>defaults</key>
-			<string>app.nowlyrics</string>
 			<key>height</key>
 			<integer>92</integer>
 			<key>iconColor</key>
@@ -144,10 +128,7 @@
 			<key>min</key>
 			<real>0</real>
 			<key>showIf</key>
-			<array>
-				<string>nlPlayerTintAvailable</string>
-				<string>playerTint</string>
-			</array>
+			<string>playerTint</string>
 			<key>step</key>
 			<real>5</real>
 			<key>unit</key>
@@ -184,8 +165,6 @@
 			<string>PSSwitchCell</string>
 			<key>default</key>
 			<false/>
-			<key>defaults</key>
-			<string>app.nowlyrics</string>
 			<key>iconColor</key>
 			<string>#33AD9E</string>
 			<key>iconSymbol</key>
@@ -202,8 +181,6 @@
 			<string>PSSwitchCell</string>
 			<key>default</key>
 			<false/>
-			<key>defaults</key>
-			<string>app.nowlyrics</string>
 			<key>iconColor</key>
 			<string>#737378</string>
 			<key>iconSymbol</key>
@@ -220,8 +197,6 @@
 			<string>PSSwitchCell</string>
 			<key>default</key>
 			<true/>
-			<key>defaults</key>
-			<string>app.nowlyrics</string>
 			<key>iconApp</key>
 			<string>com.spotify.client</string>
 			<key>iconColor</key>

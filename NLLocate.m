@@ -5,6 +5,7 @@
 
 #import "NLLocate.h"
 #import "NowLyrics.h"
+#import <objc/runtime.h>
 #import <dlfcn.h>
 
 static NSString *const kNLContainersRoot = @"/var/mobile/Containers/Data/Application";
@@ -30,8 +31,8 @@ static NSDictionary<NSString *, NSString *> *NLScanContainers(NSDate **outDate) 
         NSString *dir = [kNLContainersRoot stringByAppendingPathComponent:uuid];
         NSDictionary *meta = [NSDictionary dictionaryWithContentsOfFile:
                               [dir stringByAppendingPathComponent:@".com.apple.mobile_container_manager.metadata.plist"]];
-        id identifier = meta[@"MCMMetadataIdentifier"];
-        if ([identifier isKindOfClass:[NSString class]]) map[identifier] = dir;
+        NSString *identifier = NLString(meta, @"MCMMetadataIdentifier");
+        if (identifier) map[identifier] = dir;
         else date = nil;
     }
     *outDate = date;
@@ -43,12 +44,7 @@ static NSDate *gContainersDate = nil;   // the folder's date at the last scan th
 
 // Guards the two above, which the main queue reads while NLLyricsFolders
 // scans on others: one lock, made once for both functions.
-static NSLock *NLContainersLock(void) {
-    static NSLock *lock = nil;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{ lock = [NSLock new]; });
-    return lock;
-}
+static NSLock *NLContainersLock(void) { return NL_ONCE([NSLock new]); }
 
 NSString *NLDataContainerForBundle(NSString *bundleID) {
     if (bundleID.length == 0) return nil;
@@ -72,43 +68,42 @@ NSString *NLDataContainerForBundle(NSString *bundleID) {
 }
 
 NSDictionary<NSString *, NSString *> *NLLyricsFolders(void) {
-    NSDate *date = nil;
-    NSDictionary<NSString *, NSString *> *all = NLScanContainers(&date);
     NSLock *lock = NLContainersLock();
     [lock lock];
-    gContainers = all;
-    gContainersDate = date;
+    // The last scan's map while the containers folder has not changed since
+    // (the rule NLDataContainerForBundle goes by).
+    NSDictionary<NSString *, NSString *> *all = (gContainersDate && [NLContainersRootDate() isEqual:gContainersDate]) ? gContainers : nil;
     [lock unlock];
+    if (!all) {
+        NSDate *date = nil;
+        all = NLScanContainers(&date);   // outside the lock: the main queue's lookups do not wait on it
+        [lock lock];
+        gContainers = all;
+        gContainersDate = date;
+        [lock unlock];
+    }
 
     NSMutableDictionary<NSString *, NSString *> *out = [NSMutableDictionary dictionary];
     BOOL isDir = NO;
     for (NSString *bundleID in all) {
-        NSString *folder = [all[bundleID] stringByAppendingPathComponent:@"Library/NowLyrics"];
+        NSString *folder = [all[bundleID] stringByAppendingPathComponent:NL_APP_FOLDER];
         if ([[NSFileManager defaultManager] fileExistsAtPath:folder isDirectory:&isDir] && isDir) out[bundleID] = folder;
     }
     return out;
 }
 
 NSDictionary *NLReadNowPlaying(NSString *bundleID) {
-    NSString *dir = NLDataContainerForBundle(bundleID);
-    if (!dir) return nil;
-    NSString *path = [dir stringByAppendingPathComponent:@"Library/NowLyrics/" NL_NOWPLAYING_FILE];
-    return [NSDictionary dictionaryWithContentsOfFile:path];
+    NSString *folder = NLLyricsFolderForBundle(bundleID);
+    return folder ? [NSDictionary dictionaryWithContentsOfFile:[folder stringByAppendingPathComponent:NL_NOWPLAYING_FILE]] : nil;
 }
 
 void *NLMediaRemote(const char *symbol) {
-    static void *mr = NULL;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{ mr = dlopen("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote", RTLD_LAZY); });
+    void *mr = NL_ONCE(dlopen("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote", RTLD_LAZY));
     return mr ? dlsym(mr, symbol) : NULL;
 }
 
 void NLNowPlayingBundleID(void (^completion)(NSString *bundleID)) {
-    static void (*getDisplayID)(dispatch_queue_t, void (^)(CFStringRef)) = NULL;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        getDisplayID = (void (*)(dispatch_queue_t, void (^)(CFStringRef)))NLMediaRemote("MRMediaRemoteGetNowPlayingApplicationDisplayID");
-    });
+    void (*getDisplayID)(dispatch_queue_t, void (^)(CFStringRef)) = NL_ONCE((void (*)(dispatch_queue_t, void (^)(CFStringRef)))NLMediaRemote("MRMediaRemoteGetNowPlayingApplicationDisplayID"));
     if (!getDisplayID) {
         dispatch_async(dispatch_get_main_queue(), ^{ completion(nil); });
         return;
@@ -124,15 +119,22 @@ void NLNowPlayingBundleID(void (^completion)(NSString *bundleID)) {
     getDisplayID(dispatch_get_main_queue(), ^(CFStringRef displayID) {
         finish(displayID ? [(__bridge NSString *)displayID copy] : nil);
     });
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ finish(nil); });
+    NLAfter(1.0, ^{ finish(nil); });
+}
+
+@interface NSObject (NLMediaController)
++ (instancetype)sharedInstance;   // SBMediaController
+- (id)nowPlayingApplication;      // an SBApplication
+@end
+
+// objc_getClass is Nil outside SpringBoard, so it answers nil there.
+NSString *NLSpringBoardPlayingBundleID(void) {
+    id app = [[objc_getClass("SBMediaController") sharedInstance] nowPlayingApplication];
+    return [app respondsToSelector:@selector(bundleIdentifier)] ? [app bundleIdentifier] : nil;
 }
 
 void NLNowPlayingIsPlaying(void (^completion)(BOOL playing)) {
-    static void (*isPlaying)(dispatch_queue_t, void (^)(Boolean)) = NULL;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        isPlaying = (void (*)(dispatch_queue_t, void (^)(Boolean)))NLMediaRemote("MRMediaRemoteGetNowPlayingApplicationIsPlaying");
-    });
+    void (*isPlaying)(dispatch_queue_t, void (^)(Boolean)) = NL_ONCE((void (*)(dispatch_queue_t, void (^)(Boolean)))NLMediaRemote("MRMediaRemoteGetNowPlayingApplicationIsPlaying"));
     if (!isPlaying) { completion(NO); return; }
     isPlaying(dispatch_get_main_queue(), ^(Boolean playing) { completion(playing); });
 }
@@ -142,11 +144,7 @@ void NLNowPlayingIsPlaying(void (^completion)(BOOL playing)) {
 // now-playing change in SpringBoard, the player header and the theme on the
 // settings pages. It goes out after them, so none gets an older answer.
 void NLNowPlayingInfo(void (^completion)(NSDictionary *info)) {
-    static void (*getInfo)(dispatch_queue_t, void (^)(CFDictionaryRef)) = NULL;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        getInfo = (void (*)(dispatch_queue_t, void (^)(CFDictionaryRef)))NLMediaRemote("MRMediaRemoteGetNowPlayingInfo");
-    });
+    void (*getInfo)(dispatch_queue_t, void (^)(CFDictionaryRef)) = NL_ONCE((void (*)(dispatch_queue_t, void (^)(CFDictionaryRef)))NLMediaRemote("MRMediaRemoteGetNowPlayingInfo"));
     if (!getInfo) { completion(nil); return; }
     static NSMutableArray<void (^)(NSDictionary *)> *waiting = nil;
     if (waiting) {
@@ -166,8 +164,7 @@ void NLNowPlayingInfo(void (^completion)(NSDictionary *info)) {
 }
 
 void NLPostLyricsChanged(void) {
-    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
-                                         (__bridge CFStringRef)NL_LYRICS_CHANGED_NOTIFICATION, NULL, NULL, YES);
+    NLPostDarwin(NL_LYRICS_CHANGED_NOTIFICATION);
 }
 
 #pragma mark - Word by word for the line on screen
@@ -179,37 +176,26 @@ void NLPostLyricsChanged(void) {
 // version of the file. `outKey` is the track key, for its offset. Main queue.
 static NSArray<NLLyricLine *> *NLWordLyrics(NSString *bundleID, NSString **outKey) {
     NSDictionary *np = NLReadNowPlaying(bundleID);
-    NSString *path = np[NL_NP_PATH];
-    if (![path isKindOfClass:NSString.class] || !NLPrefBool(np, NL_NP_WORDS, NO)) return nil;
+    NSString *path = NLString(np, NL_NP_PATH);
+    if (!path || !NLPrefBool(np, NL_NP_WORDS, NO)) return nil;
     *outKey = np[NL_NP_KEY];
-
-    static NSString *parsedPath = nil;
-    static NSDate *parsedDate = nil;
-    static NSArray<NLLyricLine *> *parsed = nil;
-    NSDate *date = [[NSFileManager defaultManager] attributesOfItemAtPath:path error:nil].fileModificationDate;
-    if (![path isEqualToString:parsedPath] || ![date isEqual:parsedDate]) {
-        parsedPath = path;
-        parsedDate = date;
-        parsed = NLParseLRC([NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil]);
-    }
-    return parsed;
+    return NLParseLRCFile(path);
 }
 
 NLShownWords *NLWordsForShownLine(NSString *bundleID, NSString *shown, NSDictionary *info, NSDictionary *prefs) {
     if (shown.length == 0) return nil;
     NSString *key = nil;
     NSArray<NLLyricLine *> *lines = NLWordLyrics(bundleID, &key);
-    id elapsed = info[@"kMRMediaRemoteNowPlayingInfoElapsedTime"];
+    id elapsed = info[NL_MR_ELAPSED];
     if (lines.count == 0 || ![elapsed isKindOfClass:NSNumber.class]) return nil;
 
-    double rate = NLPrefNum(info, @"kMRMediaRemoteNowPlayingInfoPlaybackRate", 0);
-    NSDate *stamp = info[@"kMRMediaRemoteNowPlayingInfoTimestamp"];
+    double rate = NLPrefNum(info, NL_MR_RATE, 0);
+    NSDate *stamp = info[NL_MR_TIMESTAMP];
     double position = [elapsed doubleValue] + ([stamp isKindOfClass:NSDate.class] ? -stamp.timeIntervalSinceNow * rate : 0);
-    double lookup = position + NLPrefNum(prefs, @"offset", 0) + NLTrackOffset(prefs, key);
+    double lookup = position + NLOffsetForTrack(prefs, key);
 
     // The line by position, or a neighbour should the two clocks disagree by one.
-    NSInteger at = -1;
-    for (NSUInteger i = 0; i < lines.count && lines[i].start <= lookup + NL_LINE_MARGIN; i++) at = (NSInteger)i;
+    NSInteger at = (NSInteger)NLLinesStartedBy(lines, lookup) - 1;
     NLLyricLine *line = nil;
     NSInteger candidates[] = { at, at - 1, at + 1 };
     for (int k = 0; k < 3; k++) {

@@ -1,6 +1,6 @@
 //
 //  NLSources.m
-//  HTTP, the three lyrics providers, and the order they are tried in.
+//  HTTP, the lyrics providers (Musixmatch, LRCLIB, NetEase, Apple Music) and the order they are tried in.
 //
 //  Everything here runs on the engine's serial fetch queue and blocks, which
 //  keeps each provider linear instead of a nest of completion handlers.
@@ -23,11 +23,12 @@ static const NSTimeInterval kNLNeteaseTolerance = 10.0;   // its search is loose
 @property (nonatomic, copy) NSString *artist;
 @property (nonatomic, copy) NSString *album;
 @property (nonatomic, assign) NSTimeInterval duration;
-@property (nonatomic, assign) NLSource picked;        // chosen for this song on the settings page, tried first
+@property (nonatomic, copy) NSString *searchTitle, *searchArtist;   // NLCleanTitle / NLPrimaryArtist of the above, for the catalogue searches
 @property (nonatomic, assign) NSInteger lastStatus;   // HTTP status of the most recent request, 0 if none
 @property (nonatomic, assign) BOOL lastFailed;        // timeout, DNS, connection refused, etc.
 @property (nonatomic, assign) BOOL transient;         // some request never got an answer
 @property (nonatomic, strong) NSMutableArray<NSString *> *notes;   // per provider, in the order tried
+@property (nonatomic, copy) BOOL (^superseded)(void);   // NLResolveLyrics' own, may be nil
 @end
 
 @implementation NLFetch
@@ -39,20 +40,11 @@ static const NSTimeInterval kNLNeteaseTolerance = 10.0;   // its search is loose
 
 #pragma mark - JSON helpers
 
-// Tolerant accessors: any wrong type on the way down yields nil instead of an
-// exception, and every provider gets to be sloppy with its response shape.
-static id NLValue(id container, NSString *key) {
-    return [container isKindOfClass:[NSDictionary class]] ? ((NSDictionary *)container)[key] : nil;
-}
-
-static NSString *NLString(id container, NSString *key) {
-    id v = NLValue(container, key);
-    return [v isKindOfClass:[NSString class]] ? v : nil;
-}
-
-static NSArray *NLArray(id container, NSString *key) {
-    id v = NLValue(container, key);
-    return [v isKindOfClass:[NSArray class]] ? v : nil;
+// A JSON array carried as a string inside the answer (Musixmatch's *_body
+// fields); nil for anything else, an empty string included.
+static NSArray *NLJSONArrayInString(NSString *body) {
+    id parsed = body.length ? [NSJSONSerialization JSONObjectWithData:[body dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil] : nil;
+    return [parsed isKindOfClass:[NSArray class]] ? parsed : nil;
 }
 
 #pragma mark - HTTP
@@ -70,12 +62,8 @@ static NSURLSession *NLSession(void) {
 }
 
 static NSString *NLEscape(NSString *s) {
-    static NSCharacterSet *allowed = nil;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        allowed = [NSCharacterSet characterSetWithCharactersInString:
-                   @"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"];
-    });
+    NSCharacterSet *allowed = NL_ONCE([NSCharacterSet characterSetWithCharactersInString:
+                                       @"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"]);
     return [(s ?: @"") stringByAddingPercentEncodingWithAllowedCharacters:allowed] ?: @"";
 }
 
@@ -95,23 +83,40 @@ static NSData *NLGet(NLFetch *f, NSString *urlString, NSDictionary<NSString *, N
         [req setValue:v forHTTPHeaderField:k];
     }];
 
+    // The answer is handed over under @synchronized (box). Whichever comes
+    // first, the answer or NLGet giving up, decides: once given up, a late
+    // answer is dropped, so what NLGet reports stays a timeout (transient).
     __block NSData *result = nil;
     __block NSInteger status = 0;
-    __block BOOL failed = NO;
+    __block BOOL failed = NO, answered = NO, abandoned = NO;
+    NSObject *box = [NSObject new];
     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
-    [[NLSession() dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *err) {
-        status = [resp isKindOfClass:[NSHTTPURLResponse class]] ? ((NSHTTPURLResponse *)resp).statusCode : 0;
-        failed = (err != nil) || status == 0;
-        if (!err && status >= 200 && status < 300) result = data;
+    NSURLSessionDataTask *task = [NLSession() dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *err) {
+        @synchronized (box) {
+            if (abandoned) return;
+            status = [resp isKindOfClass:[NSHTTPURLResponse class]] ? ((NSHTTPURLResponse *)resp).statusCode : 0;
+            failed = (err != nil) || status == 0;
+            if (!err && status >= 200 && status < 300) result = data;
+            answered = YES;
+        }
         dispatch_semaphore_signal(sem);
-    }] resume];
-    if (dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(15 * NSEC_PER_SEC))) != 0) {
-        failed = YES;   // gave up waiting
+    }];
+    [task resume];
+    dispatch_semaphore_wait(sem, NLTimeIn(15));
+    NSData *data;
+    NSInteger code;
+    BOOL gaveUp, noAnswer;
+    @synchronized (box) {
+        gaveUp = abandoned = !answered;
+        data = result;
+        code = status;
+        noAnswer = failed || gaveUp;
     }
-    f.lastStatus = status;
-    f.lastFailed = failed;
-    if (failed) f.transient = YES;
-    return result;
+    if (gaveUp) [task cancel];   // its answer would be thrown away: no connection kept on it
+    f.lastStatus = code;
+    f.lastFailed = noAnswer;
+    if (noAnswer) f.transient = YES;
+    return data;
 }
 
 static id NLGetJSON(NLFetch *f, NSString *urlString, NSDictionary *headers) {
@@ -159,6 +164,13 @@ static NSString *NLMusixmatchAppId(void) {
     return appId;
 }
 
+// The Musixmatch app's API: `method` with the user token and app ID; the
+// caller appends its own parameters.
+static NSMutableString *NLMxmAppURL(NLFetch *f, NSString *method) {
+    return [NSMutableString stringWithFormat:@"https://apic.musixmatch.com/ws/1.1/%@?usertoken=%@&app_id=%@",
+            method, NLEscape(f.settings.musixmatchToken), NLEscape(NLMusixmatchAppId())];
+}
+
 // Word by word, for a matched track that has it ("richsync"): a second call.
 // The body is [{"ts": lineStart, "te": lineEnd, "x": line, "l": [{"c": piece,
 // "o": offset from ts}]}], a space being a piece of its own whose offset is
@@ -169,20 +181,17 @@ static NSArray<NLLyricLine *> *NLFetchMusixmatchRichsync(NLFetch *f, id track, d
     long long trackID = (long long)NLNum(NLValue(track, @"track_id"), 0);
     if (NLNum(NLValue(track, @"has_richsync"), 0) == 0 || trackID <= 0) return nil;
 
-    NSString *url = [NSString stringWithFormat:
-        @"https://apic.musixmatch.com/ws/1.1/track.richsync.get?usertoken=%@&app_id=%@&track_id=%lld",
-        NLEscape(f.settings.musixmatchToken), NLEscape(NLMusixmatchAppId()), trackID];
+    NSMutableString *url = NLMxmAppURL(f, @"track.richsync.get");
+    [url appendFormat:@"&track_id=%lld", trackID];
     id message = NLValue(NLGetJSON(f, url, nil), @"message");
     id richsync = NLValue(NLValue(message, @"body"), @"richsync");
     if (NLMxmStatus(message) != 200 || NLNum(NLValue(richsync, @"restricted"), 0) != 0) return nil;
     *outLength = NLNum(NLValue(richsync, @"richsync_length"), 0);
-    NSString *body = NLString(richsync, @"richsync_body");
-    id parsed = body.length ? [NSJSONSerialization JSONObjectWithData:[body dataUsingEncoding:NSUTF8StringEncoding]
-                                                              options:0 error:nil] : nil;
-    if (![parsed isKindOfClass:[NSArray class]]) return nil;
+    NSArray *parsed = NLJSONArrayInString(NLString(richsync, @"richsync_body"));
+    if (!parsed) return nil;
 
     NSMutableArray<NLLyricLine *> *lines = [NSMutableArray array];
-    for (id entry in (NSArray *)parsed) {
+    for (id entry in parsed) {
         double ts = NLNum(NLValue(entry, @"ts"), -1), te = NLNum(NLValue(entry, @"te"), 0);
         NSArray *pieces = NLArray(entry, @"l");
         if (ts < 0 || pieces.count == 0) continue;
@@ -197,10 +206,7 @@ static NSArray<NLLyricLine *> *NLFetchMusixmatchRichsync(NLFetch *f, id track, d
                 if (last) last.text = [last.text stringByAppendingString:c];
                 continue;
             }
-            NLLyricWord *word = [NLLyricWord new];
-            word.start = at;
-            word.text = c;
-            [words addObject:word];
+            [words addObject:[NLLyricWord wordAt:at end:0 text:c]];
         }
         if (words.lastObject.end <= 0) words.lastObject.end = te;
         NLLyricLine *line = NLLineFromWords(words, ts, te);
@@ -209,8 +215,10 @@ static NSArray<NLLyricLine *> *NLFetchMusixmatchRichsync(NLFetch *f, id track, d
     return NLFinishWordLines(lines);
 }
 
-// The line-timed subtitle out of macro.subtitles.get's answer. nil, with the
-// reason in `note`, when there is none to use. `outLength` as for the richsync.
+// The line-timed subtitle out of macro.subtitles.get's answer, as Musixmatch
+// gives it: the richsync is checked against these, and they are finished
+// (NLFinishTimedLines) only once they are the answer. nil, with the reason in
+// `note`, when there is none to use. `outLength` as for the richsync.
 static NSArray<NLLyricLine *> *NLMusixmatchSubtitleLines(id macroCalls, NSString **note, double *outLength) {
     *outLength = 0;
     id subtitleMessage = NLValue(NLValue(macroCalls, @"track.subtitles.get"), @"message");
@@ -232,26 +240,18 @@ static NSArray<NLLyricLine *> *NLMusixmatchSubtitleLines(id macroCalls, NSString
     *outLength = NLNum(NLValue(subtitle, @"subtitle_length"), 0);
 
     // subtitle_body is itself a JSON string: [{"text": ..., "time": {"total": seconds}}]
-    NSString *body = NLString(subtitle, @"subtitle_body");
-    if (body.length == 0) return nil;
-    id parsed = [NSJSONSerialization JSONObjectWithData:[body dataUsingEncoding:NSUTF8StringEncoding]
-                                                options:0
-                                                  error:nil];
-    if (![parsed isKindOfClass:[NSArray class]]) return nil;
+    NSArray *entries = NLJSONArrayInString(NLString(subtitle, @"subtitle_body"));
+    if (!entries) return nil;
 
-    NSArray *entries = parsed;
     NSMutableArray<NLLyricLine *> *lines = [NSMutableArray arrayWithCapacity:entries.count];
     for (NSUInteger i = 0; i < entries.count; i++) {
         id entry = entries[i];
         NSTimeInterval start = NLNum(NLValue(NLValue(entry, @"time"), @"total"), -1);
         if (start < 0) continue;
 
-        NLLyricLine *line = [NLLyricLine new];
-        line.start = start;
         // The final entry is an end marker; blanking it makes the title reappear
         // once the song finishes, which is what the empty-line path already does.
-        line.text = (i + 1 == entries.count) ? @"" : (NLString(entry, @"text") ?: @"");
-        [lines addObject:line];
+        [lines addObject:[NLLyricLine lineAt:start text:(i + 1 == entries.count) ? @"" : (NLString(entry, @"text") ?: @"")]];
     }
     return lines.count ? [lines copy] : nil;
 }
@@ -264,11 +264,8 @@ static NSArray<NLLyricLine *> *NLFetchMusixmatchToken(NLFetch *f, NSString **not
     if (token.length == 0) return nil;
     *note = @"no result";
 
-    NSMutableString *url = [NSMutableString stringWithFormat:
-        @"https://apic.musixmatch.com/ws/1.1/macro.subtitles.get"
-        @"?usertoken=%@&app_id=%@&subtitle_format=mxm&q_track=%@&q_artist=%@",
-        NLEscape(token), NLEscape(NLMusixmatchAppId()),
-        NLEscape(NLCleanTitle(f.title)), NLEscape(NLPrimaryArtist(f.artist))];
+    NSMutableString *url = NLMxmAppURL(f, @"macro.subtitles.get");
+    [url appendFormat:@"&subtitle_format=mxm&q_track=%@&q_artist=%@", NLEscape(f.searchTitle), NLEscape(f.searchArtist)];
     // A track has subtitles timed to several cuts (single, album, radio edit);
     // the length picks the one for the cut playing.
     if (f.duration > 0) [url appendFormat:@"&q_duration=%.0f", f.duration];
@@ -301,7 +298,8 @@ static NSArray<NLLyricLine *> *NLFetchMusixmatchToken(NLFetch *f, NSString **not
     // answer gives away. The subtitle otherwise.
     id track = NLValue(NLValue(NLValue(NLValue(macroCalls, @"matcher.track.get"), @"message"), @"body"), @"track");
     NSArray<NLLyricLine *> *words = NLFetchMusixmatchRichsync(f, track, &wordsLength);
-    if (NLHasContent(words)) {
+    BOOL wordsUsable = NLHasContent(words);
+    if (wordsUsable) {
         BOOL plausible = NLWordTimesPlausible(words);
         BOOL agrees = timed.count == 0 || NLWordLinesAgree(words, timed);
         BOOL otherCut = f.duration > 0 && wordsLength > 0 && fabs(wordsLength - f.duration) > kNLCutSlack &&
@@ -316,9 +314,9 @@ static NSArray<NLLyricLine *> *NLFetchMusixmatchToken(NLFetch *f, NSString **not
     }
     if (timed.count) {
         *note = nil;
-        return timed;
+        return NLFinishTimedLines(timed);   // as its cached copy will read
     }
-    if (NLHasContent(words)) *note = @"word times off";
+    if (wordsUsable) *note = @"word times off";
     else if (timedNote) *note = timedNote;
     return nil;
 }
@@ -331,7 +329,7 @@ static NSString *NLFetchMusixmatchKey(NLFetch *f, NSString **note) {
 
     NSMutableString *url = [NSMutableString stringWithFormat:
         @"https://api.musixmatch.com/ws/1.1/matcher.subtitle.get?format=json&q_track=%@&q_artist=%@&apikey=%@",
-        NLEscape(NLCleanTitle(f.title)), NLEscape(NLPrimaryArtist(f.artist)), NLEscape(key)];
+        NLEscape(f.searchTitle), NLEscape(f.searchArtist), NLEscape(key)];
     if (f.duration > 0) {
         [url appendFormat:@"&f_subtitle_length=%.0f&f_subtitle_length_max_deviation=%.0f",
                           floor(f.duration), kNLDurationTolerance];
@@ -370,7 +368,7 @@ static NSString *NLFetchLRCLIB(NLFetch *f, NSString **note) {
     // Fall back to search, keeping the closest duration that has a timed transcript.
     NSString *searchURL = [NSString stringWithFormat:
         @"https://lrclib.net/api/search?track_name=%@&artist_name=%@",
-        NLEscape(NLCleanTitle(f.title)), NLEscape(NLPrimaryArtist(f.artist))];
+        NLEscape(f.searchTitle), NLEscape(f.searchArtist)];
 
     id json = NLGetJSON(f, searchURL, nil);
     if (![json isKindOfClass:[NSArray class]]) {
@@ -388,9 +386,15 @@ static NSString *NLFetchLRCLIB(NLFetch *f, NSString **note) {
         if (lrc.length == 0) continue;
         timed++;
 
-        // duration can be JSON null here, which really does occur in search results
+        // Without the track's length there is nothing to compare: the first
+        // timed result, in LRCLIB's own order.
+        if (f.duration <= 0) { best = lrc; break; }
+
+        // duration can be JSON null here, which really does occur in search
+        // results; such a result cannot be judged, so it is passed over.
         double itemDuration = NLNum(NLValue(item, @"duration"), -1);
-        double delta = (itemDuration < 0) ? INFINITY : fabs(itemDuration - f.duration);
+        if (itemDuration < 0) continue;
+        double delta = fabs(itemDuration - f.duration);
         if (delta < bestDelta) { bestDelta = delta; best = lrc; }
     }
     // A large mismatch usually means a cover or a live take; no lyrics beats wrong ones.
@@ -398,6 +402,7 @@ static NSString *NLFetchLRCLIB(NLFetch *f, NSString **note) {
 
     if (candidates == 0)  *note = @"nothing under this title";
     else if (timed == 0)  *note = [NSString stringWithFormat:@"%lu found, none timed", (unsigned long)candidates];
+    else if (!best)       *note = [NSString stringWithFormat:@"%lu timed, none with a duration", (unsigned long)timed];
     else                  *note = [NSString stringWithFormat:@"%lu timed, duration off by %.0fs", (unsigned long)timed, bestDelta];
     return nil;
 }
@@ -405,15 +410,15 @@ static NSString *NLFetchLRCLIB(NLFetch *f, NSString **note) {
 #pragma mark - NetEase (fallback, best coverage for Chinese tracks)
 
 static NSDictionary *NLNeteaseHeaders(void) {
-    return @{
+    return NL_ONCE((@{
         @"Referer": @"https://music.163.com/",
         @"Cookie": @"appver=8.7.01; os=iOS",
         @"User-Agent": @"Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
-    };
+    }));
 }
 
 static NSArray<NLLyricLine *> *NLFetchNetease(NLFetch *f, NSString **note) {
-    NSString *keyword = [NSString stringWithFormat:@"%@ %@", NLCleanTitle(f.title), NLPrimaryArtist(f.artist)];
+    NSString *keyword = [NSString stringWithFormat:@"%@ %@", f.searchTitle, f.searchArtist];
     NSString *searchURL = [NSString stringWithFormat:
         @"https://music.163.com/api/search/get/web?csrf_token=&type=1&offset=0&limit=8&s=%@",
         NLEscape(keyword)];
@@ -479,11 +484,6 @@ static NSString *NLSourceLabel(NLSource source) {
     }
 }
 
-static NSString *NLJoinNotes(NSString *a, NSString *b) {
-    if (a.length && b.length) return [NSString stringWithFormat:@"%@, %@", a, b];
-    return a.length ? a : b;
-}
-
 // Tries one provider and caches a hit. Kept separate so the order can be
 // permuted by preference rather than hard-coded into a chain of ifs.
 static NSArray<NLLyricLine *> *NLFetchSource(NLFetch *f, NLSource source, NSString *cachePath, NSString **outSource) {
@@ -500,7 +500,7 @@ static NSArray<NLLyricLine *> *NLFetchSource(NLFetch *f, NLSource source, NSStri
             if (!NLHasContent(lines)) {
                 lines = NLParseLRC(NLFetchMusixmatchKey(f, &keyNote));
                 label = @"Musixmatch key";
-                note = NLJoinNotes(tokenNote, keyNote);
+                note = NLJoinNonEmpty(tokenNote, keyNote, @", ");
             }
             break;
         }
@@ -521,8 +521,7 @@ static NSArray<NLLyricLine *> *NLFetchSource(NLFetch *f, NLSource source, NSStri
             label = @"Apple Music";
             if (raw.length == 0) { if (!note.length) note = @"no lyrics"; }
             else {
-                lines = [raw rangeOfString:@"<tt" options:NSCaseInsensitiveSearch].location != NSNotFound
-                    ? NLParseTTML(raw) : NLParseLRC(raw);
+                lines = NLLooksLikeTTML(raw) ? NLParseTTML(raw) : NLParseLRC(raw);
                 if (lines.count == 0) note = @"lyrics untimed";
             }
             NLLog(@"Apple Music lyrics: %lu chars, %lu lines, words %d: %@", (unsigned long)raw.length,
@@ -552,16 +551,21 @@ static NSArray<NLLyricLine *> *NLFetchSource(NLFetch *f, NLSource source, NSStri
 
     if (NLHasContent(lines)) {
         *outSource = label;
+        // A lookup the engine has given up on meanwhile (the sources or the
+        // lyrics files changed) leaves the cache alone: the lookup queued
+        // in its place reads the cache first, and a source just picked for
+        // this song would otherwise lose to this one's answer.
+        if (f.superseded && f.superseded()) return lines;
         // With the track and the source on top, so the settings page can list
         // the file by name and say where it came from.
-        NSMutableDictionary<NSString *, NSString *> *header = [NSMutableDictionary dictionary];
-        header[NL_LRC_TITLE] = f.title;
-        header[NL_LRC_ARTIST] = f.artist;
-        header[NL_LRC_ALBUM] = f.album;
-        header[NL_LRC_SOURCE] = label;
-        header[NL_LRC_CHECKED] = @"1";
+        NSDictionary *header = @{NL_LRC_TITLE: f.title ?: @"", NL_LRC_ARTIST: f.artist ?: @"", NL_LRC_ALBUM: f.album ?: @"",
+                                 NL_LRC_SOURCE: label, NL_LRC_CHECKED: @"1"};
         [NLLinesToLRCWithHeader(lines, header) writeToFile:cachePath atomically:YES encoding:NSUTF8StringEncoding error:nil];
         NLPruneCache(kNLDiskCacheLimit);
+        // Given up on while writing: taken back out. The lookup queued in its
+        // place runs after this one on the same serial queue, so it has not
+        // read the cache yet.
+        if (f.superseded && f.superseded()) [[NSFileManager defaultManager] removeItemAtPath:cachePath error:nil];
         return lines;
     }
     if (lines.count && note.length == 0) note = @"found, but nothing sung";
@@ -569,28 +573,11 @@ static NSArray<NLLyricLine *> *NLFetchSource(NLFetch *f, NLSource source, NSStri
     return nil;
 }
 
-// The source picked for this song goes first, then the user's order (by
-// default Apple Music in Music, Musixmatch for its timing, LRCLIB, free and
-// broad, then NetEase for Chinese tracks). A source switched off is skipped
-// when its turn comes.
-static int NLSourceOrder(NLSettings *settings, NLSource picked, NLSource order[NLSourceCount]) {
-    int n = 0;
-    BOOL used[NLSourceCount] = {NO};
-    NSMutableArray<NSNumber *> *wanted = [NSMutableArray arrayWithObject:@(picked)];
-    [wanted addObjectsFromArray:settings.sourceOrder];
-    for (NSNumber *number in wanted) {
-        NLSource s = (NLSource)number.integerValue;
-        if (s == NLSourceNone || s < 0 || s >= NLSourceCount || used[s]) continue;
-        used[s] = YES;
-        order[n++] = s;
-    }
-    return n;
-}
-
 NSArray<NLLyricLine *> *NLResolveLyrics(NLSettings *settings, NSString *key,
                                         NSString *title, NSString *artist, NSString *album,
                                         NSTimeInterval duration,
-                                        NSString **source, NSString **outPath, BOOL *transient) {
+                                        NSString **source, NSString **outPath, BOOL *transient,
+                                        BOOL (^superseded)(void)) {
     *transient = NO;
     *outPath = nil;
 
@@ -610,8 +597,7 @@ NSArray<NLLyricLine *> *NLResolveLyrics(NLSettings *settings, NSString *key,
         BOOL unchecked = [head[NL_LRC_SOURCE] hasPrefix:@"Musixmatch"] && !head[NL_LRC_CHECKED];
         if (head && (unchecked || !NLWordTimesPlausible(cached))) {
             suspect = cached;
-            NSString *from = head[NL_LRC_SOURCE];
-            suspectSource = from.length ? [@"cache · " stringByAppendingString:from] : @"cache";
+            suspectSource = NLCacheStatus(head[NL_LRC_SOURCE]);
             cached = nil;
         }
         if (cached.count) {
@@ -620,15 +606,10 @@ NSArray<NLLyricLine *> *NLResolveLyrics(NLSettings *settings, NSString *key,
             // back into title and artist. Name it now, so the settings page's
             // library can list it properly.
             if (!tags[NL_LRC_TITLE] && title.length) {
-                NSMutableDictionary<NSString *, NSString *> *header = [NSMutableDictionary dictionary];
-                header[NL_LRC_TITLE] = title;
-                header[NL_LRC_ARTIST] = artist;
-                header[NL_LRC_ALBUM] = album;
-                [[NLLinesToLRCWithHeader(@[], header) stringByAppendingString:disk]
-                    writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
+                [[NLLinesToLRCWithHeader(@[], @{NL_LRC_TITLE: title, NL_LRC_ARTIST: artist ?: @"", NL_LRC_ALBUM: album ?: @""})
+                  stringByAppendingString:disk] writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
             }
-            NSString *from = tags[NL_LRC_SOURCE];
-            *source = from.length ? [@"cache · " stringByAppendingString:from] : @"cache";
+            *source = NLCacheStatus(tags[NL_LRC_SOURCE]);
             *outPath = path;
             return cached;
         }
@@ -640,12 +621,22 @@ NSArray<NLLyricLine *> *NLResolveLyrics(NLSettings *settings, NSString *key,
     f.artist = artist;
     f.album = album;
     f.duration = duration;
-    f.picked = [settings sourceForTrack:key];
+    f.searchTitle = NLCleanTitle(title);
+    f.searchArtist = NLPrimaryArtist(artist);
+    f.superseded = superseded;
 
-    NLSource order[NLSourceCount];
-    int count = NLSourceOrder(settings, f.picked, order);
-    for (int i = 0; i < count; i++) {
-        NSArray<NLLyricLine *> *lines = NLFetchSource(f, order[i], path, source);
+    // The source picked for this song goes first, then the user's order (by
+    // default Apple Music in Music, Musixmatch for its timing, LRCLIB, free and
+    // broad, then NetEase for Chinese tracks). A source switched off is skipped
+    // when its turn comes.
+    NSMutableArray<NSNumber *> *order = [settings.sourceOrder mutableCopy];   // every source once (NLSettings)
+    NLSource picked = [settings sourceForTrack:key];
+    if (picked != NLSourceNone) {
+        [order removeObject:@(picked)];
+        [order insertObject:@(picked) atIndex:0];
+    }
+    for (NSNumber *number in order) {
+        NSArray<NLLyricLine *> *lines = NLFetchSource(f, (NLSource)number.integerValue, path, source);
         if (lines.count) {
             *outPath = path;
             return lines;
@@ -660,7 +651,7 @@ NSArray<NLLyricLine *> *NLResolveLyrics(NLSettings *settings, NSString *key,
 
     // Nothing worked. Say what each provider said, in the order they were tried,
     // so the readout shows whether the track is absent or merely unmatched.
-    *source = f.notes.count ? [f.notes componentsJoinedByString:@" · "] : @"no sources enabled";
+    *source = f.notes.count ? [f.notes componentsJoinedByString:NL_STATUS_NOTES_SEPARATOR] : @"no sources enabled";
     *transient = f.transient;
     return nil;
 }

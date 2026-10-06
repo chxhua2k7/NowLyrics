@@ -17,8 +17,6 @@
 			<string>PSSwitchCell</string>
 			<key>default</key>
 			<false/>
-			<key>defaults</key>
-			<string>app.nowlyrics</string>
 			<key>iconApp</key>
 			<string>com.musixmatch.lyrics</string>
 			<key>iconColor</key>
@@ -43,16 +41,10 @@
 		<dict>
 			<key>PostNotification</key>
 			<string>app.nowlyrics/ReloadPrefs</string>
-			<key>autoCapsType</key>
-			<integer>0</integer>
-			<key>autoCorrectionType</key>
-			<integer>1</integer>
 			<key>cell</key>
 			<string>PSEditTextCell</string>
 			<key>cellClass</key>
 			<string>NLEditTextCell</string>
-			<key>defaults</key>
-			<string>app.nowlyrics</string>
 			<key>iconColor</key>
 			<string>#8F8F94</string>
 			<key>iconSymbol</key>
@@ -63,22 +55,14 @@
 			<string>User Token</string>
 			<key>placeholder</key>
 			<string>paste debug info</string>
-			<key>showIf</key>
-			<string>useMusixmatch</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
 			<string>app.nowlyrics/ReloadPrefs</string>
-			<key>autoCapsType</key>
-			<integer>0</integer>
-			<key>autoCorrectionType</key>
-			<integer>1</integer>
 			<key>cell</key>
 			<string>PSEditTextCell</string>
 			<key>cellClass</key>
 			<string>NLEditTextCell</string>
-			<key>defaults</key>
-			<string>app.nowlyrics</string>
 			<key>iconColor</key>
 			<string>#8F8F94</string>
 			<key>iconSymbol</key>
@@ -89,8 +73,6 @@
 			<string>API Key</string>
 			<key>placeholder</key>
 			<string>your own key</string>
-			<key>showIf</key>
-			<string>useMusixmatch</string>
 		</dict>
 	</array>
 	<key>title</key>

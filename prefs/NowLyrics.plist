@@ -34,8 +34,6 @@
 			<integer>150</integer>
 			<key>id</key>
 			<string>islandPreview</string>
-			<key>showIf</key>
-			<string>nlHeaderIsland</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -50,14 +48,8 @@
 			<string>PSSwitchCell</string>
 			<key>default</key>
 			<true/>
-			<key>defaults</key>
-			<string>app.nowlyrics</string>
-			<key>iconColor</key>
-			<string>#FA4A5E</string>
 			<key>iconDrawn</key>
 			<string>sampleCover</string>
-			<key>iconSymbol</key>
-			<string>music.note</string>
 			<key>key</key>
 			<string>enabled</string>
 			<key>label</key>
@@ -79,10 +71,6 @@
 				<string>com.deezer.Deezer</string>
 				<string>com.amazon.mp3</string>
 			</array>
-			<key>defaultApplicationSwitchValue</key>
-			<false/>
-			<key>defaults</key>
-			<string>app.nowlyrics</string>
 			<key>detail</key>
 			<string>NLAppListController</string>
 			<key>iconColor</key>
@@ -106,8 +94,6 @@
 					<string>Hidden</string>
 				</dict>
 			</array>
-			<key>showIdentifiersAsSubtitle</key>
-			<false/>
 			<key>useSearchBar</key>
 			<true/>
 		</dict>
@@ -156,8 +142,6 @@
 			<string>music.note.list</string>
 			<key>label</key>
 			<string>Lyrics Sources</string>
-			<key>showIf</key>
-			<string>enabled</string>
 			<key>subPlist</key>
 			<string>Sources</string>
 		</dict>
@@ -172,8 +156,6 @@
 			<string>gearshape.2</string>
 			<key>label</key>
 			<string>Advanced</string>
-			<key>showIf</key>
-			<string>enabled</string>
 			<key>subPlist</key>
 			<string>Advanced</string>
 		</dict>

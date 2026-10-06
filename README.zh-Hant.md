@@ -34,7 +34,8 @@ English: [README.md](README.md)
   SpringBoard 用 Apple 公開搜尋依歌名、歌手、長度找到這首(`NLAppleMusicFind.m`),要到歌詞後寫回
   `am-response.plist`。確認有訂閱前 Apple Music 相關的設定全部隱藏:按「解鎖」時由 SpringBoard
   問 iTunesCloud 的 `ICMusicSubscriptionStatusController`,再問 StoreKit,最後實際要一首歌的歌詞;
-  之後每天重新確認,訂閱過期就再鎖起來。還沒同意 Apple Music 的隱私權說明時(`AMSAcknowledgePrivacyTask`、
+  之後在 iTunesCloud 通知訂閱狀態改變、SpringBoard 啟動、Apple Music 歌詞請求失敗時由 SpringBoard
+  重新確認,訂閱過期或「媒體與購買項目」沒登入 Apple ID 就再鎖起來。還沒同意 Apple Music 的隱私權說明時(`AMSAcknowledgePrivacyTask`、
   `com.apple.onboarding.applemusic`)只問 iTunesCloud、也不抓歌詞,因為 StoreKit 會把同意畫面蓋在當下的畫面上;
   設定頁會請你到「音樂」裡同意。
 - **逐字歌詞**:Apple Music、Musixmatch(有 token 時的 `track.richsync.get`)、網易雲(`/api/song/lyric/v1` 的 `yrc`)

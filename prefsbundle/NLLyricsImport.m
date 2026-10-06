@@ -12,18 +12,12 @@
 #pragma mark - Helpers
 
 NSString *NLL(NSString *key) {
-    static NSBundle *bundle;
-    if (!bundle) bundle = [NSBundle bundleForClass:[NLLyricsEditorController class]];
-    return [bundle localizedStringForKey:key value:key table:@"Island"];
+    return [NLPrefsBundle() localizedStringForKey:key value:key table:@"Island"];
 }
 
 @interface NSObject (NLLaunchServices)
 + (instancetype)applicationProxyForIdentifier:(NSString *)bundleID;
 - (NSString *)localizedName;
-@end
-
-@interface UIImage (NLPrivate)
-+ (UIImage *)_applicationIconImageForBundleIdentifier:(NSString *)bundleID format:(int)format scale:(CGFloat)scale;
 @end
 
 NSString *NLAppName(NSString *bundleID) {
@@ -39,10 +33,7 @@ UIImage *NLAppIcon(NSString *bundleID) {
 }
 
 void NLAlert(UIViewController *controller, NSString *title, NSString *message) {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:message
-                                                            preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:NLL(@"OK") style:UIAlertActionStyleDefault handler:nil]];
-    [controller presentViewController:alert animated:YES completion:nil];
+    NLPresentAlert(controller, title, message, @[[UIAlertAction actionWithTitle:NLL(@"OK") style:UIAlertActionStyleDefault handler:nil]]);
 }
 
 void NLPlayingSong(void (^done)(NSString *bundleID, NSDictionary *np)) {
@@ -51,13 +42,18 @@ void NLPlayingSong(void (^done)(NSString *bundleID, NSDictionary *np)) {
             NSString *bundleID = playing;
             NSDictionary *np = NLReadNowPlaying(bundleID);
             if (!np) {
-                NSDate *latest = nil;
+                // By the stamp: two apps writing within the same second tie on
+                // the date.
+                CFAbsoluteTime latest = -INFINITY;
                 bundleID = nil;
-                for (NSString *candidate in NLLyricsFolders()) {
-                    NSDictionary *info = NLReadNowPlaying(candidate);
-                    NSDate *updated = info[NL_NP_UPDATED];
-                    if ([updated isKindOfClass:NSDate.class] && (!latest || [updated compare:latest] == NSOrderedDescending)) {
-                        latest = updated;
+                NSDictionary<NSString *, NSString *> *folders = NLLyricsFolders();
+                for (NSString *candidate in folders) {
+                    // In the folder the scan just found (NLReadNowPlaying
+                    // would look its container up again).
+                    NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:[folders[candidate] stringByAppendingPathComponent:NL_NOWPLAYING_FILE]];
+                    CFAbsoluteTime written = NLNowPlayingWritten(info, NULL);
+                    if (written > latest) {
+                        latest = written;
                         bundleID = candidate;
                         np = info;
                     }
@@ -71,25 +67,21 @@ void NLPlayingSong(void (^done)(NSString *bundleID, NSDictionary *np)) {
 #pragma mark - Pasted and imported text
 
 NSString *NLLyricsFileText(NSString *text, NSString *title, NSString *artist) {
-    NSString *trimmed = [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    NSString *trimmed = NLTrimmed(text);
     if (trimmed.length == 0) return nil;
-    NSMutableDictionary<NSString *, NSString *> *header = [NSMutableDictionary dictionary];
-    header[NL_LRC_TITLE] = title;
-    header[NL_LRC_ARTIST] = artist;
 
-    if ([trimmed rangeOfString:@"<tt" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+    if (NLLooksLikeTTML(trimmed)) {
         NSArray<NLLyricLine *> *lines = NLParseTTML(trimmed);
         if (!NLHasContent(lines)) return nil;
-        header[NL_LRC_SOURCE] = @"TTML";
-        return NLLinesToLRCWithHeader(lines, header);
+        return NLLinesToLRCWithHeader(lines, @{NL_LRC_TITLE: title ?: @"", NL_LRC_ARTIST: artist ?: @"", NL_LRC_SOURCE: @"TTML"});
     }
 
     if (!NLHasContent(NLParseLRC(trimmed))) return nil;
     // Kept as given (its own tags, [offset:] and all), named on top when it is
-    // not, so the library can list it.
+    // not, so the library can list it. A tag it has is left empty, which
+    // writes none: with both, nothing goes on top.
     NSDictionary *own = NLParseLRCHeader(trimmed);
-    if (own[NL_LRC_TITLE] && own[NL_LRC_ARTIST]) return [trimmed stringByAppendingString:@"\n"];
-    if (own[NL_LRC_TITLE]) [header removeObjectForKey:NL_LRC_TITLE];
-    if (own[NL_LRC_ARTIST]) [header removeObjectForKey:NL_LRC_ARTIST];
-    return [NLLinesToLRCWithHeader(@[], header) stringByAppendingFormat:@"%@\n", trimmed];
+    NSDictionary *named = @{NL_LRC_TITLE: own[NL_LRC_TITLE] ? @"" : (title ?: @""),
+                            NL_LRC_ARTIST: own[NL_LRC_ARTIST] ? @"" : (artist ?: @"")};
+    return [NLLinesToLRCWithHeader(@[], named) stringByAppendingFormat:@"%@\n", trimmed];
 }

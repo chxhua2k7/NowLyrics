@@ -25,25 +25,30 @@
 // A name to show for a file without tags: the cache's "_<hash>" goes, and an
 // added file's "Title - Artist" is split.
 static void NLNameFromFile(NLLibraryEntry *entry) {
+    if (entry.title) return;   // named by its tags
     NSString *name = entry.path.lastPathComponent.stringByDeletingPathExtension;
     if (entry.manual) {
         NSRange dash = [name rangeOfString:@" - " options:NSBackwardsSearch];
-        if (dash.location != NSNotFound && !entry.title) {
+        if (dash.location != NSNotFound) {
             entry.title = [name substringToIndex:dash.location];
             entry.artist = entry.artist ?: [name substringFromIndex:NSMaxRange(dash)];
+            return;
         }
     } else {
         NSRange hash = [name rangeOfString:@"_[0-9a-f]+$" options:NSRegularExpressionSearch];
         if (hash.location != NSNotFound) name = [name substringToIndex:hash.location];
     }
-    if (!entry.title) entry.title = name;
+    entry.title = name;
 }
 
+// Hidden files too: a file is named after its title, which may start with a
+// "." ("...Ready For It?"), and the apps use it all the same. The extension
+// keeps everything else out.
 static NSArray<NLLibraryEntry *> *NLEntriesIn(NSString *folder, NSString *bundleID, BOOL manual) {
     NSMutableArray<NLLibraryEntry *> *out = [NSMutableArray array];
     NSArray<NSURL *> *files = [[NSFileManager defaultManager] contentsOfDirectoryAtURL:[NSURL fileURLWithPath:folder isDirectory:YES]
                                                             includingPropertiesForKeys:@[NSURLContentModificationDateKey]
-                                                                               options:NSDirectoryEnumerationSkipsHiddenFiles
+                                                                               options:0
                                                                                  error:nil];
     for (NSURL *url in files) {
         if (![url.pathExtension.lowercaseString isEqualToString:@"lrc"]) continue;
@@ -57,10 +62,8 @@ static NSArray<NLLibraryEntry *> *NLEntriesIn(NSString *folder, NSString *bundle
         entry.title = tags[NL_LRC_TITLE];
         entry.artist = tags[NL_LRC_ARTIST];
         entry.source = manual ? NLL(@"Added by you") : tags[NL_LRC_SOURCE];
-        entry.words = [text rangeOfString:@"]<"].location != NSNotFound;
-        NSDate *date = nil;
-        [url getResourceValue:&date forKey:NSURLContentModificationDateKey error:nil];
-        entry.date = date ?: [NSDate distantPast];
+        entry.words = NLLRCHasWordTimes(text);
+        entry.date = NLModificationDate(url);
         NLNameFromFile(entry);
         [out addObject:entry];
     }
@@ -72,7 +75,6 @@ static NSArray<NLLibraryEntry *> *NLEntriesIn(NSString *folder, NSString *bundle
 @end
 
 @implementation NLLibraryController {
-    UITableView *_table;
     UISearchController *_search;
     NSArray<NSString *> *_apps;                                       // bundle IDs, by name
     NSDictionary<NSString *, NSString *> *_names;                     // bundle ID → name, as of the load
@@ -82,7 +84,6 @@ static NSArray<NLLibraryEntry *> *NLEntriesIn(NSString *folder, NSString *bundle
     NSDateFormatter *_dates;
     BOOL _loaded;
     BOOL _appList;   // showing the apps rather than songs
-    NLPageTop *_pageTop;   // the top as the main page's (Advanced › Other pages too)
 }
 
 - (void)viewDidLoad {
@@ -93,13 +94,6 @@ static NSArray<NLLibraryEntry *> *NLEntriesIn(NSString *folder, NSString *bundle
     _dates.timeStyle = NSDateFormatterNoStyle;
     _dates.doesRelativeDateFormatting = YES;
 
-    _table = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStyleInsetGrouped];
-    _table.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    _table.dataSource = self;
-    _table.delegate = self;
-    _table.keyboardDismissMode = UIScrollViewKeyboardDismissModeOnDrag;
-    [self.view addSubview:_table];
-
     _search = [[UISearchController alloc] initWithSearchResultsController:nil];
     _search.searchResultsUpdater = self;
     _search.obscuresBackgroundDuringPresentation = NO;
@@ -107,48 +101,24 @@ static NSArray<NLLibraryEntry *> *NLEntriesIn(NSString *folder, NSString *bundle
     self.navigationItem.searchController = _search;
     self.navigationItem.hidesSearchBarWhenScrolling = NO;
     self.definesPresentationContext = YES;
-    _pageTop = [[NLPageTop alloc] initWithOwner:self table:_table];
-    [_pageTop update];
 }
 
 - (void)viewWillAppear:(BOOL)animated {
-    [_pageTop update];
     [super viewWillAppear:animated];
     [self nlLoad];
-}
-
-- (void)viewDidAppear:(BOOL)animated {
-    [super viewDidAppear:animated];
-    [_pageTop appear];
-}
-
-- (void)viewWillDisappear:(BOOL)animated {
-    [super viewWillDisappear:animated];
-    [_pageTop disappear];
-}
-
-- (void)viewDidLayoutSubviews {
-    [super viewDidLayoutSubviews];
-    [_pageTop layout];
-}
-
-- (void)preferredContentSizeDidChangeForChildContentContainer:(id<UIContentContainer>)container {
-    [super preferredContentSizeDidChangeForChildContentContainer:container];
-    [_pageTop layout];
 }
 
 - (void)nlLoad {
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         NSMutableDictionary<NSString *, NSMutableArray<NLLibraryEntry *> *> *entries = [NSMutableDictionary dictionary];
         // An app's page needs its own folder only, not a scan of every app's container.
-        NSString *container = self.onlyApp ? NLDataContainerForBundle(self.onlyApp) : nil;
-        NSDictionary<NSString *, NSString *> *folders = !self.onlyApp ? NLLyricsFolders()
-            : container ? @{self.onlyApp: [container stringByAppendingPathComponent:@"Library/NowLyrics"]} : @{};
+        NSString *own = self.onlyApp ? NLLyricsFolderForBundle(self.onlyApp) : nil;
+        NSDictionary<NSString *, NSString *> *folders = !self.onlyApp ? NLLyricsFolders() : own ? @{self.onlyApp: own} : @{};
+        NSSortDescriptor *newest = [NSSortDescriptor sortDescriptorWithKey:@"date" ascending:NO];
         for (NSString *bundleID in folders) {
             NSMutableArray<NLLibraryEntry *> *list = [NSMutableArray array];
-            NSArray *manual = NLEntriesIn([folders[bundleID] stringByAppendingPathComponent:@"manual"], bundleID, YES);
+            NSArray *manual = NLEntriesIn([folders[bundleID] stringByAppendingPathComponent:NL_MANUAL_FOLDER], bundleID, YES);
             NSArray *saved = NLEntriesIn(folders[bundleID], bundleID, NO);
-            NSSortDescriptor *newest = [NSSortDescriptor sortDescriptorWithKey:@"date" ascending:NO];
             [list addObjectsFromArray:[manual sortedArrayUsingDescriptors:@[newest]]];
             [list addObjectsFromArray:[saved sortedArrayUsingDescriptors:@[newest]]];
             if (list.count) entries[bundleID] = list;
@@ -168,8 +138,14 @@ static NSArray<NLLibraryEntry *> *NLEntriesIn(NSString *folder, NSString *bundle
     });
 }
 
+// What is searched for: the search bar's text without its outer spaces, so
+// spaces alone search for nothing.
+- (NSString *)nlQuery {
+    return [_search.searchBar.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+}
+
 - (void)nlFilter {
-    NSString *query = [_search.searchBar.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+    NSString *query = [self nlQuery];
     _appList = !self.onlyApp && query.length == 0;
     NSMutableArray<NSString *> *apps = [NSMutableArray array];
     NSMutableDictionary<NSString *, NSArray<NLLibraryEntry *> *> *shown = [NSMutableDictionary dictionary];
@@ -244,36 +220,19 @@ static NSArray<NLLibraryEntry *> *NLEntriesIn(NSString *folder, NSString *bundle
     cell.textLabel.text = _names[bundleID];
     cell.detailTextLabel.text = [NSString stringWithFormat:@"%lu", (unsigned long)_shown[bundleID].count];
     UIImage *icon = NLAppIcon(bundleID);
-    if (icon) {
-        CGSize size = CGSizeMake(29, 29);
-        cell.imageView.image = [[[UIGraphicsImageRenderer alloc] initWithSize:size] imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
-            [[UIBezierPath bezierPathWithRoundedRect:CGRectMake(0, 0, size.width, size.height) cornerRadius:6.5] addClip];
-            [icon drawInRect:CGRectMake(0, 0, size.width, size.height)];
-        }];
-    }
+    if (icon) cell.imageView.image = NLRowSizedImage(icon, YES);
     cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     return cell;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     if ([self nlIsButtonSection:indexPath.section]) {
-        UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
-        cell.textLabel.text = NLL(@"Clear lyrics cache");
-        cell.textLabel.textColor = UIColor.systemRedColor;
-        cell.imageView.image = [UIImage systemImageNamed:@"trash"];
-        cell.imageView.tintColor = UIColor.systemRedColor;
-        return cell;
+        return NLActionCell(NLL(@"Clear lyrics cache"), @"trash", UIColor.systemRedColor);
     }
     NSString *app = [self nlAppAt:indexPath];
     if (app) return [self nlAppCell:app];
     NLLibraryEntry *entry = [self nlEntryAt:indexPath];
-    if (!entry) {
-        UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
-        cell.textLabel.text = _search.searchBar.text.length ? NLL(@"No results") : NLL(@"No lyrics stored yet");
-        cell.textLabel.textColor = UIColor.secondaryLabelColor;
-        cell.selectionStyle = UITableViewCellSelectionStyleNone;
-        return cell;
-    }
+    if (!entry) return NLNoteCell([self nlQuery].length ? NLL(@"No results") : NLL(@"No lyrics stored yet"));
     UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"entry"]
         ?: [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"entry"];
     cell.textLabel.text = entry.title;
@@ -282,7 +241,10 @@ static NSArray<NLLibraryEntry *> *NLEntriesIn(NSString *folder, NSString *bundle
     if (entry.source.length) [detail addObject:entry.source];
     [detail addObject:[_dates stringFromDate:entry.date]];
     if (entry.words) [detail addObject:NLL(@"Word by word")];
+    // Wrapped rather than cut: after a long artist the source, the date and
+    // whether it is word by word would go first. The title stays on one line.
     cell.detailTextLabel.text = [detail componentsJoinedByString:@" · "];
+    cell.detailTextLabel.numberOfLines = 0;
     cell.detailTextLabel.textColor = UIColor.secondaryLabelColor;
     cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     return cell;
@@ -291,7 +253,7 @@ static NSArray<NLLibraryEntry *> *NLEntriesIn(NSString *folder, NSString *bundle
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     if ([self nlIsButtonSection:indexPath.section]) {
-        [self nlConfirmClear];
+        NLConfirm(self, NLL(@"Clear lyrics cache?"), NLL(@"Lyrics you added are kept."), NLL(@"Clear"), ^{ [self nlClear]; });
         return;
     }
     NSString *app = [self nlAppAt:indexPath];
@@ -314,9 +276,8 @@ static NSArray<NLLibraryEntry *> *NLEntriesIn(NSString *folder, NSString *bundle
     UIContextualAction *delete = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive
                                                                          title:NLL(@"Delete")
                                                                        handler:^(UIContextualAction *a, UIView *v, void (^done)(BOOL)) {
-        [[NSFileManager defaultManager] removeItemAtPath:entry.path error:nil];
+        NLDeleteLyricsFile(entry.path);
         [self->_entries[entry.bundleID] removeObject:entry];
-        NLPostLyricsChanged();
         [self nlFilter];
         done(YES);
     }];
@@ -324,16 +285,6 @@ static NSArray<NLLibraryEntry *> *NLEntriesIn(NSString *folder, NSString *bundle
 }
 
 #pragma mark Clearing
-
-- (void)nlConfirmClear {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:NLL(@"Clear lyrics cache?")
-                                                                   message:NLL(@"Lyrics you added are kept.")
-                                                            preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:NLL(@"Cancel") style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:NLL(@"Clear") style:UIAlertActionStyleDestructive
-                                            handler:^(UIAlertAction *a) { [self nlClear]; }]];
-    [self presentViewController:alert animated:YES completion:nil];
-}
 
 // The saved files of every app, deleted here and now (Preferences can reach
 // them); running apps are told to forget theirs. Added lyrics stay.

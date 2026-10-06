@@ -64,30 +64,22 @@
         NLAlert(self, NLL(@"These lyrics have no times"), NLL(@"Every line needs a [mm:ss.xx] time."));
         return;
     }
-    NSError *error = nil;
-    if (![text writeToFile:_path atomically:YES encoding:NSUTF8StringEncoding error:&error]) {
-        NLAlert(self, NLL(@"Could not save"), error.localizedDescription);
-        return;
-    }
-    _original = text;
-    NLPostLyricsChanged();
-    if (self.onChange) self.onChange();
-    [self.navigationController popViewControllerAnimated:YES];
+    if (!NLSaveLyricsFile(self, text, _path)) return;
+    _original = text;   // a second Save during the pop finds nothing new
+    [self nlDone];
 }
 
 - (void)nlDelete {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:NLL(@"Delete these lyrics?")
-                                                                   message:NLL(@"The app looks the song up again.")
-                                                            preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:NLL(@"Cancel") style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:NLL(@"Delete") style:UIAlertActionStyleDestructive
-                                            handler:^(UIAlertAction *action) {
-        [[NSFileManager defaultManager] removeItemAtPath:self->_path error:nil];
-        NLPostLyricsChanged();
-        if (self.onChange) self.onChange();
-        [self.navigationController popViewControllerAnimated:YES];
-    }]];
-    [self presentViewController:alert animated:YES completion:nil];
+    NLConfirm(self, NLL(@"Delete these lyrics?"), NLL(@"The app looks the song up again."), NLL(@"Delete"), ^{
+        NLDeleteLyricsFile(self->_path);
+        [self nlDone];
+    });
+}
+
+// Saved or deleted: the page that opened this one follows, and the editor closes.
+- (void)nlDone {
+    if (self.onChange) self.onChange();
+    [self.navigationController popViewControllerAnimated:YES];
 }
 
 @end

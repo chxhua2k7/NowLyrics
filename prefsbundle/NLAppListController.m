@@ -3,7 +3,7 @@
 //  "Choose Apps": AltList's app list with a filter in the navigation bar,
 //  music apps only (the default) or every app. A subclass of
 //  ATLApplicationListMultiSelectionController made at runtime, as AltList is
-//  dlopen'ed rather than linked (NLOffsetCell.m).
+//  dlopen'ed rather than linked (the constructor at the end of this file).
 //
 //  The filter is AltList's own: a custom section whose predicate it runs on
 //  the apps it lists anyway. A music app is one the App Store files under
@@ -13,7 +13,6 @@
 //
 
 #import "NLLyricsPages.h"
-#import <Preferences/PSSpecifier.h>
 #import <objc/message.h>
 #import <objc/runtime.h>
 
@@ -41,13 +40,13 @@ static NSArray *NLListSections(PSListController *list) {
     if (!NLMusicOnly()) return plist;
 
     NSMutableOrderedSet<NSString *> *ids = [NSMutableOrderedSet orderedSetWithArray:@[@"com.apple.Music", @"com.apple.podcasts"]];
+    // Bundle IDs only, so the predicate format stays a plain list.
+    NSCharacterSet *notInID = [[NSCharacterSet characterSetWithCharactersInString:
+        @"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_"] invertedSet];
     for (id chosen in @[[list.specifier propertyForKey:@"default"] ?: @[], NLReadPref(nil, @"enabledApps") ?: @[]]) {
         if (![chosen isKindOfClass:NSArray.class]) continue;
         for (id bundleID in chosen) {
-            // Bundle IDs only, so the predicate format stays a plain list.
-            if ([bundleID isKindOfClass:NSString.class] &&
-                [bundleID rangeOfCharacterFromSet:[[NSCharacterSet characterSetWithCharactersInString:
-                    @"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_"] invertedSet]].location == NSNotFound) {
+            if ([bundleID isKindOfClass:NSString.class] && [bundleID rangeOfCharacterFromSet:notInID].location == NSNotFound) {
                 [ids addObject:bundleID];
             }
         }
@@ -70,15 +69,11 @@ static void NLListSetFilter(PSListController *self, BOOL musicOnly);
 static void NLListUpdateButton(PSListController *self) {
     BOOL music = NLMusicOnly();
     __weak PSListController *weakSelf = self;
-    UIAction *musicAction = [UIAction actionWithTitle:NLL(@"Music Apps") image:[UIImage systemImageNamed:@"music.note"]
-                                           identifier:nil handler:^(UIAction *action) { NLListSetFilter(weakSelf, YES); }];
-    UIAction *allAction = [UIAction actionWithTitle:NLL(@"All Apps") image:[UIImage systemImageNamed:@"square.grid.2x2"]
-                                         identifier:nil handler:^(UIAction *action) { NLListSetFilter(weakSelf, NO); }];
-    musicAction.state = music ? UIMenuElementStateOn : UIMenuElementStateOff;
-    allAction.state = music ? UIMenuElementStateOff : UIMenuElementStateOn;
+    NSArray<UIAction *> *actions = NLChoiceActions(@[NLL(@"Music Apps"), NLL(@"All Apps")], @[@"music.note", @"square.grid.2x2"],
+                                                   @[@YES, @NO], @(music), ^(id value) { NLListSetFilter(weakSelf, [value boolValue]); });
     NSString *symbol = music ? @"line.3.horizontal.decrease.circle.fill" : @"line.3.horizontal.decrease.circle";
     UIImage *image = [UIImage systemImageNamed:symbol] ?: [UIImage systemImageNamed:@"line.horizontal.3.decrease.circle"];
-    UIMenu *menu = [UIMenu menuWithTitle:NLL(@"Filter") children:@[musicAction, allAction]];
+    UIMenu *menu = [UIMenu menuWithTitle:NLL(@"Filter") children:actions];
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithImage:image menu:menu];
 }
 
@@ -144,8 +139,9 @@ static void NLListChildSizeChanged(PSListController *self, SEL _cmd, id<UIConten
 
 // Made whenever AltList is there, as the plist names it; an AltList without
 // these methods gets its own list, unfiltered (with the top all the same).
-void NLRegisterAppListController(void) {
-    gListBase = objc_getClass("ATLApplicationListMultiSelectionController");
+static void NLRegisterAppListController(void) {
+    gListBase = NLLoadedClass("ATLApplicationListMultiSelectionController",
+                              NLJBPath(@"/Library/Frameworks/AltList.framework/AltList").fileSystemRepresentation);
     if (!gListBase || objc_getClass("NLAppListController")) return;
     Class list = objc_allocateClassPair(gListBase, "NLAppListController", 0);
     if (!list) return;
@@ -161,4 +157,14 @@ void NLRegisterAppListController(void) {
     class_addMethod(list, @selector(viewDidLayoutSubviews), (IMP)NLListViewDidLayoutSubviews, "v@:");
     class_addMethod(list, @selector(preferredContentSizeDidChangeForChildContentContainer:), (IMP)NLListChildSizeChanged, "v@:@");
     objc_registerClassPair(list);
+}
+
+// AltList, dlopen'ed as this bundle loads unless it is loaded already (it used
+// to be the bundle's executable), so ATLApplicationListMultiSelectionController
+// resolves when the plist names it; then Choose Apps' list, with its filter.
+__attribute__((constructor))
+static void NLLoadAltList(void) {
+    @autoreleasepool {
+        NLRegisterAppListController();
+    }
 }

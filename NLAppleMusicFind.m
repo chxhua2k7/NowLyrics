@@ -4,6 +4,7 @@
 //
 
 #import "NLAppleMusicFind.h"
+#import "NLShared.h"
 
 // For comparing titles and artists: one script (Traditional as Simplified),
 // no case, accents or widths, no bracketed parts ("(feat. …)", "[Live]") or
@@ -13,11 +14,7 @@ static NSString *NLFold(NSString *text) {
     NSString *s = [text stringByApplyingTransform:@"Hant-Hans" reverse:NO] ?: text;
     s = [s stringByFoldingWithOptions:NSCaseInsensitiveSearch | NSDiacriticInsensitiveSearch | NSWidthInsensitiveSearch
                                locale:nil];
-    static NSRegularExpression *brackets;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        brackets = [NSRegularExpression regularExpressionWithPattern:@"[\\(\\[（【].*?[\\)\\]）】]" options:0 error:nil];
-    });
+    NSRegularExpression *brackets = NL_ONCE([NSRegularExpression regularExpressionWithPattern:@"[\\(\\[（【].*?[\\)\\]）】]" options:0 error:nil]);
     s = [brackets stringByReplacingMatchesInString:s options:0 range:NSMakeRange(0, s.length) withTemplate:@""];
     NSRange dash = [s rangeOfString:@" - "];
     if (dash.location != NSNotFound && dash.location > 0) s = [s substringToIndex:dash.location];
@@ -33,7 +30,7 @@ static NSString *NLFold(NSString *text) {
 // The asked-for artist's parts ("A & B", "A, B") folded, those of two letters
 // or more: the same for every search result.
 static NSArray<NSString *> *NLArtistParts(NSString *artist) {
-    NSCharacterSet *separators = [NSCharacterSet characterSetWithCharactersInString:@"&,/、，;＆"];
+    NSCharacterSet *separators = NL_ONCE([NSCharacterSet characterSetWithCharactersInString:@"&,/、，;＆"]);
     NSMutableArray<NSString *> *parts = [NSMutableArray array];
     for (NSString *part in [artist componentsSeparatedByCharactersInSet:separators]) {
         NSString *folded = NLFold(part);
@@ -73,7 +70,7 @@ static NSDictionary *NLBestMatch(NSArray *results, NSString *title, NSString *ar
         int titleScore = [name isEqualToString:wanted] ? 3
                        : (name.length && wanted.length && ([name containsString:wanted] || [wanted containsString:name])) ? 2 : 0;
         if (titleScore == 0) continue;
-        double length = [result[@"trackTimeMillis"] respondsToSelector:@selector(doubleValue)] ? [result[@"trackTimeMillis"] doubleValue] / 1000 : 0;
+        double length = NLLooseNum(result[@"trackTimeMillis"], 0) / 1000;
         double apart = (duration > 0 && length > 0) ? fabs(duration - length) : -1;
         if (apart > 5) continue;
         BOOL artistMeets = NLArtistsMeet(wantedArtist, artistParts, result[@"artistName"]);
@@ -81,8 +78,7 @@ static NSDictionary *NLBestMatch(NSArray *results, NSString *title, NSString *ar
         double score = titleScore * 10 + (artistMeets ? 5 : 0) + (apart >= 0 ? 5 - apart : 0);
         if (score > bestScore) {
             bestScore = score;
-            best = @{@"id": trackID, @"title": result[@"trackName"] ?: @"", @"artist": result[@"artistName"] ?: @"",
-                     @"apart": @(apart)};
+            best = @{@"id": trackID, @"title": result[@"trackName"] ?: @"", @"artist": result[@"artistName"] ?: @""};
         }
     }
     return best;
@@ -106,13 +102,25 @@ static void NLSearchAppleMusic(NSArray<NSString *> *terms, NSUInteger index, NSS
         [NSURLQueryItem queryItemWithName:@"country" value:country],
     ];
     [[NSURLSession.sharedSession dataTaskWithURL:url.URL completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        // Only a list of results is an answer. A refusal (rate limited, a
+        // server error) or a body that is not one is a failed search, which
+        // must not be taken, and remembered, as "not on Apple Music".
+        NSInteger status = [response isKindOfClass:NSHTTPURLResponse.class] ? ((NSHTTPURLResponse *)response).statusCode : 200;
+        NSArray *results = nil;
+        NSString *problem = nil;
         if (error || !data) {
-            dispatch_async(dispatch_get_main_queue(), ^{ done(nil, error.localizedDescription ?: @"no data"); });
+            problem = error.localizedDescription ?: @"no data";
+        } else if (status < 200 || status > 299) {
+            problem = [NSString stringWithFormat:@"HTTP %ld", (long)status];
+        } else {
+            results = NLArray([NSJSONSerialization JSONObjectWithData:data options:0 error:nil], @"results");
+            if (!results) problem = @"unreadable answer";
+        }
+        if (problem) {
+            dispatch_async(dispatch_get_main_queue(), ^{ done(nil, problem); });
             return;
         }
-        id json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-        NSArray *results = [json isKindOfClass:NSDictionary.class] ? json[@"results"] : nil;
-        NSDictionary *match = [results isKindOfClass:NSArray.class] ? NLBestMatch(results, title, artist, duration) : nil;
+        NSDictionary *match = NLBestMatch(results, title, artist, duration);
         if (match) {
             dispatch_async(dispatch_get_main_queue(), ^{ done(match, nil); });
             return;

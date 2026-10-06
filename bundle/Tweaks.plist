@@ -17,8 +17,6 @@
 			<string>PSSwitchCell</string>
 			<key>default</key>
 			<true/>
-			<key>defaults</key>
-			<string>app.nowlyrics</string>
 			<key>iconBundle</key>
 			<string>/Library/PreferenceBundles/CRPrefs.bundle</string>
 			<key>iconColor</key>
@@ -31,8 +29,6 @@
 			<string>Crescendo</string>
 			<key>nlTweak</key>
 			<string>crescendo</string>
-			<key>showIf</key>
-			<string>nlCrescendoUsed</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -47,8 +43,6 @@
 			<string>PSSwitchCell</string>
 			<key>default</key>
 			<true/>
-			<key>defaults</key>
-			<string>app.nowlyrics</string>
 			<key>iconBundle</key>
 			<string>/Library/PreferenceBundles/NUPrefs.bundle</string>
 			<key>iconColor</key>
@@ -61,8 +55,6 @@
 			<string>NextUp 3</string>
 			<key>nlTweak</key>
 			<string>nextup</string>
-			<key>showIf</key>
-			<string>nlNextUpUsed</string>
 		</dict>
 	</array>
 	<key>title</key>

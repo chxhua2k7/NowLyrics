@@ -10,7 +10,7 @@
 //  Japanese have their own.
 //
 
-#import <UIKit/UIKit.h>
+#import "NLLyricsPages.h"
 
 typedef NS_ENUM(NSInteger, NLJokeLanguage) { NLJokeChinese, NLJokeEnglish, NLJokeJapanese };
 
@@ -338,7 +338,7 @@ static NSString *NLJapaneseHoliday(NLNow n) {
 
 #pragma mark - Pool
 
-static NLNow NLCurrentNow(void) {
+static NLNow NLCurrentNow(BOOL lunar) {
     NLNow n = {0};
     NSDate *now = [NSDate date];
     NSCalendar *greg = [NSCalendar calendarWithIdentifier:NSCalendarIdentifierGregorian];
@@ -346,13 +346,15 @@ static NLNow NLCurrentNow(void) {
                                            NSCalendarUnitWeekday | NSCalendarUnitHour | NSCalendarUnitMinute fromDate:now];
     n.month = c.month; n.day = c.day; n.weekday = c.weekday; n.hour = c.hour; n.minute = c.minute;
 
-    NSCalendar *lunar = [NSCalendar calendarWithIdentifier:NSCalendarIdentifierChinese];
-    NSDateComponents *l = [lunar components:NSCalendarUnitMonth | NSCalendarUnitDay fromDate:now];
-    n.lunarMonth = l.isLeapMonth ? 0 : l.month;
-    n.lunarDay = l.day;
-    NSDateComponents *tomorrow = [lunar components:NSCalendarUnitMonth | NSCalendarUnitDay
-                                          fromDate:[greg dateByAddingUnit:NSCalendarUnitDay value:1 toDate:now options:0]];
-    n.lunarNewYearsEve = !tomorrow.isLeapMonth && tomorrow.month == 1 && tomorrow.day == 1;
+    if (lunar) {   // only the Chinese holidays go by the lunar calendar
+        NSCalendar *chinese = [NSCalendar calendarWithIdentifier:NSCalendarIdentifierChinese];
+        NSDateComponents *l = [chinese components:NSCalendarUnitMonth | NSCalendarUnitDay fromDate:now];
+        n.lunarMonth = l.isLeapMonth ? 0 : l.month;
+        n.lunarDay = l.day;
+        NSDateComponents *tomorrow = [chinese components:NSCalendarUnitMonth | NSCalendarUnitDay
+                                                fromDate:[greg dateByAddingUnit:NSCalendarUnitDay value:1 toDate:now options:0]];
+        n.lunarNewYearsEve = !tomorrow.isLeapMonth && tomorrow.month == 1 && tomorrow.day == 1;
+    }
 
     NSDateComponents *jan1 = [NSDateComponents new];
     jan1.year = c.year; jan1.month = 1; jan1.day = 1;
@@ -376,10 +378,11 @@ static NLNow NLCurrentNow(void) {
 // Everything worth saying right now. Today's holiday goes in three times, so
 // it comes round often.
 NSArray<NSString *> *NLPreviewLinePool(NSBundle *bundle) {
-    NLNow n = NLCurrentNow();
+    NLJokeLanguage language = NLPreviewLanguage(bundle);
+    NLNow n = NLCurrentNow(language == NLJokeChinese);
     NSMutableArray<NSString *> *pool = [NSMutableArray array];
     NSString *holiday = nil;
-    switch (NLPreviewLanguage(bundle)) {
+    switch (language) {
         case NLJokeChinese:
             [pool addObjectsFromArray:NLChineseGeneric()];
             [pool addObjectsFromArray:NLChineseWeekday(n.weekday)];

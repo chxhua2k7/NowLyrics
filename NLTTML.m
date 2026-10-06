@@ -20,6 +20,13 @@ static NSTimeInterval NLTTMLTime(NSString *value) {
     return total;
 }
 
+// A word's text with each run of whitespace (the XML's line breaks and
+// indentation; the regex's \s) as one space.
+static NSString *NLCollapseSpaces(NSString *text) {
+    NSRegularExpression *runs = NL_ONCE([NSRegularExpression regularExpressionWithPattern:@"\\s+" options:0 error:nil]);
+    return [runs stringByReplacingMatchesInString:text options:0 range:NSMakeRange(0, text.length) withTemplate:@" "];
+}
+
 @interface NLTTMLReader : NSObject <NSXMLParserDelegate>
 @property (nonatomic, strong) NSMutableArray<NLLyricLine *> *lines;
 @end
@@ -38,24 +45,28 @@ static NSTimeInterval NLTTMLTime(NSString *value) {
     return self;
 }
 
+// "ttm:role" → "role": prefixes differ between files (ttm:role, role) and are
+// not processed, so names are compared without them.
+static NSString *NLLocalName(NSString *name) {
+    NSRange colon = [name rangeOfString:@":" options:NSBackwardsSearch];
+    return colon.location == NSNotFound ? name : [name substringFromIndex:NSMaxRange(colon)];
+}
+
 static NSString *NLAttr(NSDictionary *attributes, NSString *name) {
     for (NSString *key in attributes) {
-        // Prefixes differ between files (ttm:role, role); compare the local name.
-        NSString *local = [key componentsSeparatedByString:@":"].lastObject;
-        if ([local isEqualToString:name]) return attributes[key];
+        if ([NLLocalName(key) isEqualToString:name]) return attributes[key];
     }
     return nil;
 }
 
 - (void)parser:(NSXMLParser *)parser didStartElement:(NSString *)element namespaceURI:(NSString *)ns
  qualifiedName:(NSString *)qName attributes:(NSDictionary *)attributes {
-    NSString *name = [element componentsSeparatedByString:@":"].lastObject;
+    NSString *name = NLLocalName(element);
     if (!_line) {
         if (![name isEqualToString:@"p"]) return;
         NSTimeInterval begin = NLTTMLTime(NLAttr(attributes, @"begin"));
         if (begin < 0) return;
-        _line = [NLLyricLine new];
-        _line.start = begin;
+        _line = [NLLyricLine lineAt:begin text:nil];
         _line.end = MAX(NLTTMLTime(NLAttr(attributes, @"end")), 0);
         _lineText = [NSMutableString string];
         _words = [NSMutableArray array];
@@ -72,12 +83,7 @@ static NSString *NLAttr(NSDictionary *attributes, NSString *name) {
     }
     if ([name isEqualToString:@"span"]) {
         NSTimeInterval begin = NLTTMLTime(NLAttr(attributes, @"begin"));
-        if (begin >= 0) {
-            _word = [NLLyricWord new];
-            _word.start = begin;
-            _word.end = MAX(NLTTMLTime(NLAttr(attributes, @"end")), 0);
-            _word.text = @"";
-        }
+        if (begin >= 0) _word = [NLLyricWord wordAt:begin end:MAX(NLTTMLTime(NLAttr(attributes, @"end")), 0) text:@""];
     }
 }
 
@@ -109,19 +115,17 @@ static NSString *NLAttr(NSDictionary *attributes, NSString *name) {
 
 - (void)finishLine {
     // Collapse the XML's line breaks and indentation into single spaces.
-    for (NLLyricWord *word in _words) {
-        word.text = [word.text stringByReplacingOccurrencesOfString:@"\\s+" withString:@" "
-                                                            options:NSRegularExpressionSearch
-                                                              range:NSMakeRange(0, word.text.length)];
-    }
+    for (NLLyricWord *word in _words) word.text = NLCollapseSpaces(word.text);
     if (_words.count) {
         // The words' own text decides the line, as NLParseLRC does.
         NLLyricLine *line = NLLineFromWords(_words, _line.start, _line.end);
         if (line) [_lines addObject:line];
     } else {
-        NSCharacterSet *space = [NSCharacterSet whitespaceAndNewlineCharacterSet];
-        _line.text = [[[_lineText componentsSeparatedByCharactersInSet:space]
-                       filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"length > 0"]] componentsJoinedByString:@" "];
+        NSMutableArray<NSString *> *parts = [NSMutableArray array];
+        for (NSString *part in [_lineText componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]) {
+            if (part.length) [parts addObject:part];
+        }
+        _line.text = [parts componentsJoinedByString:@" "];
         if (_line.text.length) [_lines addObject:_line];
     }
     _line = nil;
@@ -137,8 +141,7 @@ NSArray<NLLyricLine *> *NLParseTTML(NSString *ttml) {
     NSXMLParser *parser = [[NSXMLParser alloc] initWithData:data];
     NLTTMLReader *reader = [NLTTMLReader new];
     parser.delegate = reader;
-    parser.shouldProcessNamespaces = NO;
-    if (![parser parse] && reader.lines.count == 0) return nil;
+    [parser parse];   // a parse error keeps the lines read up to it
     return NLFinishWordLines(reader.lines);   // sorted, with breaks where lines end long before the next
 }
 

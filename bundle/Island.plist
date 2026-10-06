@@ -19,8 +19,6 @@
 			<integer>150</integer>
 			<key>id</key>
 			<string>islandPreview</string>
-			<key>showIf</key>
-			<string>islandLyrics</string>
 		</dict>
 		<dict>
 			<key>cell</key>
@@ -35,8 +33,6 @@
 			<string>PSSwitchCell</string>
 			<key>default</key>
 			<false/>
-			<key>defaults</key>
-			<string>app.nowlyrics</string>
 			<key>iconColor</key>
 			<string>#AF52DE</string>
 			<key>iconSymbol</key>
@@ -63,8 +59,6 @@
 			<string>PSSwitchCell</string>
 			<key>default</key>
 			<false/>
-			<key>defaults</key>
-			<string>app.nowlyrics</string>
 			<key>iconColor</key>
 			<string>#FF2D55</string>
 			<key>iconSymbol</key>
@@ -73,8 +67,6 @@
 			<string>islandPreviewLive</string>
 			<key>label</key>
 			<string>Preview what’s playing</string>
-			<key>showIf</key>
-			<string>islandLyrics</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -85,8 +77,6 @@
 			<string>NLPopUpCell</string>
 			<key>default</key>
 			<string>closed</string>
-			<key>defaults</key>
-			<string>app.nowlyrics</string>
 			<key>iconColor</key>
 			<string>#5856D6</string>
 			<key>iconSymbol</key>
@@ -95,8 +85,6 @@
 			<string>islandPreviewOpen</string>
 			<key>label</key>
 			<string>Preview island</string>
-			<key>showIf</key>
-			<string>islandLyrics</string>
 			<key>validTitles</key>
 			<array>
 				<string>Compact</string>
@@ -119,8 +107,6 @@
 			<string>NLPopUpCell</string>
 			<key>default</key>
 			<string>white</string>
-			<key>defaults</key>
-			<string>app.nowlyrics</string>
 			<key>iconColor</key>
 			<string>#FF9F0A</string>
 			<key>iconSymbol</key>
@@ -129,8 +115,6 @@
 			<string>islandColor</string>
 			<key>label</key>
 			<string>Lyrics color</string>
-			<key>showIf</key>
-			<string>islandLyrics</string>
 			<key>validTitles</key>
 			<array>
 				<string>White</string>
@@ -151,8 +135,6 @@
 			<string>NLPopUpCell</string>
 			<key>default</key>
 			<string>fade</string>
-			<key>defaults</key>
-			<string>app.nowlyrics</string>
 			<key>iconColor</key>
 			<string>#30B0C7</string>
 			<key>iconSymbol</key>
@@ -161,8 +143,6 @@
 			<string>islandTransition</string>
 			<key>label</key>
 			<string>Line change</string>
-			<key>showIf</key>
-			<string>islandLyrics</string>
 			<key>validTitles</key>
 			<array>
 				<string>Fade</string>
@@ -181,8 +161,6 @@
 			<string>PSSwitchCell</string>
 			<key>default</key>
 			<true/>
-			<key>defaults</key>
-			<string>app.nowlyrics</string>
 			<key>iconColor</key>
 			<string>#FF9F0A</string>
 			<key>iconSymbol</key>
@@ -191,8 +169,6 @@
 			<string>islandWordByWord</string>
 			<key>label</key>
 			<string>Word by word</string>
-			<key>showIf</key>
-			<string>islandLyrics</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>
@@ -203,8 +179,6 @@
 			<string>NLOffsetCell</string>
 			<key>default</key>
 			<real>11.0</real>
-			<key>defaults</key>
-			<string>app.nowlyrics</string>
 			<key>height</key>
 			<integer>92</integer>
 			<key>iconColor</key>
@@ -219,8 +193,6 @@
 			<real>15.0</real>
 			<key>min</key>
 			<real>9.0</real>
-			<key>showIf</key>
-			<string>islandLyrics</string>
 			<key>step</key>
 			<real>0.5</real>
 			<key>unit</key>
@@ -235,8 +207,6 @@
 			<string>NLOffsetCell</string>
 			<key>default</key>
 			<real>30.0</real>
-			<key>defaults</key>
-			<string>app.nowlyrics</string>
 			<key>displayScale</key>
 			<real>30.0</real>
 			<key>height</key>
@@ -253,8 +223,6 @@
 			<real>81.0</real>
 			<key>min</key>
 			<real>9.0</real>
-			<key>showIf</key>
-			<string>islandLyrics</string>
 			<key>step</key>
 			<real>3.0</real>
 			<key>unit</key>

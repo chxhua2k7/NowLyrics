@@ -6,9 +6,7 @@
 //  dump), so they show as dots rather than in full.
 //
 
-#import <UIKit/UIKit.h>
 #import <Preferences/PSEditableTableCell.h>
-#import <Preferences/PSSpecifier.h>
 
 @interface PSEditableTableCell (NLTextField) <UITextFieldDelegate>
 - (UITextField *)textField;

@@ -8,7 +8,6 @@
 //
 
 #import "NLLyricsPages.h"
-#import <Preferences/PSSpecifier.h>
 
 #pragma mark - The page
 
@@ -23,6 +22,7 @@ static void NLAppleMusicAnswered(CFNotificationCenterRef center, void *observer,
     NSMutableArray<NSString *> *_report;
     NSString *_requestID;
     NSTimer *_timeout;
+    NSUInteger _test;   // the running test's number, moved on as it ends
     BOOL _listening;
 }
 
@@ -39,23 +39,29 @@ static void NLAppleMusicAnswered(CFNotificationCenterRef center, void *observer,
 - (void)nlTestAppleMusic:(PSSpecifier *)specifier {
     if (_alert) return;
     _report = [NSMutableArray array];
-    _alert = [UIAlertController alertControllerWithTitle:NLL(@"Apple Music test") message:@"" preferredStyle:UIAlertControllerStyleAlert];
     __weak typeof(self) weakSelf = self;
-    [_alert addAction:[UIAlertAction actionWithTitle:NLL(@"OK") style:UIAlertActionStyleCancel
-                                             handler:^(UIAlertAction *action) { [weakSelf nlEndTest]; }]];
-    [self presentViewController:_alert animated:YES completion:nil];
+    _alert = NLPresentAlert(self, NLL(@"Apple Music test"), @"", @[
+        [UIAlertAction actionWithTitle:NLL(@"OK") style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) { [weakSelf nlEndTest]; }],
+    ]);
     [self nlSay:NLL(@"Looking at what is playing…")];
 
+    // Ended (OK) before the song was known, or followed by another test, this
+    // one goes no further: no request to SpringBoard, nothing said in the next
+    // test's report. Told apart by number, so the answer, which may never
+    // come, keeps no dismissed alert alive.
+    NSUInteger test = ++_test;
     NLPlayingSong(^(NSString *bundleID, NSDictionary *np) {
-        NSString *title = [np[NL_NP_TITLE] isKindOfClass:NSString.class] ? np[NL_NP_TITLE] : nil;
-        NSString *artist = [np[NL_NP_ARTIST] isKindOfClass:NSString.class] ? np[NL_NP_ARTIST] : @"";
-        double duration = [np[NL_NP_DURATION] respondsToSelector:@selector(doubleValue)] ? [np[NL_NP_DURATION] doubleValue] : 0;
+        NLAppleMusicController *me = weakSelf;
+        if (!me || me->_test != test) return;
+        NSString *title = NLString(np, NL_NP_TITLE);
+        NSString *artist = NLString(np, NL_NP_ARTIST) ?: @"";
+        double duration = NLLooseNum(np[NL_NP_DURATION], 0);
         if (!title.length) {
-            [weakSelf nlSay:NLL(@"Nothing is playing in an app NowLyrics is on for.")];
+            [me nlSay:NLL(@"Nothing is playing in an app NowLyrics is on for.")];
             return;
         }
-        [weakSelf nlSay:[NSString stringWithFormat:NLL(@"Playing in %@: %@ — %@"), NLAppName(bundleID), title, artist]];
-        [weakSelf nlAskSpringBoard:@{@"title": title, @"artist": artist, @"duration": @(duration)}];
+        [me nlSay:[NSString stringWithFormat:NLL(@"Playing in %@: %@ — %@"), NLAppName(bundleID), title, artist]];
+        [me nlAskSpringBoard:@{@"title": title, @"artist": artist, @"duration": @(duration)}];
     });
 }
 
@@ -82,11 +88,8 @@ static void NLAppleMusicAnswered(CFNotificationCenterRef center, void *observer,
     NSMutableDictionary *request = [song mutableCopy];
     request[@"id"] = _requestID;
     request[@"time"] = [NSDate date];
-    [[NSFileManager defaultManager] createDirectoryAtPath:NL_AM_DIR withIntermediateDirectories:YES attributes:nil error:nil];
-    [request writeToFile:NL_AM_REQUEST_FILE atomically:YES];
-    [self nlStartListening];
-    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
-                                         (__bridge CFStringRef)NL_AM_REQUEST_NOTIFICATION, NULL, NULL, YES);
+    [self nlStartListening];   // first: the answer is matched by its id
+    NLWritePlistAndPost(request, NL_AM_REQUEST_FILE, NL_AM_REQUEST_NOTIFICATION);
     __weak typeof(self) weakSelf = self;
     [_timeout invalidate];
     _timeout = [NSTimer scheduledTimerWithTimeInterval:20 repeats:NO block:^(NSTimer *timer) {
@@ -114,7 +117,7 @@ static void NLAppleMusicAnswered(CFNotificationCenterRef center, void *observer,
         [self nlSay:[NSString stringWithFormat:NLL(@"On Apple Music: %@ — %@ (ID %@)"),
                      answer[@"matchTitle"] ?: @"?", answer[@"matchArtist"] ?: @"?", answer[@"adamID"]]];
     }
-    NSString *ttml = [answer[@"ttml"] isKindOfClass:NSString.class] ? answer[@"ttml"] : nil;
+    NSString *ttml = NLString(answer, @"ttml");
     if (!ttml.length) {
         [self nlSay:[NSString stringWithFormat:NLL(@"SpringBoard could not get them: %@"), answer[@"error"] ?: @"?"]];
         return;
@@ -125,17 +128,14 @@ static void NLAppleMusicAnswered(CFNotificationCenterRef center, void *observer,
                      (unsigned long)ttml.length]];
         return;
     }
-    NSMutableArray<NSString *> *first = [NSMutableArray array];
-    for (NLLyricLine *line in lines) {
-        if (line.text.length) [first addObject:line.text];
-        if (first.count == 2) break;
-    }
+    NSArray<NSString *> *first = NLSungTexts(lines, 2);
     [self nlSay:[NSString stringWithFormat:NLL(@"SpringBoard got the lyrics in %.1f s: %lu lines, %@."), elapsed,
                  (unsigned long)lines.count, NLHasWords(lines) ? NLL(@"word by word") : NLL(@"lines only")]];
     if (first.count) [self nlSay:[first componentsJoinedByString:@"\n"]];
 }
 
 - (void)nlEndTest {
+    _test++;
     _alert = nil;
     _requestID = nil;
     [_timeout invalidate];
