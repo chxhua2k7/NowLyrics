@@ -156,7 +156,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Diagnostics shows which source answered in the artist field. Quit app on change kills the app on every settings change. Fix Spotify Connect titles turns “Title • Artist / Playing on a device” back into the real title and artist.</string>
+			<string>Diagnostics shows which source answered in the artist field. Quit app on change quits the music app when a setting it uses changes. Fix Spotify Connect titles turns “Title • Artist / Playing on a device” back into the real title and artist.</string>
 		</dict>
 		<dict>
 			<key>PostNotification</key>

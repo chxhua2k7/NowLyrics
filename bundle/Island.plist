@@ -46,7 +46,7 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
-			<string>Word by word lights a line up as it is sung, for lyrics with word times: some NetEase songs, or TTML you import.</string>
+			<string>Word by word lights a line up as it is sung, for lyrics with word times: from Apple Music, Musixmatch or NetEase where they have them, or TTML and word-by-word LRC you add.</string>
 			<key>label</key>
 			<string>Appearance</string>
 			<key>showIf</key>

@@ -21,7 +21,7 @@
 "Quit app on change" = "Quit app on change";
 "Version" = "Version";
 "Shows the current lyric line in place of the track title on the lock screen, in Control Center, the Dynamic Island and CarPlay." = "Shows the current lyric line in place of the track title on the lock screen, in Control Center, the Dynamic Island and CarPlay.";
-"Diagnostics shows which source answered in the artist field. Quit app on change kills the app on every settings change. Fix Spotify Connect titles turns “Title • Artist / Playing on a device” back into the real title and artist." = "Diagnostics shows which source answered in the artist field. Quit app on change kills the app on every settings change. Fix Spotify Connect titles turns “Title • Artist / Playing on a device” back into the real title and artist.";
+"Diagnostics shows which source answered in the artist field. Quit app on change quits the music app when a setting it uses changes. Fix Spotify Connect titles turns “Title • Artist / Playing on a device” back into the real title and artist." = "Diagnostics shows which source answered in the artist field. Quit app on change quits the music app when a setting it uses changes. Fix Spotify Connect titles turns “Title • Artist / Playing on a device” back into the real title and artist.";
 "© 2026 chxhua2k7. Inspired by AMLyrics." = "© 2026 chxhua2k7. Inspired by AMLyrics.";
 "Clear lyrics cache" = "Clear lyrics cache";
 "Apply" = "Apply";
@@ -52,7 +52,7 @@
 "Now Playing" = "Now Playing";
 "Lyrics Library" = "Lyrics Library";
 "Word by word" = "Word by word";
-"Word by word lights a line up as it is sung, for lyrics with word times: some NetEase songs, or TTML you import." = "Word by word lights a line up as it is sung, for lyrics with word times: some NetEase songs, or TTML you import.";
+"Word by word lights a line up as it is sung, for lyrics with word times: from Apple Music, Musixmatch or NetEase where they have them, or TTML and word-by-word LRC you add." = "Word by word lights a line up as it is sung, for lyrics with word times: from Apple Music, Musixmatch or NetEase where they have them, or TTML and word-by-word LRC you add.";
 "Edit Lyrics" = "Edit Lyrics";
 "Save" = "Save";
 "These lyrics have no times" = "These lyrics have no times";

@@ -21,7 +21,7 @@
 "Quit app on change" = "改设置时退出 App";
 "Version" = "版本";
 "Shows the current lyric line in place of the track title on the lock screen, in Control Center, the Dynamic Island and CarPlay." = "在锁定屏幕、控制中心、灵动岛与 CarPlay 上，用当前歌词行取代曲名显示。";
-"Diagnostics shows which source answered in the artist field. Quit app on change kills the app on every settings change. Fix Spotify Connect titles turns “Title • Artist / Playing on a device” back into the real title and artist." = "诊断会在艺人栏位显示是哪个来源回应的。改设置时退出 App 会在每次改动时把 App 关掉。Spotify Connect 曲名修正把“曲名 • 艺人 / 正在用某设备播放”还原成真正的曲名和艺人。";
+"Diagnostics shows which source answered in the artist field. Quit app on change quits the music app when a setting it uses changes. Fix Spotify Connect titles turns “Title • Artist / Playing on a device” back into the real title and artist." = "诊断会在艺人栏位显示是哪个来源回应的。改设置时退出 App 会在 App 用到的设置改变时把它关掉。Spotify Connect 曲名修正把“曲名 • 艺人 / 正在用某设备播放”还原成真正的曲名和艺人。";
 "© 2026 chxhua2k7. Inspired by AMLyrics." = "© 2026 chxhua2k7。灵感来自 AMLyrics。";
 "Clear lyrics cache" = "清除歌词缓存";
 "Apply" = "应用";
@@ -52,7 +52,7 @@
 "Now Playing" = "正在播放";
 "Lyrics Library" = "歌词库";
 "Word by word" = "逐字歌词";
-"Word by word lights a line up as it is sung, for lyrics with word times: some NetEase songs, or TTML you import." = "逐字歌词会照着演唱一个字一个字亮起来，只限有逐字时间的歌词：部分网易云歌曲，或你导入的 TTML。";
+"Word by word lights a line up as it is sung, for lyrics with word times: from Apple Music, Musixmatch or NetEase where they have them, or TTML and word-by-word LRC you add." = "逐字歌词会照着演唱一个字一个字亮起来，只限有逐字时间的歌词：Apple Music、Musixmatch 或网易云有提供的，或你手动加入的 TTML 和逐字 LRC。";
 "Edit Lyrics" = "编辑歌词";
 "Save" = "保存";
 "These lyrics have no times" = "这份歌词没有时间标记";

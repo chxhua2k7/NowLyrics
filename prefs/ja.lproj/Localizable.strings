@@ -20,7 +20,7 @@
 "Quit app on change" = "設定変更時にアプリを終了";
 "Version" = "バージョン";
 "Shows the current lyric line in place of the track title on the lock screen, in Control Center, the Dynamic Island and CarPlay." = "ロック画面、コントロールセンター、Dynamic Island、CarPlay で、曲名の代わりに現在の歌詞行を表示します。";
-"Diagnostics shows which source answered in the artist field. Quit app on change kills the app on every settings change. Fix Spotify Connect titles turns “Title • Artist / Playing on a device” back into the real title and artist." = "「診断」はどのソースが応答したかをアーティスト欄に表示します。「設定変更時にアプリを終了」は変更のたびにアプリを終了します。「Spotify Connect の曲名修正」は「曲名 • アーティスト / 他デバイスで再生中」を本来の曲名とアーティストに戻します。";
+"Diagnostics shows which source answered in the artist field. Quit app on change quits the music app when a setting it uses changes. Fix Spotify Connect titles turns “Title • Artist / Playing on a device” back into the real title and artist." = "「診断」はどのソースが応答したかをアーティスト欄に表示します。「設定変更時にアプリを終了」はアプリが使う設定が変わったときにアプリを終了します。「Spotify Connect の曲名修正」は「曲名 • アーティスト / 他デバイスで再生中」を本来の曲名とアーティストに戻します。";
 "© 2026 chxhua2k7. Inspired by AMLyrics." = "© 2026 chxhua2k7。AMLyrics に着想を得ています。";
 "Clear lyrics cache" = "歌詞キャッシュを消去";
 "Apply" = "適用";
@@ -50,7 +50,7 @@
 "Now Playing" = "再生中";
 "Lyrics Library" = "歌詞ライブラリ";
 "Word by word" = "1文字ずつ";
-"Word by word lights a line up as it is sung, for lyrics with word times: some NetEase songs, or TTML you import." = "歌われるにつれて1文字ずつ光ります。単語ごとのタイミングがある歌詞のみ（一部の NetEase の曲、読み込んだ TTML）。";
+"Word by word lights a line up as it is sung, for lyrics with word times: from Apple Music, Musixmatch or NetEase where they have them, or TTML and word-by-word LRC you add." = "歌われるにつれて1文字ずつ光ります。単語ごとのタイミングがある歌詞のみ（Apple Music、Musixmatch、NetEase にあるもの、または手動で追加した TTML や単語ごとの LRC）。";
 "Edit Lyrics" = "歌詞を編集";
 "Save" = "保存";
 "These lyrics have no times" = "タイミングのない歌詞です";
