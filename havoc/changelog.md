@@ -1,3 +1,21 @@
+## 1.2.3
+
+- **Apple Music subscription** is checked only when something changes, not once a day: when Apple Music reports a change, after a respring, and when Apple Music lyrics are refused. Signing out of Media & Purchases locks Apple Music like a lapsed subscription, and unlocking then asks you to sign in first
+- **Quit app on change** quits the music app only for a change it uses: opening Settings, the island's options or the pages' layout no longer quit what is playing, and an automatic Apple Music lock looks the song up again instead
+- **Now Playing** shows the whole status; when no lyrics were found, each source's reason is on its own line. The lyrics library's details wrap instead of being cut off
+- Lyrics in the island: the line no longer fades in while the iOS 26 island is still springing open; with Album color, a song without a cover goes back to white; a long line leaving keeps its faded edges
+- Picking another source while a search is still running no longer brings back the old answer
+- Spotify and other apps: a busy or failing Apple Music search is tried again later instead of being taken as "not on Apple Music"
+- Musixmatch: a User Token field holding only spaces, or a pasted debug block without a token, counts as no token everywhere, so Now Playing no longer offers Musixmatch then; lyrics found with the User Token look the same the first time as when played again
+- LRCLIB: lyrics are found when the app does not report the song's length
+- Music: Hide "E" no longer acts while NowLyrics is switched off for Music
+- Island preview in Settings: a new cover is noticed even when it is the same size as the last one; the open preview closes properly when music stops; without a live preview, the pages' color matches what the preview shows
+- Settings: the waveform stops while its page is covered; the Apple Music test stops when you tap OK; a song's offset is no longer clipped to ±3 s when the default offset is set too
+- Lyrics library: files whose names start with a dot are listed; lyrics you added as ".LRC" are used; every word-timed file is marked Word by word; a search of only spaces shows the right note
+- Simplified Chinese and Japanese: notes name the rows as the rows are labeled
+- Smaller and lighter: shared code instead of copies across the tweak, SpringBoard and Settings
+- Added more bugs to fix later
+
 ## 1.2.2
 
 - **Transparency** for Player over its cover (Advanced, default 50 %): the cover and the system's material under it thin together, so the wallpaper shows through on the lock screen and in Control Center
