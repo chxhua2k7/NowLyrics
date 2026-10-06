@@ -204,11 +204,15 @@ The lock screen shows the line; only the island goes word by word, and only
 with lyrics that have word times. NetEase is Simplified Chinese. Musixmatch needs the
 app's token (unofficial) or an API key whose timed endpoint is usually paid.
 Matching is by strings; Apple Music relies on private API. Lyrics Island
-needs a Dynamic Island iPhone (as SpringBoardServices'
-`SBSIsSystemApertureAvailable` says, so iOS 16 iPhones given the island
-through MobileGestalt count; the settings page says so on others) and rests on
-SpringBoard internals checked on 16.5.1, 18.6.2 and 26.1; other versions may
-need adjusting. Player over its cover: lock screen and Control Center on 16
+needs the Dynamic Island as SpringBoard has it: SpringBoardServices'
+`SBSIsSystemApertureAvailable` asked in SpringBoard once it has launched and
+published as the notify state `app.nowlyrics.island`, so a device given the
+island by other means (a MobileGestalt edit, a tweak in SpringBoard; an iPad
+too) counts, and the settings page says so on others. It rests on
+SpringBoard internals checked on 16.5.1, 18.6.2 and 26.1 (and iPadOS 26.6.2
+with the island turned on); other versions may need adjusting. iPadOS 26's
+Settings floats its sidebar over the page, so the player and the island
+preview go by the table's margins and safe area, not its width. Player over its cover: lock screen and Control Center on 16
 and 18; on 26 the lock screen's player is glass, which shows what is behind it
 over the tint, and Control Center's media module already takes the cover's
 colors, so it stays as the system draws it; there the setting is hidden and

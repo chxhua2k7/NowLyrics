@@ -133,9 +133,11 @@ iOS 17 以上改掛在元件自己的 view:那裡容器的內容 view 規定只�
 ## 限制
 
 鎖定畫面一次一行;只有島會逐字,而且要歌詞有逐字時間。網易雲是簡體。Musixmatch 要 App 的 token(非官方)或 API key(帶時間軸的端點通常要付費)。
-比對靠字串;Apple Music 依賴私有 API。歌詞上島需要有動態島的 iPhone(依 SpringBoardServices 的
-`SBSIsSystemApertureAvailable` 判斷,所以 iOS 16 用 MobileGestalt 開出動態島的 iPhone 也算;其他機型設定頁會說明),
-依賴在 16.5.1、18.6.2、26.1 確認過的 SpringBoard 內部實作,其他版本可能需要調整。播放器用封面背景:16 與 18 的
+比對靠字串;Apple Music 依賴私有 API。歌詞上島需要 SpringBoard 裡有動態島(SpringBoard 啟動完成後問 SpringBoardServices 的
+`SBSIsSystemApertureAvailable`,以 notify state `app.nowlyrics.island` 發布,所以用其他方式開出動態島的機型也算,
+例如改 MobileGestalt 或 SpringBoard 裡的插件,iPad 也一樣;其他機型設定頁會說明),
+依賴在 16.5.1、18.6.2、26.1(以及開了動態島的 iPadOS 26.6.2)確認過的 SpringBoard 內部實作,其他版本可能需要調整。
+iPadOS 26 的「設定」側邊欄浮在頁面上,所以播放器和預覽島依表格的邊距與安全區域排版,而不是表格寬度。播放器用封面背景:16 與 18 的
 鎖定畫面和控制中心;26 的鎖定畫面播放器是玻璃,會把背後的畫面蓋在顏色上,控制中心的媒體模組本來就取封面顏色,
 所以維持系統原樣;26 上這個設定會隱藏,設定頁的播放器也維持系統外觀,跟鎖定畫面一致。
 

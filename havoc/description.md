@@ -37,7 +37,7 @@ Cannot be installed alongside **AMLyrics** — both rewrite the same Apple Music
 
 - Word-by-word lyrics (Apple Music, Musixmatch, NetEase, imported TTML or word-by-word LRC) light up word by word only in Lyrics Island; the Lock Screen, Control Center and CarPlay show the whole line.
 - Inside Apple Music the lyric line also appears in Music's own now-playing views.
-- Lyrics Island needs an iPhone with the Dynamic Island; verified on iOS 16.5.1, 18.6.2 and 26.1.
+- Lyrics Island needs the Dynamic Island: an iPhone that has it, or a device given one by a MobileGestalt edit or a tweak (iPads too); verified on iOS 16.5.1, 18.6.2 and 26.1.
 
 Only the track title, artist, album and duration are sent to the lyrics services (Apple Music lyrics are asked of Apple by the song's Apple Music ID, through your Apple ID); your Musixmatch token is stored on the device and sent only to Musixmatch. No accounts, no analytics.
 
