@@ -1,21 +1,11 @@
 # Changelog
 
-## 1.2.4
-
-### Features
-
-- Lyrics Island also works on devices given the Dynamic Island by a tweak or a MobileGestalt edit, iPads included
-
-### Fixes
-
-- iPad: with the Settings sidebar showing, the player at the top of the settings pages fills the page again, and the island preview sits in the middle
-- Clearer notes in Settings on what Quit app on change does and which lyrics light up word by word
-- Added more bugs to fix later D:
-
 ## 1.2.3
 
 ### Features
 
+- Always show (Lyrics Island): the island and its line stay up in the app that is playing too, where iOS would put the island away
+- Lyrics Island also works on devices given the Dynamic Island by a tweak or a MobileGestalt edit, iPads included
 - Your Apple Music subscription is checked only when something changes, instead of once a day; signing out of Media & Purchases locks Apple Music lyrics, and unlocking then asks you to sign in first
 - Now Playing shows the whole story of where the lyrics came from; when none were found, each source's reason gets its own line
 - Smaller and lighter
@@ -35,6 +25,8 @@
 - Settings: the waveform stops while its page is covered, the Apple Music test stops when you tap OK, and a song's offset is no longer cut off at ±3 s
 - Lyrics Library: song details wrap instead of being cut off, files whose names start with a dot are listed, lyrics added as ".LRC" are used, every word-by-word file is marked, and a search of only spaces shows the right note
 - Simplified Chinese and Japanese: the notes use the rows' actual names
+- iPad: with the Settings sidebar showing, the player at the top of the settings pages fills the page, and the island preview sits in the middle
+- Clearer notes in Settings on what Quit app on change does and which lyrics light up word by word
 - Added more bugs to fix later D:
 
 ## 1.2.2

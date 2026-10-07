@@ -11,7 +11,7 @@ Works with Spotify, Apple Music and any player that shows what it plays on the
 lock screen. Lyrics come from Apple Music (with a subscription), Musixmatch,
 LRCLIB and NetEase Cloud Music.
 
-Current version: **1.2.4** · [Changelog](CHANGELOG.md) · 繁體中文說明:[README.zh-Hant.md](README.zh-Hant.md)
+Current version: **1.2.3** · [Changelog](CHANGELOG.md) · 繁體中文說明:[README.zh-Hant.md](README.zh-Hant.md)
 
 ## Features
 
@@ -22,7 +22,8 @@ Current version: **1.2.4** · [Changelog](CHANGELOG.md) · 繁體中文說明:[R
   Island, which grows down to the status bar's edge. White or album color, a
   fade or scroll-up line change, adjustable font size and scroll speed. Long
   lines scroll, and lyrics with word times light up word by word as they are
-  sung. A live preview on its settings page shows every change at once.
+  sung. With Always show on, the island stays up in the app that is playing
+  too. A live preview on its settings page shows every change at once.
 - **Four lyrics sources**, tried in the order you drag them into: Apple Music,
   Musixmatch, LRCLIB and NetEase. When one has nothing, the next fills in.
 - **Now Playing page** in Settings: the lock screen's player, where the song's
@@ -91,7 +92,7 @@ once.
   this song's Offset; Auto or a source picked for this song; Paste lyrics,
   Import from Files, Remove added lyrics, and View and edit for the lyrics in
   use.
-- **Lyrics Island**: Enabled, Preview what's playing, Preview island (Compact,
+- **Lyrics Island**: Enabled, Always show, Preview what's playing, Preview island (Compact,
   Expanded or Auto compact), Lyrics color (White or Album color), Line change
   (Fade or Scroll up), Word by word, Font size, Scroll speed. The preview at
   the top works like the real island: tap or hold it.
