@@ -67,7 +67,7 @@ User Token 等同你的 Musixmatch 帳號憑證，請當密碼保管。
 
 ## 設定
 
-NowLyrics 在「設定」App 有自己的頁面（iOS 18 以上在「設定 › 一般」最下面）。右上角的
+NowLyrics 在「設定」App 有自己的頁面（iOS 18 以上在「設定 › 一般」最下面）。每一頁右上角的
 **套用**會重新啟動 SpringBoard；安裝後要按一次，給在 SpringBoard 裡運作的部分用：
 歌詞上島、播放器用封面背景，以及其他 App 的 Apple Music 歌詞。其他設定都會立即生效。
 

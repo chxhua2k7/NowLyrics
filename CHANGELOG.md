@@ -6,6 +6,7 @@
 
 - Always show (Lyrics Island): the island and its line stay up in the app that is playing too, where iOS would put the island away
 - Lyrics Island also works on devices given the Dynamic Island by a tweak or a MobileGestalt edit, iPads included
+- Apply sits at the top right of every settings page, not only the main one
 - Your Apple Music subscription is checked only when something changes, instead of once a day; signing out of Media & Purchases locks Apple Music lyrics, and unlocking then asks you to sign in first
 - Now Playing shows the whole story of where the lyrics came from; when none were found, each source's reason gets its own line
 - Smaller and lighter

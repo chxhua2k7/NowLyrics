@@ -81,7 +81,7 @@ Musixmatch account, so treat it like a password.
 ## Settings
 
 NowLyrics has its own page in Settings (on iOS 18 and later at the bottom of
-Settings › General). **Apply** at the top right restarts SpringBoard; it is
+Settings › General). **Apply** at the top right of every page restarts SpringBoard; it is
 needed once after installing, for what runs there: Lyrics Island, Player over
 its cover and Apple Music lyrics in other apps. Everything else applies at
 once.
