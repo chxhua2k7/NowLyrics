@@ -411,6 +411,29 @@ NSDictionary *NLIslandPreviewValuesFromPlist(PSListController *controller) {
     return values;
 }
 
+// SpringBoard restarted, as the Apply button does it: what runs there (Lyrics
+// Island, Player over its cover, Apple Music lyrics in other apps) loads anew.
+static void NLRespring(void) {
+    Class serviceClass = NLLoadedClass("FBSSystemService", "/System/Library/PrivateFrameworks/FrontBoardServices.framework/FrontBoardServices");
+    Class actionClass = NLLoadedClass("SBSRelaunchAction", "/System/Library/PrivateFrameworks/SpringBoardServices.framework/SpringBoardServices");
+    if (!actionClass || !serviceClass) return;
+    // SBSRelaunchActionOptionsRestartRenderServer = 1 << 0
+    id action = ((id (*)(id, SEL, id, NSUInteger, id))objc_msgSend)(actionClass, @selector(actionWithReason:options:targetURL:), @"NowLyrics", 1, nil);
+    id service = ((id (*)(id, SEL))objc_msgSend)(serviceClass, @selector(sharedService));
+    ((void (*)(id, SEL, id, id))objc_msgSend)(service, @selector(sendActions:withResult:), [NSSet setWithObject:action], nil);
+}
+
+UIBarButtonItem *NLApplyButton(UIViewController *controller) {
+    __weak UIViewController *weakController = controller;
+    UIAction *apply = [UIAction actionWithTitle:NLL(@"Apply") image:nil identifier:nil handler:^(UIAction *action) {
+        UIViewController *presenter = weakController;
+        if (presenter) NLConfirm(presenter, NLL(@"Apply"), NLL(@"Restart SpringBoard to apply?"), NLL(@"Respring"), ^{ NLRespring(); });
+    }];
+    UIBarButtonItem *item = [[UIBarButtonItem alloc] initWithPrimaryAction:apply];
+    item.style = UIBarButtonItemStyleDone;
+    return item;
+}
+
 @implementation NLRootListController {
     NSArray<PSSpecifier *> *_allSpecifiers;   // every row from the plist, shown or not
     NSString *_size;
@@ -421,10 +444,7 @@ NSDictionary *NLIslandPreviewValuesFromPlist(PSListController *controller) {
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:NLL(@"Apply")
-                                                                              style:UIBarButtonItemStyleDone
-                                                                             target:self
-                                                                             action:@selector(nlApply:)];
+    self.navigationItem.rightBarButtonItem = NLApplyButton(self);
     [self nlApplyHeader];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(nlApplyTheme)
                                                  name:NLThemeChangedNotification object:nil];
@@ -511,20 +531,6 @@ NSDictionary *NLIslandPreviewValuesFromPlist(PSListController *controller) {
     NLThemeCell(cell);
 }
 
-- (void)nlApply:(id)sender {
-    NLConfirm(self, NLL(@"Apply"), NLL(@"Restart SpringBoard to apply?"), NLL(@"Respring"), ^{ [self nlRespring]; });
-}
-
-- (void)nlRespring {
-    Class serviceClass = NLLoadedClass("FBSSystemService", "/System/Library/PrivateFrameworks/FrontBoardServices.framework/FrontBoardServices");
-    Class actionClass = NLLoadedClass("SBSRelaunchAction", "/System/Library/PrivateFrameworks/SpringBoardServices.framework/SpringBoardServices");
-    if (!actionClass || !serviceClass) return;
-    // SBSRelaunchActionOptionsRestartRenderServer = 1 << 0
-    id action = ((id (*)(id, SEL, id, NSUInteger, id))objc_msgSend)(actionClass, @selector(actionWithReason:options:targetURL:), @"NowLyrics", 1, nil);
-    id service = ((id (*)(id, SEL))objc_msgSend)(serviceClass, @selector(sharedService));
-    ((void (*)(id, SEL, id, id))objc_msgSend)(service, @selector(sendActions:withResult:), [NSSet setWithObject:action], nil);
-}
-
 - (NSMutableArray *)specifiers {
     if (_specifiers && _allSpecifiers) return _specifiers;
     _allSpecifiers = NLPrepareSpecifiers([super specifiers]);
@@ -582,6 +588,11 @@ NSDictionary *NLIslandPreviewValuesFromPlist(PSListController *controller) {
 @end
 
 @implementation NLListController
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.navigationItem.rightBarButtonItem = NLApplyButton(self);
+}
 
 - (NSArray<PSSpecifier *> *)nlLoadSpecifiers {
     return @[];

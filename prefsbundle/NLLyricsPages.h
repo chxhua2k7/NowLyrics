@@ -191,6 +191,10 @@ BOOL NLSourceSwitchOn(PSListController *controller, NSString *name);
 // The pages loaded from a plist of this bundle (NLRootListController.m): rows
 // prepared (icons, links, defaults, the island preview's room), shown as their
 // showIf rules want, cells themed.
+// NLRootListController.m: Apply, at the top right of every NowLyrics page but
+// the lyrics editor (Save is there): after a confirmation, SpringBoard restarts.
+UIBarButtonItem *NLApplyButton(UIViewController *controller);
+
 @interface NLListController : PSListController
 @end
 // The pages loaded from the plist a link's `subPlist` names: Lyrics Sources

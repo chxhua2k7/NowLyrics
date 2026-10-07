@@ -74,7 +74,8 @@ static void NLListUpdateButton(PSListController *self) {
     NSString *symbol = music ? @"line.3.horizontal.decrease.circle.fill" : @"line.3.horizontal.decrease.circle";
     UIImage *image = [UIImage systemImageNamed:symbol] ?: [UIImage systemImageNamed:@"line.horizontal.3.decrease.circle"];
     UIMenu *menu = [UIMenu menuWithTitle:NLL(@"Filter") children:actions];
-    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithImage:image menu:menu];
+    // Apply at the right end, as on every NowLyrics page; the filter beside it.
+    self.navigationItem.rightBarButtonItems = @[NLApplyButton(self), [[UIBarButtonItem alloc] initWithImage:image menu:menu]];
 }
 
 static void NLListSetFilter(PSListController *self, BOOL musicOnly) {

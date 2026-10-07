@@ -158,6 +158,7 @@ static NSString *NLMissLines(NSString *status) {
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = NLL(@"Now Playing");
+    self.navigationItem.rightBarButtonItem = NLApplyButton(self);
     _table = NLMakeTable(self);
     _heights = [NSMutableDictionary dictionary];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(nlReload)

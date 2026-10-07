@@ -104,6 +104,7 @@ BOOL NLSourceSwitchOn(PSListController *controller, NSString *name) {
     [super viewDidLoad];
     _table = NLMakeTable(self);
     _pageTop = [[NLPageTop alloc] initWithOwner:self table:_table];   // built by -viewWillAppear:'s update
+    self.navigationItem.rightBarButtonItem = NLApplyButton(self);
 }
 
 // Before super, as on the main page: the header is in place before the row
