@@ -89,6 +89,7 @@ static void NLIFileLog(NSString *format, ...) {
 @interface SBSystemApertureViewController : UIViewController
 @property (readonly, nonatomic) CGRect minimumSensorRegionFrame;
 - (void)preferredEdgeOutsetsDidInvalidateForLayoutSpecifier:(id)specifier;
+- (void)_reevaluateElementSuppression;   // asks each element again whether the app or scene shown hides it
 @end
 
 static const NSInteger kNLCompactLayoutMode = 2;   // SpringBoard's numbering
@@ -102,6 +103,7 @@ typedef struct {
     BOOL scrollUp;       // line change pushes up instead of fading
     CGFloat speed;       // marquee, pt/s
     BOOL wordByWord;     // light lines up as they are sung, when the lyrics have word times
+    BOOL alwaysShow;     // the island stays up in the app that is playing, too
     BOOL debugNoGrow;    // NLI_FILELOG builds only: skip the outsets change
     BOOL debugNoStrip;   // NLI_FILELOG builds only: never attach the strip
 } NLIslandSettings;
@@ -126,6 +128,7 @@ static NLIslandSettings NLIslandReadSettings(NSDictionary *prefs) {
     s.scrollUp = [prefs[@"islandTransition"] isEqual:@"up"];
     s.speed = NLIslandNum(prefs, @"islandMarqueeSpeed", kNLDefaultSpeed, 9, 81);   // shown as 0.3×–2.7×
     s.wordByWord = NLPrefBool(prefs, @"islandWordByWord", YES);
+    s.alwaysShow = NLPrefBool(prefs, @"islandAlwaysShow", NO);
 #ifdef NLI_FILELOG
     s.debugNoGrow = NLPrefBool(prefs, @"islandDebugNoGrow", NO);
     s.debugNoStrip = NLPrefBool(prefs, @"islandDebugNoStrip", NO);
@@ -606,6 +609,19 @@ static void NLIslandRefreshInfo(void) {
     NLIslandUpdateIn(pill);
 }
 
+// Always show: SpringBoard puts an element away while the app it belongs to
+// (the player's, for this one) or one of its scenes is on screen; the
+// now-playing island stays instead.
+- (BOOL)shouldSuppressElementWhilePresentingAppWithBundleId:(NSString *)bundleID {
+    if (gSettings.on && gSettings.alwaysShow && NLIsNowPlaying(self)) return NO;
+    return %orig;
+}
+
+- (BOOL)shouldSuppressElementWhilePresentingSceneWithIdentifier:(NSString *)identifier {
+    if (gSettings.on && gSettings.alwaysShow && NLIsNowPlaying(self)) return NO;
+    return %orig;
+}
+
 %end
 
 %hook SBSystemApertureContainerView
@@ -691,7 +707,12 @@ static void NLIslandPrefsChanged(CFNotificationCenterRef center, void *observer,
         gPrefs = prefs;
         BOOL heightChanged = now.on != gSettings.on;
         BOOL colorChanged = now.artworkColor != gSettings.artworkColor;
+        BOOL keptChanged = (now.on && now.alwaysShow) != (gSettings.on && gSettings.alwaysShow);
         gSettings = now;
+        // Always show switched: the island comes back over the player's app,
+        // or goes away from it, at once rather than at the next app switch.
+        SBSystemApertureViewController *vc = gApertureVC;
+        if (keptChanged && [vc respondsToSelector:@selector(_reevaluateElementSuppression)]) [vc _reevaluateElementSuppression];
         if (colorChanged) gArtworkPrint = 0;   // fetch the artwork again
         if (heightChanged) NLIslandInvalidateHeight();
         NLIslandRefreshInfo();   // an offset or the word-by-word switch may have changed too

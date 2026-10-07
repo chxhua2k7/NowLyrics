@@ -36,7 +36,13 @@ Sold on Havoc as `com.c3x14n.nowlyrics`; listing material in `havoc/`.
   `-[SBSystemApertureContainerView addContentSubview:]`, so SpringBoard scales,
   fades and clips it with the artwork and waveform, and is laid out only from
   the pill's `layoutSubviews`, centred under the camera. Text, explicit flag and
-  artwork (album color) come from `MRMediaRemoteGetNowPlayingInfo`.
+  artwork (album color) come from `MRMediaRemoteGetNowPlayingInfo`. Always show
+  (`islandAlwaysShow`): SpringBoard puts an element away while its app or scene
+  is on screen (`-shouldSuppressElementWhilePresentingAppWithBundleId:` and
+  `…SceneWithIdentifier:`, by the element's associated app); the now-playing
+  element answers no, and a switch of the setting has
+  `-[SBSystemApertureViewController _reevaluateElementSuppression]` ask again at
+  once (16.5.1, 18.5 and 26.1 alike).
 - **Apple Music lyrics** (behind a switch): by the song's adam ID through
   `MPStoreLyricsMusicKitRequestOperation`, the same TTML Music's lyrics view
   gets (storefront text, word timing). In Music the ID is the content item's

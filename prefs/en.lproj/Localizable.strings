@@ -46,6 +46,8 @@
 "Appearance" = "Appearance";
 "Hide explicit badge" = "Hide explicit badge";
 "Shows the current line at the bottom of the Dynamic Island while music plays; the island grows down to the status bar’s edge. Lines too long to fit scroll. With NowLyrics’ main switch off, the strip shows the track title instead." = "Shows the current line at the bottom of the Dynamic Island while music plays; the island grows down to the status bar’s edge. Lines too long to fit scroll. With NowLyrics’ main switch off, the strip shows the track title instead.";
+"Always show" = "Always show";
+"Always show keeps the island and its line up in the app that is playing too, where iOS would otherwise put the island away." = "Always show keeps the island and its line up in the app that is playing too, where iOS would otherwise put the island away.";
 
 /* Lyrics pages (1.2.0) */
 "Lyrics" = "Lyrics";

@@ -44,6 +44,8 @@
 "Appearance" = "外観";
 "Hide explicit badge" = "「E」マークを隠す";
 "Shows the current line at the bottom of the Dynamic Island while music plays; the island grows down to the status bar’s edge. Lines too long to fit scroll. With NowLyrics’ main switch off, the strip shows the track title instead." = "音楽の再生中、Dynamic Islandの下部に現在の歌詞を表示します。Dynamic Islandはステータスバーの下端まで伸びます。長い行はスクロールします。NowLyricsのメインスイッチがオフのときは曲名を表示します。";
+"Always show" = "常に表示";
+"Always show keeps the island and its line up in the app that is playing too, where iOS would otherwise put the island away." = "「常に表示」をオンにすると、再生中のアプリを開いているときもDynamic Islandと歌詞を表示したままにします。通常はこのときiOSがDynamic Islandをしまいます。";
 
 /* Lyrics pages (1.2.0) */
 "Lyrics" = "歌詞";

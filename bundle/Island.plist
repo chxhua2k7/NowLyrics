@@ -46,6 +46,30 @@
 			<key>cell</key>
 			<string>PSGroupCell</string>
 			<key>footerText</key>
+			<string>Always show keeps the island and its line up in the app that is playing too, where iOS would otherwise put the island away.</string>
+			<key>showIf</key>
+			<string>islandLyrics</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>app.nowlyrics/ReloadPrefs</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<false/>
+			<key>iconColor</key>
+			<string>#34C759</string>
+			<key>iconSymbol</key>
+			<string>pin.fill</string>
+			<key>key</key>
+			<string>islandAlwaysShow</string>
+			<key>label</key>
+			<string>Always show</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
 			<string>Word by word lights a line up as it is sung, for lyrics with word times: from Apple Music, Musixmatch or NetEase where they have them, or TTML and word-by-word LRC you add.</string>
 			<key>label</key>
 			<string>Appearance</string>

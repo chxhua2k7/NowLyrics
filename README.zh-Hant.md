@@ -26,7 +26,10 @@ English: [README.md](README.md)
   往下長,剛好停在頂部安全區的線上(以固定的感測區量測)。歌詞列用
   `-[SBSystemApertureContainerView addContentSubview:]` 放進內容層,讓 SpringBoard 跟封面、聲波一起縮放、
   淡化、裁切;只在容器的 `layoutSubviews` 排版,置中於鏡頭下方。文字、explicit 旗標與封面(專輯顏色)
-  來自 `MRMediaRemoteGetNowPlayingInfo`。
+  來自 `MRMediaRemoteGetNowPlayingInfo`。常駐顯示(`islandAlwaysShow`):App 或它的場景在畫面上時,
+  SpringBoard 會依元件關聯的 App 把元件收起(`-shouldSuppressElementWhilePresentingAppWithBundleId:` 與
+  `…SceneWithIdentifier:`);播放元件改回答不收,切換設定時呼叫
+  `-[SBSystemApertureViewController _reevaluateElementSuppression]` 立刻重新判斷(16.5.1、18.5、26.1 相同)。
 - **Apple Music 歌詞**(有獨立開關):以歌曲的 adam ID 呼叫 `MPStoreLyricsMusicKitRequestOperation`,
   拿到 Music 歌詞頁同一份 TTML(店面語系、逐字時間)。在「音樂」App 裡 ID 來自 content item 的
   `lyricsAdamID`/`storeID`;其他 App(Spotify)沒有 ID 也沒有 Apple Music 權限,改由 SpringBoard 代勞
