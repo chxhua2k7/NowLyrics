@@ -13,12 +13,14 @@
 
 ### Fixes
 
+- Lines change 0.3 s ahead of their time, so in the island each one has faded in by the time it is sung; word-by-word lighting keeps the exact timing
 - Quit app on change no longer quits the music app when you just open NowLyrics' settings or change something it does not use
 - Lyrics in the island wait for the iOS 26 island to finish opening before they appear
 - With Album color, a song without a cover goes back to white
 - A long line keeps its faded edges as it leaves
 - Picking another source while lyrics are still being searched no longer brings back the old result
 - Apple Music lyrics in Spotify and other apps: a search that fails is tried again later instead of giving up on the song
+- Apple Music lyrics in Spotify and other apps no longer pick the song's instrumental or karaoke version, which has no lyrics
 - Musixmatch: a User Token field with nothing in it no longer counts as a token, and its lyrics look the same the first time as when played again
 - LRCLIB finds lyrics even when the app does not say how long the song is
 - Music: Hide explicit badge no longer acts while NowLyrics is off for Music
@@ -86,6 +88,7 @@
 
 ### Fixes
 
+- Lyrics saved by older versions are deleted once, so songs you played before are looked up again with the new sources
 - Added more bugs to fix later D:
 
 ## 1.1.2
