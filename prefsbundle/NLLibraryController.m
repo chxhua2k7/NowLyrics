@@ -45,11 +45,15 @@ static NSArray<NLLibraryEntry *> *NLEntriesIn(NSString *folder, NSString *bundle
                                                             includingPropertiesForKeys:@[NSURLContentModificationDateKey]
                                                                                options:NSDirectoryEnumerationSkipsHiddenFiles
                                                                                  error:nil];
+    // Lyrics cached before 1.2.0 (no source named) stay out until the app has
+    // deleted them, which it does the next time it runs (NLClearOldCache).
+    BOOL oldGone = manual || [[NSFileManager defaultManager] fileExistsAtPath:[folder stringByAppendingPathComponent:NL_OLD_CACHE_CLEARED]];
     for (NSURL *url in files) {
         if (![url.pathExtension.lowercaseString isEqualToString:@"lrc"]) continue;
         NSString *text = [NSString stringWithContentsOfURL:url encoding:NSUTF8StringEncoding error:nil];
         if (!text) continue;
         NSDictionary *tags = NLParseLRCHeader(text);
+        if (!oldGone && !tags[NL_LRC_SOURCE]) continue;
         NLLibraryEntry *entry = [NLLibraryEntry new];
         entry.path = url.path;
         entry.bundleID = bundleID;

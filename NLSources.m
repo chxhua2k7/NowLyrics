@@ -616,17 +616,6 @@ NSArray<NLLyricLine *> *NLResolveLyrics(NLSettings *settings, NSString *key,
         }
         if (cached.count) {
             NSDictionary<NSString *, NSString *> *tags = head ?: NLParseLRCHeader(disk);   // read already when the lines have words
-            // Cached before 1.2.0: no tags, and the file name cannot be split
-            // back into title and artist. Name it now, so the settings page's
-            // library can list it properly.
-            if (!tags[NL_LRC_TITLE] && title.length) {
-                NSMutableDictionary<NSString *, NSString *> *header = [NSMutableDictionary dictionary];
-                header[NL_LRC_TITLE] = title;
-                header[NL_LRC_ARTIST] = artist;
-                header[NL_LRC_ALBUM] = album;
-                [[NLLinesToLRCWithHeader(@[], header) stringByAppendingString:disk]
-                    writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
-            }
             NSString *from = tags[NL_LRC_SOURCE];
             *source = from.length ? [@"cache · " stringByAppendingString:from] : @"cache";
             *outPath = path;
