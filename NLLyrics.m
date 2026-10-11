@@ -23,7 +23,7 @@ double NLNum(id value, double fallback) {
 #pragma mark - Paths
 
 // Library/NowLyrics, without creating it.
-static NSString *NLCacheDir(void) {
+NSString *NLCacheDir(void) {
     static NSString *dir = nil;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
@@ -128,6 +128,25 @@ void NLPruneCache(NSUInteger limit) {
         [[NSFileManager defaultManager] removeItemAtURL:oldestFirst[i] error:nil];
     }
     NLLog(@"pruned %lu cached lyrics", (unsigned long)excess);
+}
+
+// Lyrics cached before 1.2.0 never went through Apple Music or the checks on
+// word times, and the cache is asked before any source, so a song played back
+// then would keep them for good. Everything 1.2.0 caches names its source
+// (NL_LRC_SOURCE); a file without one is from before and goes, once per
+// folder: the marker left behind means nothing cached or edited after that is
+// looked at again. No folder, nothing cached yet.
+void NLClearOldCache(NSString *folder) {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *marker = [folder stringByAppendingPathComponent:NL_OLD_CACHE_CLEARED];
+    if ([fm fileExistsAtPath:marker]) return;
+    NSArray<NSURL *> *files = NLCachedFiles(folder);
+    if (!files) return;
+    for (NSURL *url in files) {
+        NSString *text = [NSString stringWithContentsOfURL:url encoding:NSUTF8StringEncoding error:nil];
+        if (text && !NLParseLRCHeader(text)[NL_LRC_SOURCE]) [fm removeItemAtURL:url error:nil];
+    }
+    [fm createFileAtPath:marker contents:nil attributes:nil];
 }
 
 #pragma mark - Titles

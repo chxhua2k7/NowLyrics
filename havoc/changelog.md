@@ -13,6 +13,7 @@
 - **Crescendo** and **NextUp 3** supported: the volume slider and the Up Next row also show in the player and the island preview in Settings; on iOS 17 and later the volume slider follows the system's Always Show Volume Control
 - Settings reorganized: the player at the top, a Now Playing page, Lyrics Sources and Advanced pages, choices picked in place, the tweak's size under About
 - iOS 15: Apple Music lyrics need iOS 16 and stay hidden
+- Lyrics saved by older versions are deleted once, so songs you played before are looked up again with the new sources
 - Added more bugs to fix later
 
 ## 1.1.2
