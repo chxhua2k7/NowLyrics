@@ -242,16 +242,28 @@ NSArray<NLLyricLine *> *NLResolveLyrics(NLSettings *settings, NSString *key,
 
 void NLEngineStart(void);   // once, from %ctor
 // One now-playing update, whichever way the app publishes. A new track starts a
-// fetch; the same track just redraws.
+// fetch; the same track just redraws. `lead`: from this update on, the app's
+// count runs this far ahead of its sound (a track it announced before it was
+// heard); 0 for none.
 void NLEngineIngest(NSString *title, NSString *artist, NSString *album,
-                    NSTimeInterval duration, NSNumber *elapsed, NSNumber *rate);
+                    NSTimeInterval duration, NSNumber *elapsed, NSNumber *rate, NSTimeInterval lead);
 void NLEnginePushUpdate(void);          // redraw for the current position and reschedule the flip
 void NLEngineCancelFlip(void);          // e.g. the app was just switched off
 void NLEngineForgetLyrics(void);        // sources changed: drop the in-memory cache, look the current track up again
 void NLEngineClearCacheLater(NSTimeInterval requestedAt);   // NLClearCacheIfRequested on the fetch queue, ahead of any fetch
-NSTimeInterval NLEnginePosition(void);  // extrapolated playback position, never negative
+NSTimeInterval NLEnginePosition(void);  // extrapolated playback position as heard, never negative
 NSString *NLEngineTrackTitle(void);     // what the player really reported for the current track
 NSString *NLEngineTrackArtist(void);
+// For players that report the position of what they hand their own audio
+// output (Spotify): it is heard `delay` later.
+void NLEngineSetOutputDelay(NSTimeInterval delay);
+// The app's count got `seconds` further ahead of its sound: its output stalled
+// while it counted on. Held, like an ingest's lead, until the app next reads its
+// position off the audio; ignored while paused. The caller redraws.
+void NLEngineAddLead(NSTimeInterval seconds);
+// Playing, with the app's count within `within` seconds of the end of a track
+// whose length is known (or up to 2 s past it).
+BOOL NLEngineNearEnd(NSTimeInterval within);
 
 #pragma mark - NowLyrics.xm
 

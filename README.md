@@ -27,6 +27,22 @@ Sold on Havoc as `com.c3x14n.nowlyrics`; listing material in `havoc/`.
   sources in the user's order (`sourceOrder`); position extrapolated from the last anchor;
   `dispatch_after` per line. Blank lines count as gaps only if the next line is
   ≥ 5 s away.
+- **Spotify timing** (`NowLyrics.xm`, Spotify only): the engine goes by the
+  position heard (`NLHeardPosition`): the app's count less an output delay and
+  a lead. Spotify reports what it hands its audio unit, so the delay is
+  `AVAudioSession.outputLatency` + 0.04 s on the phone's own outputs and
+  Bluetooth (none for AirPlay, CarPlay, USB or Connect), worked out again on
+  route changes. Its running count is a clock of its own that gets ahead of the
+  sound in two ways, until it next reads its position off the audio (pause,
+  resume, seek). A track it plays into the next is announced from 0 about a
+  second before it sounds (15 tracks measured: 0.91–1.43 s, median 0.98), so a
+  track going back to 0 in its last 3.5 s, and a new title within 1 s of that,
+  gets a lead of 0.98 s. A route change stops the output for 0.1–0.85 s while
+  the count runs on: a render notification on Spotify's RemoteIO unit (found
+  through `AudioOutputUnitStart`) times the stall, which goes into the lead at
+  the next report and 1.5 s and 4 s after the change. A lead holds while the
+  reports go on with the count and ends with a new track, a rate change or a
+  seek.
 
 - **Lyrics Island** (`NowLyricsIsland.x`, SpringBoard only, off by
   default): the now-playing element's compact frame is grown through
@@ -223,6 +239,12 @@ and 18; on 26 the lock screen's player is glass, which shows what is behind it
 over the tint, and Control Center's media module already takes the cover's
 colors, so it stays as the system draws it; there the setting is hidden and
 the settings page's player keeps the system look too, like the lock screen's.
+Spotify timing rests on measurements on 16.5.1: a track that takes longer than
+usual to sound after it is announced (up to 1.43 s seen) has its lyrics up to
+0.45 s early, and skipping or going back to the start in a song's last 3.5 s
+makes the lyrics that follow about 1 s late, both until the next pause;
+crossfade and Automix are not accounted for, nor is a Spotify Connect device's
+delay.
 
 ## License
 

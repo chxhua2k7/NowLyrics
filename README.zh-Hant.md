@@ -20,6 +20,15 @@ English: [README.md](README.md)
   (和 AMLyrics 同一招,所以套件對 `com.82flex.amlyrics` 宣告衝突)。
 - **引擎**:曲目 = 曲名 + 演出者;依序找手動 `.lrc` → 磁碟快取 → 使用者排的來源順序(`sourceOrder`);位置從上一個錨點外推;
   每行一個 `dispatch_after`。空行只在下一行 ≥ 5 秒才算空檔。
+- **Spotify 的時間**(`NowLyrics.xm`,只在 Spotify):引擎用聽到的位置(`NLHeardPosition`),
+  也就是 App 自己數的時間減掉輸出延遲和超前量。Spotify 回報的是交給音訊單元的位置,所以延遲是
+  `AVAudioSession.outputLatency` + 0.04 秒,只算手機自己的輸出和藍牙(AirPlay、CarPlay、USB 和 Connect 不算),
+  換輸出時重算。它播放中的時間是自己另外數的,有兩種情況會跑在聲音前面,直到它下次從音訊讀回位置
+  (暫停、繼續、拖動)為止。一首歌自己接到下一首時,下一首在聲音出來前約一秒就從 0 開始數
+  (量了 15 首:0.91–1.43 秒,中位數 0.98),所以最後 3.5 秒內回到 0 的歌,以及之後 1 秒內換上的新曲名,
+  超前量記 0.98 秒。換輸出時音訊會停 0.1–0.85 秒,時間照數:Spotify 的 RemoteIO 單元(從
+  `AudioOutputUnitStart` 找到)掛 render notification 量出停頓,在下一次回報、以及換輸出後 1.5 秒和 4 秒
+  加進超前量。回報接著同一個時間數下去時超前量保留,換歌、改速率或拖動時歸零。
 
 - **歌詞上島**(`NowLyricsIsland.x`,只注入 SpringBoard,預設關閉):透過
   `-[SBSystemApertureSceneElement preferredEdgeOutsetsForLayoutMode:…]` 讓播放元件的 compact 外框
@@ -143,6 +152,9 @@ iOS 17 以上改掛在元件自己的 view:那裡容器的內容 view 規定只�
 iPadOS 26 的「設定」側邊欄浮在頁面上,所以播放器和預覽島依表格的邊距與安全區域排版,而不是表格寬度。播放器用封面背景:16 與 18 的
 鎖定畫面和控制中心;26 的鎖定畫面播放器是玻璃,會把背後的畫面蓋在顏色上,控制中心的媒體模組本來就取封面顏色,
 所以維持系統原樣;26 上這個設定會隱藏,設定頁的播放器也維持系統外觀,跟鎖定畫面一致。
+Spotify 的時間依據的是 16.5.1 上的量測:宣告後比平常更久才出聲的歌(看過最長 1.43 秒)歌詞最多早 0.45 秒,
+在一首歌最後 3.5 秒內切歌或回到開頭,之後的歌詞會晚約 1 秒,兩者都到下次暫停為止;交叉淡化和 Automix
+沒有處理,Spotify Connect 裝置的延遲也沒有。
 
 ## 授權
 

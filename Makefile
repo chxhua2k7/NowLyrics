@@ -43,7 +43,7 @@ ADDITIONAL_LDFLAGS += -Wl,-dead_strip
 TWEAK_NAME += NowLyrics
 
 NowLyrics_FILES += NowLyrics.xm NLSettings.m NLLyrics.m NLTTML.m NLSources.m NLEngine.m NLAppleMusicRemote.m
-NowLyrics_FRAMEWORKS += MediaPlayer QuartzCore
+NowLyrics_FRAMEWORKS += MediaPlayer QuartzCore AVFoundation AudioToolbox
 
 # SpringBoard only: the current lyric line under the compact Dynamic Island.
 # Separate so nothing else of the tweak runs there.

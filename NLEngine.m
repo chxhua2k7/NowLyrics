@@ -11,6 +11,7 @@
 #import <pthread.h>
 
 static const NSTimeInterval kNLMaxFlipDelay = 8.0;   // cap on timer sleep
+static const NSTimeInterval kNLMaxLead = 3.0;        // cap on how far ahead of its sound an app's count is taken to be
 static const NSUInteger kNLMemoryCacheLimit = 64;    // parsed tracks kept in memory; the disk has the rest
 
 // Lyrics cache. Touched from both the fetch queue and the main queue.
@@ -38,6 +39,8 @@ static BOOL gTrackRequested = NO;           // lyrics were asked for, which need
 static NSTimeInterval gAnchorElapsed = 0;   // virtual clock anchor
 static CFTimeInterval gAnchorHost = 0;
 static double gRate = 0;
+static NSTimeInterval gOutputDelay = 0;     // the app's audio is heard this long after the position it reports
+static NSTimeInterval gLead = 0;            // the app's count is this far ahead of its audio, until it reads it off again
 static dispatch_source_t gFlipTimer = nil;  // one timer, re-armed for every line
 static dispatch_queue_t gWriteQueue = nil;  // nowplaying.plist, kept off the fetch queue, which can be busy for seconds
 static NSDictionary *gWrittenNowPlaying = nil;   // what was last written, without its date
@@ -125,12 +128,30 @@ static BOOL NLStoreResult(NSString *key, NSArray<NLLyricLine *> *lines, NSString
 #pragma mark - Virtual playback clock
 
 // Players only report progress on play, pause and seek, so the position in
-// between has to be extrapolated.
+// between has to be extrapolated. This is the position as the app counts it.
 static NSTimeInterval NLClockPosition(void) {
     if (gRate <= 0) return gAnchorElapsed;
     return gAnchorElapsed + (CACurrentMediaTime() - gAnchorHost) * gRate;
 }
-NSTimeInterval NLEnginePosition(void) { return MAX(NLClockPosition(), 0); }   // what everyone outside the clock reads
+// What is heard now: the app's count less how far it has run ahead of its
+// audio, as it stood gOutputDelay ago. Below 0 while a track announced early is
+// not sounding yet, which is what the next line's timing has to go by.
+static NSTimeInterval NLHeardPosition(void) { return NLClockPosition() - gLead - gOutputDelay * MAX(gRate, 0); }
+// What everyone outside the clock reads. Lines, word timing (through what is
+// pushed to the system) and the scrubber all go by it.
+NSTimeInterval NLEnginePosition(void) { return MAX(NLHeardPosition(), 0); }
+
+void NLEngineSetOutputDelay(NSTimeInterval delay) { gOutputDelay = delay; }
+
+void NLEngineAddLead(NSTimeInterval seconds) {
+    if (gRate > 0) gLead = MIN(MAX(gLead + seconds, 0), kNLMaxLead);
+}
+
+BOOL NLEngineNearEnd(NSTimeInterval within) {
+    if (gRate <= 0 || gTrackDuration <= 0) return NO;
+    NSTimeInterval left = gTrackDuration - NLClockPosition();
+    return left >= -2 && left <= within;
+}
 
 #pragma mark - Composing
 
@@ -190,7 +211,7 @@ static NLShow NLCompose(NLSettings *s, NSString **outTitle, NSString **outArtist
 
     // The offset only changes which line is shown. Adding it to the reported
     // elapsed time would skew the lock screen progress bar.
-    *outLookup = NLEnginePosition() + [s offsetForTrack:gTrackKey];
+    *outLookup = NLHeardPosition() + [s offsetForTrack:gTrackKey];
 
     NSArray<NLLyricLine *> *lines = NLCachedLines(gTrackKey);
 
@@ -366,15 +387,28 @@ void NLEngineForgetLyrics(void) {
 #pragma mark - Ingest
 
 void NLEngineIngest(NSString *title, NSString *artist, NSString *album,
-                    NSTimeInterval duration, NSNumber *elapsed, NSNumber *rate) {
+                    NSTimeInterval duration, NSNumber *elapsed, NSNumber *rate, NSTimeInterval lead) {
     // Advance the clock with the old rate before adopting the new anchor (gRate changes below).
-    gAnchorElapsed = elapsed ? elapsed.doubleValue : NLClockPosition();
+    NSTimeInterval counted = NLClockPosition();
+    gAnchorElapsed = elapsed ? elapsed.doubleValue : counted;
+    BOOL rateChanged = rate && rate.doubleValue != gRate;
     if (rate) gRate = rate.doubleValue;
     gAnchorHost = CACurrentMediaTime();
 
     // Most updates are progress on the same track: compare before building a key.
     BOOL sameTrack = gTrackKey && [title ?: @"" isEqualToString:gTrackTitle ?: @""] &&
                      [artist ?: @"" isEqualToString:gTrackArtist ?: @""];
+
+    // A lead holds while the app goes on with its own count. A pause, a resume,
+    // a seek and a new track are read off its audio, so they end it; a step
+    // back by part of it is the app catching up that much, and what is heard
+    // does not move.
+    if (gLead > 0) {
+        NSTimeInterval step = elapsed ? elapsed.doubleValue - counted : 0;
+        if (!sameTrack || rateChanged || step > 0.15 || step < -(gLead + 0.3)) gLead = 0;
+        else if (step < -0.15) gLead = MAX(gLead + step, 0);
+    }
+    if (lead > 0 && gRate > 0) gLead = MIN(lead, kNLMaxLead);
     if (!sameTrack) {
         gTrackKey = NLTrackKey(title, artist);
         gTrackTitle = title;

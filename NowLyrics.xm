@@ -18,7 +18,10 @@
 
 #import "NowLyrics.h"
 #import "NLStoreLyrics.h"
+#import <AVFoundation/AVFoundation.h>
+#import <AudioToolbox/AudioToolbox.h>
 #import <MediaPlayer/MediaPlayer.h>
+#import <mach/mach_time.h>
 #import <objc/runtime.h>
 #import <pthread.h>
 
@@ -57,6 +60,173 @@ static MPNowPlayingContentItem *gMusicItem = nil;
 static void *gMusicItemPtr = NULL;
 static volatile int gIngestQueued = 0;   // one main-queue ingest already on its way
 static BOOL gWritingItem = NO;           // main queue: we are the ones changing the item
+
+#pragma mark - Spotify's output delay
+
+// Spotify plays through an audio unit of its own and reports the position of
+// what it hands that unit, not of what is heard. Its first sound after a
+// report leaves the unit 0.01–0.08 s later, then takes the route's output
+// latency to be heard: measured on 16.5.1 over 16 resumes, 0.21–0.28 s on
+// Bluetooth headphones (latency 0.2 s) and 0.035–0.06 s on the speaker, which
+// is how early lines and words were. Worked out again whenever the route
+// changes; only for the phone's own outputs and Bluetooth, whose latency iOS
+// knows. AirPlay, CarPlay, USB and the like are left at none. Main queue
+// unless noted.
+static const NSTimeInterval kNLSpotifyPipeline = 0.04;
+static BOOL gSpotify = NO;            // decided once, in %ctor
+static NSTimeInterval gRouteDelay = 0;
+static BOOL gPlayingElsewhere = NO;   // Spotify Connect: the audio comes out of another device
+
+static void NLApplyOutputDelay(void) {
+    NLEngineSetOutputDelay(gPlayingElsewhere ? 0 : gRouteDelay);
+}
+
+// Any thread: AVAudioSession may have to ask the audio server.
+static NSTimeInterval NLRouteDelay(void) {
+    AVAudioSession *session = [AVAudioSession sharedInstance];
+    NSString *port = session.currentRoute.outputs.firstObject.portType;
+    NSArray<NSString *> *local = @[AVAudioSessionPortBuiltInSpeaker, AVAudioSessionPortBuiltInReceiver,
+                                   AVAudioSessionPortHeadphones, AVAudioSessionPortBluetoothA2DP,
+                                   AVAudioSessionPortBluetoothLE, AVAudioSessionPortBluetoothHFP];
+    if (!port || ![local containsObject:port]) return 0;
+    NSTimeInterval latency = session.outputLatency;
+    return (latency >= 0 && latency < 1) ? latency + kNLSpotifyPipeline : 0;
+}
+
+static void NLUpdateRouteDelay(void) {
+    static dispatch_queue_t queue;   // serial, so an older answer never lands last
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ queue = dispatch_queue_create("app.nowlyrics.route", DISPATCH_QUEUE_SERIAL); });
+    dispatch_async(queue, ^{
+        NSTimeInterval delay = NLRouteDelay();
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (delay == gRouteDelay) return;
+            gRouteDelay = delay;
+            NLApplyOutputDelay();
+            // The line up and the next flip move with it, and the system's
+            // position (the island's words run on it) is pushed again.
+            gPushedBase = nil;
+            if (gEnabled) NLEnginePushUpdate();
+        });
+    });
+}
+
+#pragma mark - Spotify's count running ahead
+
+// Two more ways Spotify's count gets ahead of its sound. Each lasts until it
+// next reads its position off the audio (a pause, a resume, a seek), which is
+// why replaying put things right. Measured on 16.5.1 with its audio tapped:
+// - A track it plays into the next: it announces the next one, counting from
+//   0, once it has decoded it, while one to one and a half seconds of the old
+//   one are still to come out. Over 15 such tracks the new one started sounding
+//   0.91–1.43 s into that count (median 0.98; 13 within 0.07 s of it), whole
+//   songs early by that much. Nothing it reports tells the longer waits apart.
+//   Tracks skipped to start sounding within 0.06 s and are left alone.
+// - A route change: the output stops pulling audio for a moment (0.1–0.85 s
+//   either way between the speaker and Bluetooth headphones) while the count
+//   runs on. Seen with a render notification on its output unit: a gap with no
+//   start of the unit in it is a stall, which matched the gaps in Spotify's own
+//   render callbacks to 2 ms. Written down on the audio thread without locks,
+//   taken into the engine's lead on the main queue.
+static const NSTimeInterval kNLSpotifyTrackLead = 0.98;
+static CFTimeInterval gRanOutAt = -10;   // main queue: when the playing track went back to 0 at its end
+
+// Main queue, before the update is ingested: YES when it starts a track the
+// previous one played into.
+static BOOL NLSpotifyAnnouncedEarly(NSString *title, NSString *artist, NSNumber *elapsed) {
+    if (!gSpotify || gPlayingElsewhere || !elapsed || elapsed.doubleValue >= 1.0) return NO;
+    CFTimeInterval now = CACurrentMediaTime();
+    // Back to the start in its last seconds (a listed length runs a second or
+    // two past the sound): the track ran out. It goes back to 0 first under its
+    // own title, then the next one follows (or the same again, on repeat).
+    if (NLEngineNearEnd(3.5)) {
+        gRanOutAt = now;
+        return YES;
+    }
+    BOOL newTrack = ![title ?: @"" isEqualToString:NLEngineTrackTitle() ?: @""] ||
+                    ![artist ?: @"" isEqualToString:NLEngineTrackArtist() ?: @""];
+    return newTrack && now - gRanOutAt < 1.0;
+}
+
+#define NL_GAPS 8
+typedef struct { uint64_t start, end, period; } NLOutputGap;   // mach times
+static NLOutputGap gGaps[NL_GAPS];
+static volatile uint32_t gGapCount = 0;         // written by the audio thread
+static uint32_t gGapsTaken = 0;                 // main queue
+static volatile uint64_t gLastRender = 0;       // the output's last render, mach time
+static volatile bool gOutputStarted = false;    // set by a start of the unit, cleared by its next render
+static uint64_t gStallTicks = 0;                // a wait this much longer than the usual one is a stall; set in %ctor
+static mach_timebase_info_data_t gTimebase;
+
+// Spotify's audio thread: nothing here may lock or allocate.
+static OSStatus NLRenderNotify(void *refCon, AudioUnitRenderActionFlags *flags, const AudioTimeStamp *stamp,
+                               UInt32 bus, UInt32 frames, AudioBufferList *data) {
+    static uint64_t period = 0;   // the usual wait, only ever touched here
+    if (!(*flags & kAudioUnitRenderAction_PostRender) || bus != 0) return noErr;
+    uint64_t now = mach_absolute_time();
+    uint64_t last = __atomic_exchange_n(&gLastRender, now, __ATOMIC_RELAXED);
+    bool started = __atomic_exchange_n(&gOutputStarted, false, __ATOMIC_RELAXED);
+    if (!last || started || now <= last) return noErr;   // stopped in between: a pause, not a stall
+    // The first wait sets the usual one: with the screen locked iOS may hand
+    // out 4096 frames a render (85 ms), more than the margin over nothing.
+    if (!period || now - last <= period + gStallTicks) {
+        period = now - last;
+        return noErr;
+    }
+    uint32_t count = __atomic_load_n(&gGapCount, __ATOMIC_RELAXED);
+    gGaps[count % NL_GAPS] = (NLOutputGap){ last, now, period };
+    __atomic_store_n(&gGapCount, count + 1, __ATOMIC_RELEASE);
+    return noErr;
+}
+
+// Any thread, from the start hook. Removed first, so a unit started again
+// (Spotify starts it on every resume and skip) has the notification once.
+static void NLWatchOutputUnit(AudioUnit unit) {
+    AudioComponentDescription desc = {0};
+    AudioComponent component = unit ? AudioComponentInstanceGetComponent(unit) : NULL;
+    if (!component || AudioComponentGetDescription(component, &desc) != noErr) return;
+    if (desc.componentType != kAudioUnitType_Output || desc.componentSubType != kAudioUnitSubType_RemoteIO) return;
+    AudioUnitRemoveRenderNotify(unit, NLRenderNotify, NULL);
+    AudioUnitAddRenderNotify(unit, NLRenderNotify, NULL);
+}
+
+// Main queue. Stalls since the last call go into the lead; YES if any did.
+static BOOL NLTakeStalls(void) {
+    uint32_t count = __atomic_load_n(&gGapCount, __ATOMIC_ACQUIRE);
+    if (count - gGapsTaken > NL_GAPS) gGapsTaken = count - NL_GAPS;   // fell behind: the newest are what is left
+    NSTimeInterval stalled = 0;
+    for (; gGapsTaken != count; gGapsTaken++) {
+        NLOutputGap gap = gGaps[gGapsTaken % NL_GAPS];
+        uint64_t ticks = gap.end - gap.start - MIN(gap.period, gap.end - gap.start);
+        NSTimeInterval seconds = (double)ticks * gTimebase.numer / gTimebase.denom / NSEC_PER_SEC;
+        if (seconds < 3) stalled += seconds;   // anything longer is not the output catching its breath
+    }
+    if (stalled <= 0 || gPlayingElsewhere) return NO;
+    NLEngineAddLead(stalled);
+    return YES;
+}
+
+static void NLTakeStallsAndRedraw(void) {
+    if (!NLTakeStalls() || !gEnabled) return;
+    gPushedBase = nil;   // the system's position moves too
+    NLEnginePushUpdate();
+}
+
+static void NLWatchAudioRoute(void) {
+    for (NSString *name in @[AVAudioSessionRouteChangeNotification, AVAudioSessionMediaServicesWereResetNotification]) {
+        [[NSNotificationCenter defaultCenter] addObserverForName:name object:nil queue:nil
+                                                      usingBlock:^(NSNotification *note) {
+            NLUpdateRouteDelay();
+            // The stall that comes with it is over by the first, a slow
+            // Bluetooth link by the second.
+            for (NSNumber *after in @[@1.5, @4.0]) {
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(after.doubleValue * NSEC_PER_SEC)),
+                               dispatch_get_main_queue(), ^{ NLTakeStallsAndRedraw(); });
+            }
+        }];
+    }
+    NLUpdateRouteDelay();
+}
 
 #pragma mark - Dictionary path (third-party players)
 
@@ -172,9 +342,14 @@ static void NLRestoreInfo(void) {
 }
 
 // Main queue. `ownEcho`: the hook already found this to be our own last push
-// read back (and gave the system the current position instead).
-static void NLIngestInfo(MPNowPlayingInfoCenter *center, NSDictionary *info, BOOL ownEcho) {
+// read back (and gave the system the current position instead). `elsewhere`:
+// Spotify Connect, as reported before the info was cleaned.
+static void NLIngestInfo(MPNowPlayingInfoCenter *center, NSDictionary *info, BOOL ownEcho, BOOL elsewhere) {
     gCenter = center;
+    if (elsewhere != gPlayingElsewhere) {
+        gPlayingElsewhere = elsewhere;
+        NLApplyOutputDelay();
+    }
 
     NSString *title = info[MPMediaItemPropertyTitle];
     NSString *artist = info[MPMediaItemPropertyArtist];
@@ -200,7 +375,9 @@ static void NLIngestInfo(MPNowPlayingInfoCenter *center, NSDictionary *info, BOO
         gBaseInfo = info;
     }
 
-    NLEngineIngest(title, artist, album, duration, elapsed, rate);
+    NSTimeInterval lead = NLSpotifyAnnouncedEarly(title, artist, elapsed) ? kNLSpotifyTrackLead : 0;
+    if (gSpotify) NLTakeStalls();   // first, so this update is weighed against the count they moved
+    NLEngineIngest(title, artist, album, duration, elapsed, rate, lead);
 }
 
 #pragma mark - Content items (Apple Music)
@@ -253,7 +430,7 @@ static void NLIngestItem(MPNowPlayingContentItem *item) {
     // Metadata arrives piecemeal; wait until there is enough to identify the track.
     if (title.length == 0 || isnan(duration) || duration <= 0) return;
 
-    NLEngineIngest(title, artist, item.albumName, duration, @(NLItemElapsed(item)), @(item.playbackRate));
+    NLEngineIngest(title, artist, item.albumName, duration, @(NLItemElapsed(item)), @(item.playbackRate), 0);
 }
 
 // Main queue. MediaPlayer sometimes hands over a copy of the item we already
@@ -438,6 +615,10 @@ static void NLHideExplicitNow(void) {
     // from the main queue. That way the caller's thread does not matter.
     NSDictionary *snapshot = [nowPlayingInfo copy];
     MPNowPlayingInfoCenter *center = self;
+    // Playing on another device: nothing comes out of this one, whose output
+    // delay is then beside the point. Told by the raw title and artist.
+    BOOL elsewhere = gSpotify && NLSplitConnectInfo(snapshot[MPMediaItemPropertyTitle], snapshot[MPMediaItemPropertyArtist],
+                                                    NULL, NULL);
 
     // Cleaned before the system sees it; otherwise the raw values show for a
     // moment at every track change until our first push lands.
@@ -450,11 +631,23 @@ static void NLHideExplicitNow(void) {
     %orig(snapshot);
 
     dispatch_async(dispatch_get_main_queue(), ^{
-        NLIngestInfo(center, snapshot, ownEcho);
+        NLIngestInfo(center, snapshot, ownEcho, elsewhere);
     });
 }
 
 %end
+
+%end
+
+// Spotify only: its output unit, for the stalls above. Spotify starts it on
+// every play, resume and skip, so it is found without looking.
+%group NLSpotifyAudioHooks
+
+%hookf(OSStatus, AudioOutputUnitStart, AudioUnit unit) {
+    NLWatchOutputUnit(unit);
+    __atomic_store_n(&gOutputStarted, true, __ATOMIC_RELAXED);
+    return %orig;
+}
 
 %end
 
@@ -543,6 +736,7 @@ static void NLInstallHooks(void) {
         %init(NLMusicHooks);
     } else {
         %init(NLHooks);
+        if (gSpotify) %init(NLSpotifyAudioHooks);
     }
 }
 
@@ -631,7 +825,13 @@ static void NLLyricsChanged(CFNotificationCenterRef center, void *observer,
         if (!NLProcessIsEligible()) return;
 
         gContentItemMode = NLProcessUsesContentItems();
+        gSpotify = [[[NSBundle mainBundle] bundleIdentifier] isEqualToString:@"com.spotify.client"];
         NLEngineStart();
+        if (gSpotify) {
+            mach_timebase_info(&gTimebase);
+            gStallTicks = (uint64_t)(0.08 * NSEC_PER_SEC) * gTimebase.denom / gTimebase.numer;
+            NLWatchAudioRoute();
+        }
         NLSettings *settings = NLSettingsReload();
         gEnabled = settings.enabled;
         if (gEnabled) NLEngineClearCacheLater(settings.cacheClearedAt);   // a clear tapped while this app was not running
