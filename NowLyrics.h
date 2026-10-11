@@ -183,6 +183,7 @@ NSString *NLNowPlayingPath(void);                   // Library/NowLyrics/nowplay
 NSArray<NLLyricLine *> *NLManualLyrics(NSString *title, NSString *artist, NSString **outPath);
 BOOL NLClearCacheIfRequested(NSTimeInterval requestedAt);   // deletes cached files older than the request; YES if any went
 void NLPruneCache(NSUInteger limit);                       // keeps only the newest `limit` cached files
+void NLClearOldCache(NSString *folder);                    // once per folder: deletes what was cached before 1.2.0
 // A listed file's modification date (asked for in the listing), distantPast when unknown.
 static inline NSDate *NLModificationDate(NSURL *url) {
     NSDate *date = nil;

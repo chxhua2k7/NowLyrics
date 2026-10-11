@@ -4,7 +4,8 @@
 //  (adam) ID, which Apple Music's lyrics are asked for by. Apple's public
 //  search (no account), in the device's region; the result must have the
 //  title, and the artist or the length to within 2 s (more than 5 s apart is
-//  another version). Titles and artists are compared folded: Traditional as
+//  another version, and so is an instrumental or karaoke one unless that is
+//  what plays). Titles and artists are compared folded: Traditional as
 //  Simplified, no case, accents, widths, bracketed parts or " - …" tails.
 //
 

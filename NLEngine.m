@@ -51,6 +51,7 @@ void NLEngineStart(void) {
     gPaths = [NSMutableDictionary dictionary];
     gWriteQueue = dispatch_queue_create("app.nowlyrics.nowplaying", DISPATCH_QUEUE_SERIAL);
     gFetchQueue = dispatch_queue_create("app.nowlyrics.fetch", DISPATCH_QUEUE_SERIAL);
+    dispatch_async(gFetchQueue, ^{ NLClearOldCache(NLCacheDir()); });   // first: no fetch reads the cache before it
     gFlipTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
     dispatch_source_set_event_handler(gFlipTimer, ^{ NLEnginePushUpdate(); });
     NLEngineCancelFlip();   // armed per line by NLScheduleFlip
@@ -254,10 +255,12 @@ void NLEnginePushUpdate(void) {
 
     NLPublish(title, artist);
 
-    // After the last line nothing changes until the player reports something,
-    // which comes back through an ingest.
+    // The next line switches NL_LINE_MARGIN ahead of its start (a millisecond
+    // later, so the lookup then is past it however the clock rounds). After the
+    // last line nothing changes until the player reports something, which
+    // comes back through an ingest.
     if (show == NLShowLyrics && gRate > 0 && nextStart > lookup) {
-        NLScheduleFlip(MIN((nextStart - lookup) / gRate, kNLMaxFlipDelay));
+        NLScheduleFlip(MIN((nextStart - NL_LINE_MARGIN - lookup) / gRate + 0.001, kNLMaxFlipDelay));
     }
 }
 

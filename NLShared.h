@@ -51,9 +51,12 @@ static inline NSString *NLJBPath(NSString *path) { return [@"/var/jb" stringByAp
 // subscription may have lapsed, so SpringBoard checks it (NLAppleMusicSB.x).
 #define NL_AM_FAILED_NOTIFICATION   @"app.nowlyrics/AppleMusicFailed"
 
-// How early a line may switch, so it is up when the singing starts. The island
-// looks lines up the same way the apps do.
-#define NL_LINE_MARGIN 0.15
+// How early a line switches: the island fades a new line in over a quarter
+// of a second, so it has to start this much ahead to be up when the singing
+// starts (the lyrics' own times are right on average, measured against
+// LRCLIB). Word-by-word lighting keeps the words' own times. The island looks
+// lines up the same way the apps do.
+#define NL_LINE_MARGIN 0.3
 
 // Library/NowLyrics/nowplaying.plist in each app's container: what the app is
 // playing and which lyrics it uses, for the settings page and the island (the
@@ -73,6 +76,9 @@ static inline NSString *NLJBPath(NSString *path) { return [@"/var/jb" stringByAp
 #define NL_FOLDER_NAME   @"NowLyrics"
 #define NL_APP_FOLDER    @"Library/" NL_FOLDER_NAME
 #define NL_MANUAL_FOLDER @"manual"
+// Left there once the lyrics cached before 1.2.0 are gone (NLClearOldCache,
+// NLLyrics.m); until then the settings page's library leaves those out.
+#define NL_OLD_CACHE_CLEARED @".old-cache-cleared"
 
 // The settings page looking the playing song up again with a source:
 // Library/NowLyrics/lookup.plist beside nowplaying.plist, with `key` (the

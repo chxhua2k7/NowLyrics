@@ -43,18 +43,22 @@ static void NLNameFromFile(NLLibraryEntry *entry) {
 
 // Hidden files too: a file is named after its title, which may start with a
 // "." ("...Ready For It?"), and the apps use it all the same. The extension
-// keeps everything else out.
+// keeps everything else out, and so does a missing source while lyrics cached
+// before 1.2.0 are still to be deleted, which the app does the next time it
+// runs (NLClearOldCache).
 static NSArray<NLLibraryEntry *> *NLEntriesIn(NSString *folder, NSString *bundleID, BOOL manual) {
     NSMutableArray<NLLibraryEntry *> *out = [NSMutableArray array];
     NSArray<NSURL *> *files = [[NSFileManager defaultManager] contentsOfDirectoryAtURL:[NSURL fileURLWithPath:folder isDirectory:YES]
                                                             includingPropertiesForKeys:@[NSURLContentModificationDateKey]
                                                                                options:0
                                                                                  error:nil];
+    BOOL oldGone = manual || [[NSFileManager defaultManager] fileExistsAtPath:[folder stringByAppendingPathComponent:NL_OLD_CACHE_CLEARED]];
     for (NSURL *url in files) {
         if (![url.pathExtension.lowercaseString isEqualToString:@"lrc"]) continue;
         NSString *text = [NSString stringWithContentsOfURL:url encoding:NSUTF8StringEncoding error:nil];
         if (!text) continue;
         NSDictionary *tags = NLParseLRCHeader(text);
+        if (!oldGone && !tags[NL_LRC_SOURCE]) continue;
         NLLibraryEntry *entry = [NLLibraryEntry new];
         entry.path = url.path;
         entry.bundleID = bundleID;

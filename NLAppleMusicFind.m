@@ -53,19 +53,33 @@ static BOOL NLArtistsMeet(NSString *wanted, NSArray<NSString *> *parts, NSString
     return NO;
 }
 
+// A version without the singing (instrumental, karaoke, off vocal), as Apple
+// names it in the title or the album. Folded titles lose the brackets that
+// say so, and such a version is as long as the song.
+static BOOL NLWithoutVocals(id name) {
+    if (![name isKindOfClass:NSString.class]) return NO;
+    NSRegularExpression *marks = NL_ONCE([NSRegularExpression regularExpressionWithPattern:
+        @"instrumental|karaoke|off[ -]?vocal|backing track|\\binst\\b|伴奏|純音樂|纯音乐|カラオケ|オフボーカル|インスト"
+        options:NSRegularExpressionCaseInsensitive error:nil]);
+    return [marks firstMatchInString:name options:0 range:NSMakeRange(0, [name length])] != nil;
+}
+
 // The best of the search results for the song, or nil. A result must have the
 // title, and either the artist or the length to within 2 s; one more than 5 s
-// longer or shorter is another version.
+// longer or shorter is another version, and so is one without the singing,
+// unless that is what plays.
 static NSDictionary *NLBestMatch(NSArray *results, NSString *title, NSString *artist, NSTimeInterval duration) {
     NSString *wanted = NLFold(title);
     NSString *wantedArtist = NLFold(artist);
     NSArray<NSString *> *artistParts = wantedArtist.length ? NLArtistParts(artist) : @[];
+    BOOL vocalsWanted = !NLWithoutVocals(title);
     NSDictionary *best = nil;
     double bestScore = -1;
     for (NSDictionary *result in results) {
         if (![result isKindOfClass:NSDictionary.class]) continue;
         NSNumber *trackID = result[@"trackId"];
         if (![trackID respondsToSelector:@selector(longLongValue)]) continue;
+        if (vocalsWanted && (NLWithoutVocals(result[@"trackName"]) || NLWithoutVocals(result[@"collectionName"]))) continue;
         NSString *name = NLFold(result[@"trackName"]);
         int titleScore = [name isEqualToString:wanted] ? 3
                        : (name.length && wanted.length && ([name containsString:wanted] || [wanted containsString:name])) ? 2 : 0;
