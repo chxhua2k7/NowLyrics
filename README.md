@@ -162,6 +162,10 @@ settings page once.
   16.5.1, 18.6.2 and 26.1; another iOS version may need an update.
 - On iOS 26, Player over its cover is hidden: the lock screen's player is
   glass there and Control Center already takes the cover's colors.
+- Spotify with crossfade or Automix, or a song skipped in its last few
+  seconds, can leave the lyrics up to a second off until you pause; on a
+  Spotify Connect device they follow Spotify's position, without that
+  device's own delay.
 
 ## Privacy
 

@@ -14,6 +14,8 @@
 ### Fixes
 
 - Lines change 0.3 s ahead of their time, so in the island each one has faded in by the time it is sung; word-by-word lighting keeps the exact timing
+- Spotify: lyrics keep time with what you hear on Bluetooth headphones too, instead of running ahead by their delay
+- Spotify: lyrics no longer run about a second early after a song plays on into the next, or after the sound moves between the speaker and headphones; before, only pausing or playing the song again put them right
 - Quit app on change no longer quits the music app when you just open NowLyrics' settings or change something it does not use
 - Lyrics in the island wait for the iOS 26 island to finish opening before they appear
 - With Album color, a song without a cover goes back to white
