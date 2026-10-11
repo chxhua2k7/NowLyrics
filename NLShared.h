@@ -57,6 +57,10 @@ static inline NSString *NLJBPath(NSString *path) { return [@"/var/jb" stringByAp
 #define NL_NP_WORDS     @"words"      // the lyrics have word timings
 #define NL_NP_UPDATED   @"updated"    // NSDate
 #define NL_NP_STAMP     @"stamp"      // the same as a CFAbsoluteTime: a date in the plist keeps whole seconds only
+// Left in that folder once the lyrics cached before 1.2.0 are gone
+// (NLClearOldCache, NLLyrics.m); until then the settings page's library
+// leaves those out.
+#define NL_OLD_CACHE_CLEARED @".old-cache-cleared"
 
 // The settings page looking the playing song up again with a source:
 // Library/NowLyrics/lookup.plist beside nowplaying.plist, with `key` (the

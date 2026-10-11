@@ -141,6 +141,7 @@ NSString *NLNowPlayingPath(void);                   // Library/NowLyrics/nowplay
 NSArray<NLLyricLine *> *NLManualLyrics(NSString *title, NSString *artist, NSString **outPath);
 BOOL NLClearCacheIfRequested(NSTimeInterval requestedAt);   // deletes cached files older than the request; YES if any went
 void NLPruneCache(NSUInteger limit);                       // keeps only the newest `limit` cached files
+void NLClearOldCache(NSString *folder);                    // once per folder: deletes what was cached before 1.2.0
 
 #pragma mark - NLSources.m
 
