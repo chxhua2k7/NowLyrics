@@ -179,6 +179,7 @@ BOOL NLWordLinesAgree(NSArray<NLLyricLine *> *words, NSArray<NLLyricLine *> *tim
 void NLMarkChorus(NSArray<NLLyricLine *> *lines);   // sets chorus/chorusStart; leaves them NO when nothing repeats
 NSString *NLCacheDir(void);                         // Library/NowLyrics, without creating it
 NSString *NLCachePath(NSString *key);
+NSString *NLCacheFileName(NSString *key);           // NLCachePath's file name, for another app's folder (the settings page)
 NSString *NLNowPlayingPath(void);                   // Library/NowLyrics/nowplaying.plist
 NSArray<NLLyricLine *> *NLManualLyrics(NSString *title, NSString *artist, NSString **outPath);
 BOOL NLClearCacheIfRequested(NSTimeInterval requestedAt);   // deletes cached files older than the request; YES if any went

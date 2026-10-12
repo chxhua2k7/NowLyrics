@@ -57,7 +57,7 @@ NSString *NLTrackKey(NSString *title, NSString *artist) {
 }
 
 // Readable name plus a djb2 suffix, so cached files can be found and hand-edited.
-NSString *NLCachePath(NSString *key) {
+NSString *NLCacheFileName(NSString *key) {
     unsigned long long h = 5381;
     const char *c = key.UTF8String;
     while (*c) { h = ((h << 5) + h) ^ (unsigned char)(*c); c++; }
@@ -65,8 +65,11 @@ NSString *NLCachePath(NSString *key) {
     NSString *safe = NLSanitizeFilename(key);
     if (safe.length > 80) safe = [safe substringToIndex:80];
 
-    return [NLRootPath() stringByAppendingPathComponent:
-            [NSString stringWithFormat:@"%@_%llx.lrc", safe, h]];
+    return [NSString stringWithFormat:@"%@_%llx.lrc", safe, h];
+}
+
+NSString *NLCachePath(NSString *key) {
+    return [NLRootPath() stringByAppendingPathComponent:NLCacheFileName(key)];
 }
 
 NSString *NLNowPlayingPath(void) {

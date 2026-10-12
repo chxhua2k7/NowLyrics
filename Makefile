@@ -49,7 +49,7 @@ NowLyrics_FRAMEWORKS += MediaPlayer QuartzCore AVFoundation AudioToolbox
 # Separate so nothing else of the tweak runs there.
 TWEAK_NAME += NowLyricsIsland
 
-NowLyricsIsland_FILES += NowLyricsIsland.x NLIslandStrip.m NLLyrics.m NLLocate.m NLPlayerTint.m NLPlayerTintSB.x NLAppleMusicSB.x NLAppleMusicFind.m
+NowLyricsIsland_FILES += NowLyricsIsland.x NLIslandStrip.m NLLyrics.m NLLocate.m NLPlayerTint.m NLPlayerTintSB.x NLAppleMusicSB.x NLAppleMusicFind.m NLHistorySB.x NLHistory.m
 NowLyricsIsland_FRAMEWORKS += UIKit ImageIO QuartzCore CoreImage
 
 include $(THEOS_MAKE_PATH)/tweak.mk
@@ -72,7 +72,7 @@ include $(THEOS_MAKE_PATH)/tweak.mk
 BUNDLE_NAME += NowLyricsPrefs
 
 # prefsbundle/ 裡每個 .m 都編進來(別在那裡放草稿)。
-NowLyricsPrefs_FILES += $(sort $(wildcard prefsbundle/*.m)) NLIslandStrip.m NLLyrics.m NLTTML.m NLLocate.m NLPlayerTint.m
+NowLyricsPrefs_FILES += $(sort $(wildcard prefsbundle/*.m)) NLIslandStrip.m NLLyrics.m NLTTML.m NLLocate.m NLPlayerTint.m NLHistory.m
 NowLyricsPrefs_FRAMEWORKS += UIKit ImageIO QuartzCore UniformTypeIdentifiers CoreImage
 NowLyricsPrefs_PRIVATE_FRAMEWORKS += Preferences
 NowLyricsPrefs_INSTALL_PATH = /Library/PreferenceBundles

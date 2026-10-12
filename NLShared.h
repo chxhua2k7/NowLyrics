@@ -71,6 +71,7 @@ static inline NSString *NLJBPath(NSString *path) { return [@"/var/jb" stringByAp
 #define NL_NP_WORDS     @"words"      // the lyrics have word timings
 #define NL_NP_UPDATED   @"updated"    // NSDate
 #define NL_NP_STAMP     @"stamp"      // the same as a CFAbsoluteTime: a date in the plist keeps whole seconds only
+#define NL_NP_STARTED   @"started"    // CFAbsoluteTime the app first saw this track (the listening history matches plays by it)
 // That folder (each app's Library/NowLyrics; NLCacheDir() from inside the
 // app) and its folder of lyrics added by hand.
 #define NL_FOLDER_NAME   @"NowLyrics"

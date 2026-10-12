@@ -35,6 +35,7 @@ static NSString *gTrackTitle = nil;
 static NSString *gTrackArtist = nil;
 static NSString *gTrackAlbum = nil;
 static NSTimeInterval gTrackDuration = 0;   // 0 until the player reports it
+static CFAbsoluteTime gTrackStarted = 0;     // when the player first reported the current track
 static BOOL gTrackRequested = NO;           // lyrics were asked for, which needs the duration
 static NSTimeInterval gAnchorElapsed = 0;   // virtual clock anchor
 static CFTimeInterval gAnchorHost = 0;
@@ -309,6 +310,7 @@ static void NLWriteNowPlaying(void) {
     info[NL_NP_STATUS] = status;   // nil leaves it out
     info[NL_NP_PATH] = path;
     info[NL_NP_WORDS] = @(words);
+    info[NL_NP_STARTED] = @(gTrackStarted);
     if ([info isEqualToDictionary:gWrittenNowPlaying]) return;
     gWrittenNowPlaying = [info copy];
 
@@ -415,6 +417,7 @@ void NLEngineIngest(NSString *title, NSString *artist, NSString *album,
         gTrackArtist = artist;
         gTrackAlbum = nil;
         gTrackDuration = 0;
+        gTrackStarted = CFAbsoluteTimeGetCurrent();
         gTrackRequested = NO;
         NLEngineCancelFlip();   // whatever was queued belonged to the previous track
     }
