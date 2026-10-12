@@ -138,7 +138,7 @@
 		</dict>
 		<dict>
 			<key>PostNotification</key>
-			<string>app.nowlyrics/ReloadPrefs</string>
+			<string>com.c3x14n.nowlyrics/ReloadPrefs</string>
 			<key>cell</key>
 			<string>PSSwitchCell</string>
 			<key>default</key>
@@ -156,7 +156,7 @@
 		</dict>
 		<dict>
 			<key>PostNotification</key>
-			<string>app.nowlyrics/ReloadPrefs</string>
+			<string>com.c3x14n.nowlyrics/ReloadPrefs</string>
 			<key>cell</key>
 			<string>PSSwitchCell</string>
 			<key>default</key>

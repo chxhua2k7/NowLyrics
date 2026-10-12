@@ -401,7 +401,7 @@ static NSTimeInterval gLastRecheck = -INFINITY;   // when the last one started (
 
 // Reads and writes of the preferences, which cfprefsd answers: off the main queue.
 static dispatch_queue_t NLPrefsQueue(void) {
-    return NL_ONCE(dispatch_queue_create("app.nowlyrics.subscription", DISPATCH_QUEUE_SERIAL));
+    return NL_ONCE(dispatch_queue_create("com.c3x14n.nowlyrics.subscription", DISPATCH_QUEUE_SERIAL));
 }
 
 // The unlock as the domain has it now: whether there is one to keep in step,

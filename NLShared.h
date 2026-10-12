@@ -21,35 +21,39 @@ static inline NSString *NLJBPath(NSString *path) { return jbroot(path); }
 static inline NSString *NLJBPath(NSString *path) { return [@"/var/jb" stringByAppendingString:path]; }
 #endif
 
-#define NL_PREFS_DOMAIN         @"app.nowlyrics"
-#define NL_RELOAD_NOTIFICATION  @"app.nowlyrics/ReloadPrefs"
+#define NL_PREFS_DOMAIN         @"com.c3x14n.nowlyrics"
+// The domain until 1.2.3, the package's first name: its settings move into
+// NL_PREFS_DOMAIN once (NLMoveOldPrefs), and a file by that name is still
+// read when there is none by the new one (an app's in-container override).
+#define NL_OLD_PREFS_DOMAIN     @"app.nowlyrics"
+#define NL_RELOAD_NOTIFICATION  @"com.c3x14n.nowlyrics/ReloadPrefs"
 // The settings page wrote, replaced or deleted lyrics files: each app drops
 // what it holds in memory and looks the current track up again.
-#define NL_LYRICS_CHANGED_NOTIFICATION @"app.nowlyrics/LyricsChanged"
+#define NL_LYRICS_CHANGED_NOTIFICATION @"com.c3x14n.nowlyrics/LyricsChanged"
 
 // Apple Music's lyrics asked for by SpringBoard, for the song another app
 // plays (NLAppleMusicSB.x): the request (`id`, `title`, `artist`,
 // `duration`, `time`) and the answer (the same `id`, `elapsed`, and `ttml`,
 // `notFound` or `error`, with the song it was found as: `adamID`,
 // `matchTitle`, `matchArtist`) are files by these names, in the asking app's
-// Library/NowLyrics or in NL_AM_DIR for the settings page's test, each
-// announced by a Darwin notification.
-#define NL_AM_DIR                   @"/var/mobile/Library/Caches/NowLyrics"
+// Library/NowLyrics or in NL_AM_DIR (in the jailbreak's root) for the
+// settings page's test, each announced by a Darwin notification.
+#define NL_AM_DIR                   NLJBPath(@"/var/mobile/Library/Caches/NowLyrics")
 #define NL_AM_REQUEST_NAME          @"am-request.plist"
 #define NL_AM_RESPONSE_NAME         @"am-response.plist"
-#define NL_AM_REQUEST_FILE          NL_AM_DIR @"/" NL_AM_REQUEST_NAME
-#define NL_AM_RESPONSE_FILE         NL_AM_DIR @"/" NL_AM_RESPONSE_NAME
-#define NL_AM_REQUEST_NOTIFICATION  @"app.nowlyrics/AppleMusicRequest"
-#define NL_AM_RESPONSE_NOTIFICATION @"app.nowlyrics/AppleMusicResponse"
+#define NL_AM_REQUEST_FILE          [NL_AM_DIR stringByAppendingPathComponent:NL_AM_REQUEST_NAME]
+#define NL_AM_RESPONSE_FILE         [NL_AM_DIR stringByAppendingPathComponent:NL_AM_RESPONSE_NAME]
+#define NL_AM_REQUEST_NOTIFICATION  @"com.c3x14n.nowlyrics/AppleMusicRequest"
+#define NL_AM_RESPONSE_NOTIFICATION @"com.c3x14n.nowlyrics/AppleMusicResponse"
 // The settings page asking whether there is an Apple Music subscription:
 // request `id`, `time`; answer `id`, `result` ("active", "none", "unknown"),
 // `detail`. Through the same notifications.
-#define NL_AM_CHECK_REQUEST_FILE    NL_AM_DIR @"/am-check-request.plist"
-#define NL_AM_CHECK_RESPONSE_FILE   NL_AM_DIR @"/am-check-response.plist"
+#define NL_AM_CHECK_REQUEST_FILE    [NL_AM_DIR stringByAppendingPathComponent:@"am-check-request.plist"]
+#define NL_AM_CHECK_RESPONSE_FILE   [NL_AM_DIR stringByAppendingPathComponent:@"am-check-response.plist"]
 // Music's own request for Apple Music's lyrics failed (refused or not
 // answered, not merely no lyrics for the song, NLStoreLyricsFailed): the
 // subscription may have lapsed, so SpringBoard checks it (NLAppleMusicSB.x).
-#define NL_AM_FAILED_NOTIFICATION   @"app.nowlyrics/AppleMusicFailed"
+#define NL_AM_FAILED_NOTIFICATION   @"com.c3x14n.nowlyrics/AppleMusicFailed"
 
 // How early a line switches: the island fades a new line in over a quarter
 // of a second, so it has to start this much ahead to be up when the singing
@@ -116,7 +120,7 @@ static inline NSString *NLStatusSource(NSString *status) {
 // state of this name, 0 until SpringBoard has said. SpringBoard's own answer
 // counts an island given by other means too (a MobileGestalt edit, a tweak
 // in SpringBoard), on an iPad as well.
-#define NL_ISLAND_STATE_NAME "app.nowlyrics.island"
+#define NL_ISLAND_STATE_NAME "com.c3x14n.nowlyrics.island"
 static const uint64_t kNLIslandAbsent = 1;
 static const uint64_t kNLIslandPresent = 2;
 
@@ -129,8 +133,10 @@ static const uint64_t kNLIslandPresent = 2;
 // few locations are tried. The first is the process's own Library, which in
 // SpringBoard is the global file itself and in an app is an in-container
 // override (how NowLyrics is configured when injected with TrollFools and
-// there is no Settings panel). The path that worked is remembered; reloads
-// happen on every settings change. Main queue.
+// there is no Settings panel). The new name anywhere before the old one
+// (NL_OLD_PREFS_DOMAIN); the path that worked is remembered, unless it is
+// an old one, so the new file is found once it is there. Reloads happen on
+// every settings change. Main queue.
 static inline NSDictionary *NLReadPrefsFile(void) {
     static NSString *knownPath = nil;
     if (knownPath) {
@@ -138,7 +144,6 @@ static inline NSDictionary *NLReadPrefsFile(void) {
         if (dict.count) return dict;
         knownPath = nil;
     }
-    NSString *name = [NL_PREFS_DOMAIN stringByAppendingPathExtension:@"plist"];
     NSString *library = NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES).firstObject;
     NSMutableArray<NSString *> *candidates = [NSMutableArray array];
     if (library) [candidates addObject:[library stringByAppendingPathComponent:@"Preferences"]];
@@ -146,11 +151,13 @@ static inline NSDictionary *NLReadPrefsFile(void) {
     for (NSString *dir in @[@"/var/mobile/Library/Preferences", NLJBPath(@"/var/mobile/Library/Preferences")]) {
         if (![candidates containsObject:dir]) [candidates addObject:dir];
     }
-    for (NSString *dir in candidates) {
-        NSString *path = [dir stringByAppendingPathComponent:name];
-        NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:path];
-        if (dict.count) {
-            knownPath = path;
+    for (NSString *domain in @[NL_PREFS_DOMAIN, NL_OLD_PREFS_DOMAIN]) {
+        NSString *name = [domain stringByAppendingPathExtension:@"plist"];
+        for (NSString *dir in candidates) {
+            NSString *path = [dir stringByAppendingPathComponent:name];
+            NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:path];
+            if (!dict.count) continue;
+            if ([domain isEqualToString:NL_PREFS_DOMAIN]) knownPath = path;
             return dict;
         }
     }
@@ -273,6 +280,24 @@ static inline void NLWritePrefs(NSDictionary<NSString *, id> *values) {
         CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFPropertyListRef)value, domain);
     }
     CFPreferencesAppSynchronize(domain);
+    NLPostDarwin(NL_RELOAD_NOTIFICATION);
+}
+
+// The old domain's settings (NL_OLD_PREFS_DOMAIN) moved into NL_PREFS_DOMAIN
+// once: those it does not have yet, then the old ones removed (their file
+// goes with them), then a reload notice. SpringBoard as it starts, the
+// settings page too in case it is first.
+static inline void NLMoveOldPrefs(void) {
+    CFStringRef old = (__bridge CFStringRef)NL_OLD_PREFS_DOMAIN, domain = (__bridge CFStringRef)NL_PREFS_DOMAIN;
+    NSArray *keys = CFBridgingRelease(CFPreferencesCopyKeyList(old, kCFPreferencesCurrentUser, kCFPreferencesAnyHost));
+    if (!keys.count) return;
+    NSMutableDictionary *moved = [CFBridgingRelease(CFPreferencesCopyMultiple((__bridge CFArrayRef)keys, old, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)) mutableCopy];
+    NSArray *present = CFBridgingRelease(CFPreferencesCopyKeyList(domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost));
+    if (present) [moved removeObjectsForKeys:present];
+    if (moved.count) CFPreferencesSetMultiple((__bridge CFDictionaryRef)moved, NULL, domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
+    CFPreferencesSetMultiple(NULL, (__bridge CFArrayRef)keys, old, kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
+    CFPreferencesSynchronize(domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
+    CFPreferencesSynchronize(old, kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
     NLPostDarwin(NL_RELOAD_NOTIFICATION);
 }
 

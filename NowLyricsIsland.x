@@ -722,6 +722,7 @@ static void NLIslandPrefsChanged(CFNotificationCenterRef center, void *observer,
 
 %ctor {
     @autoreleasepool {
+        NLMoveOldPrefs();   // before anything here reads them, on any device
         if (!objc_getClass("SBSystemApertureSceneElement")) return;   // no Dynamic Island support in this iOS
         gPrefs = NLReadPrefsFile();
         gSettings = NLIslandReadSettings(gPrefs);

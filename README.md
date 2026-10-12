@@ -95,7 +95,7 @@ Sold on Havoc as `com.c3x14n.nowlyrics`; listing material in `havoc/`.
 - **Lyrics management** (Settings: Now Playing, Lyrics Library): Preferences is
   not sandboxed, so it reads and writes the lyrics files in each app's container
   (`NLLocate.m` maps bundle IDs from the container metadata plists), then posts
-  `app.nowlyrics/LyricsChanged`; the apps drop their memory cache and look again.
+  `com.c3x14n.nowlyrics/LyricsChanged`; the apps drop their memory cache and look again.
   The apps re-read the settings first. Per-song offsets and picked sources live
   in the prefs file as `trackOffsets` and `trackSources`; the page shows one
   offset (the default one under Advanced plus the song's own). The main page
@@ -228,7 +228,7 @@ app's token (unofficial) or an API key whose timed endpoint is usually paid.
 Matching is by strings; Apple Music relies on private API. Lyrics Island
 needs the Dynamic Island as SpringBoard has it: SpringBoardServices'
 `SBSIsSystemApertureAvailable` asked in SpringBoard once it has launched and
-published as the notify state `app.nowlyrics.island`, so a device given the
+published as the notify state `com.c3x14n.nowlyrics.island`, so a device given the
 island by other means (a MobileGestalt edit, a tweak in SpringBoard; an iPad
 too) counts, and the settings page says so on others. It rests on
 SpringBoard internals checked on 16.5.1, 18.6.2 and 26.1 (and iPadOS 26.6.2

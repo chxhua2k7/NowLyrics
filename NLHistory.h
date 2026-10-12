@@ -4,8 +4,9 @@
 //  plays it, those left before they counted as skipped (NLHistorySB.x); the
 //  settings pages show it (prefsbundle/NLHistoryPages.h).
 //
-//  One JSON file per day, named by the local date the play started on
-//  (yyyy-MM-dd.json): {"version": 1, "plays": [entry, …]} sorted by start.
+//  One JSON file per day in the jailbreak's root, named by the local date the
+//  play started on (yyyy-MM-dd.json): {"version": 1, "plays": [entry, …]}
+//  sorted by start.
 //  Covers are small JPEGs in Artwork/, one per cover, shared by its plays.
 //  Only SpringBoard adds to the files; the settings page deletes from them and
 //  says so (NL_HISTORY_EDITED_NOTIFICATION), so SpringBoard stops writing a
@@ -19,14 +20,16 @@
 extern "C" {
 #endif
 
-#define NL_HISTORY_DIR      @"/var/mobile/Library/NowLyrics/History"
-#define NL_HISTORY_ART_DIR  NL_HISTORY_DIR @"/Artwork"
+// Inside the jailbreak's root (NLJBPath), as its other files: on rootless
+// /var/jb/var/mobile/Library/NowLyrics/History.
+#define NL_HISTORY_DIR      NLJBPath(@"/var/mobile/Library/NowLyrics/History")
+#define NL_HISTORY_ART_DIR  [NL_HISTORY_DIR stringByAppendingPathComponent:@"Artwork"]
 
 // SpringBoard wrote a play or deleted old days (the pages showing the history
 // load again), and the settings page deleted some or all of it (SpringBoard
 // checks the play it is on).
-#define NL_HISTORY_WRITTEN_NOTIFICATION @"app.nowlyrics/HistoryWritten"
-#define NL_HISTORY_EDITED_NOTIFICATION  @"app.nowlyrics/HistoryEdited"
+#define NL_HISTORY_WRITTEN_NOTIFICATION @"com.c3x14n.nowlyrics/HistoryWritten"
+#define NL_HISTORY_EDITED_NOTIFICATION  @"com.c3x14n.nowlyrics/HistoryEdited"
 
 // Preferences: the switch (off by default), how many days are kept (0: all),
 // and whether the pages show skipped plays (on by default).

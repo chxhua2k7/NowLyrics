@@ -17,7 +17,7 @@ NSString *NLAppleMusicLyricsFromSpringBoard(NSString *title, NSString *artist, N
     static NSMutableDictionary<NSString *, NSDictionary *> *answers;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        queue = dispatch_queue_create("app.nowlyrics.applemusic.remote", DISPATCH_QUEUE_SERIAL);
+        queue = dispatch_queue_create("com.c3x14n.nowlyrics.applemusic.remote", DISPATCH_QUEUE_SERIAL);
         waiting = [NSMutableDictionary dictionary];
         answers = [NSMutableDictionary dictionary];
         int token = 0;

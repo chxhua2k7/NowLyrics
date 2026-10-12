@@ -59,7 +59,7 @@ English: [README.md](README.md)
   App 推的:`MPNowPlayingInfoCenter` 對第三方 App 距上次不到 0.5 秒的更新會延後 0.5 秒(`_pushDate`),
   所以每次推歌詞前先在它的佇列上清掉。
 - **歌詞管理**(設定頁「正在播放」「歌詞庫」):Preferences 沒有沙盒,直接讀寫各 App 容器裡的歌詞檔
-  (`NLLocate.m` 用容器的 metadata plist 找 bundle ID),改完發 `app.nowlyrics/LyricsChanged`,
+  (`NLLocate.m` 用容器的 metadata plist 找 bundle ID),改完發 `com.c3x14n.nowlyrics/LyricsChanged`,
   App 先重讀設定再清掉記憶體快取、找一次。每首偏移和每首指定的來源存在設定檔的 `trackOffsets`、
   `trackSources`(曲目 key → 秒 / 來源名);頁面上只顯示一個偏移(「進階」的預設偏移加上這首的)。
   主頁和「正在播放」頁最上面嵌入鎖定畫面的播放器
@@ -146,7 +146,7 @@ iOS 17 以上改掛在元件自己的 view:那裡容器的內容 view 規定只�
 
 鎖定畫面一次一行;只有島會逐字,而且要歌詞有逐字時間。網易雲是簡體。Musixmatch 要 App 的 token(非官方)或 API key(帶時間軸的端點通常要付費)。
 比對靠字串;Apple Music 依賴私有 API。歌詞上島需要 SpringBoard 裡有動態島(SpringBoard 啟動完成後問 SpringBoardServices 的
-`SBSIsSystemApertureAvailable`,以 notify state `app.nowlyrics.island` 發布,所以用其他方式開出動態島的機型也算,
+`SBSIsSystemApertureAvailable`,以 notify state `com.c3x14n.nowlyrics.island` 發布,所以用其他方式開出動態島的機型也算,
 例如改 MobileGestalt 或 SpringBoard 裡的插件,iPad 也一樣;其他機型設定頁會說明),
 依賴在 16.5.1、18.6.2、26.1(以及開了動態島的 iPadOS 26.6.2)確認過的 SpringBoard 內部實作,其他版本可能需要調整。
 iPadOS 26 的「設定」側邊欄浮在頁面上,所以播放器和預覽島依表格的邊距與安全區域排版,而不是表格寬度。播放器用封面背景:16 與 18 的

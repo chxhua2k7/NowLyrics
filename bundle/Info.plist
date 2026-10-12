@@ -6,7 +6,7 @@
 	<!-- 這是真的可執行檔(prefsbundle/),AltList 在它的建構子裡 dlopen。 -->
 	<!-- 版本佔位字由 Makefile 在 stage 時換成 PACKAGE_VERSION,不要手改。 -->
 	<key>CFBundleExecutable</key><string>NowLyricsPrefs</string>
-	<key>CFBundleIdentifier</key><string>app.nowlyrics.prefs</string>
+	<key>CFBundleIdentifier</key><string>com.c3x14n.nowlyrics.prefs</string>
 	<key>CFBundleName</key><string>NowLyrics</string>
 	<key>CFBundlePackageType</key><string>BNDL</string>
 	<key>NSPrincipalClass</key><string>NLRootListController</string>

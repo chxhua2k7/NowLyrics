@@ -443,6 +443,11 @@ UIBarButtonItem *NLApplyButton(UIViewController *controller) {
     id _nowPlayingObserver;   // the theme follows what plays on every page above this one
 }
 
+// Settings still in the old domain, should this page open before SpringBoard moved them.
++ (void)initialize {
+    if (self == [NLRootListController class]) NLMoveOldPrefs();
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.navigationItem.rightBarButtonItem = NLApplyButton(self);

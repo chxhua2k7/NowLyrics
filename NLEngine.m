@@ -53,8 +53,8 @@ void NLEngineStart(void) {
     gMissing = [NSMutableSet set];
     gStatus = [NSMutableDictionary dictionary];
     gPaths = [NSMutableDictionary dictionary];
-    gWriteQueue = dispatch_queue_create("app.nowlyrics.nowplaying", DISPATCH_QUEUE_SERIAL);
-    gFetchQueue = dispatch_queue_create("app.nowlyrics.fetch", DISPATCH_QUEUE_SERIAL);
+    gWriteQueue = dispatch_queue_create("com.c3x14n.nowlyrics.nowplaying", DISPATCH_QUEUE_SERIAL);
+    gFetchQueue = dispatch_queue_create("com.c3x14n.nowlyrics.fetch", DISPATCH_QUEUE_SERIAL);
     dispatch_async(gFetchQueue, ^{ NLClearOldCache(NLCacheDir()); });   // first: no fetch reads the cache before it
     gFlipTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
     dispatch_source_set_event_handler(gFlipTimer, ^{ NLEnginePushUpdate(); });

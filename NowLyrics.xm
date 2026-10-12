@@ -96,7 +96,7 @@ static NSTimeInterval NLRouteDelay(void) {
 static void NLUpdateRouteDelay(void) {
     static dispatch_queue_t queue;   // serial, so an older answer never lands last
     static dispatch_once_t once;
-    dispatch_once(&once, ^{ queue = dispatch_queue_create("app.nowlyrics.route", DISPATCH_QUEUE_SERIAL); });
+    dispatch_once(&once, ^{ queue = dispatch_queue_create("com.c3x14n.nowlyrics.route", DISPATCH_QUEUE_SERIAL); });
     dispatch_async(queue, ^{
         NSTimeInterval delay = NLRouteDelay();
         dispatch_async(dispatch_get_main_queue(), ^{

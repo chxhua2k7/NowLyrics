@@ -100,8 +100,8 @@ uiopen "apple-magnifier://install?url=http://192.168.64.1:8765/spotify.ipa"
 - 改設定的替代方法：
 
   ```bash
-  plutil -replace diagnostics -bool true /var/jb/var/mobile/Library/Preferences/app.nowlyrics.plist
-  notifyutil -p app.nowlyrics/ReloadPrefs
+  plutil -replace diagnostics -bool true /var/jb/var/mobile/Library/Preferences/com.c3x14n.nowlyrics.plist
+  notifyutil -p com.c3x14n.nowlyrics/ReloadPrefs
   ```
 
 - 每次 respring 都會有 SBRendererService / AegirPoster / rapportd 的 SIGABRT crash log，是 vphone 本身的雜訊，與 tweak 無關。

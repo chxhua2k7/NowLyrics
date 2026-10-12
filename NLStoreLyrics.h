@@ -28,7 +28,7 @@ static inline BOOL NLAskStoreLyrics(long long adamID, void (^done)(NSString *tex
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         queue = [NSOperationQueue new];
-        queue.name = @"app.nowlyrics.applemusic";
+        queue.name = @"com.c3x14n.nowlyrics.applemusic";
     });
     NSOperation *operation = [operationClass new];
     [(id)operation setSongAdamID:adamID];

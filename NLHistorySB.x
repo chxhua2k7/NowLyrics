@@ -47,6 +47,7 @@ static const NSTimeInterval kNLHistoryResumeGap = 2 * 60;  // after a respring: 
 @property (nonatomic, copy) NSString *identifier, *bundleID;
 @property (nonatomic, copy) NSString *shownTitle;           // MediaRemote's title, as last seen
 @property (nonatomic, copy) NSString *title, *artist, *album, *key, *art;
+@property (nonatomic, copy) NSString *lingeringArt;         // the cover shown before it began, which may linger a moment
 @property (nonatomic, assign) double duration;
 @property (nonatomic, assign) CFAbsoluteTime start, end;    // end: when it last played
 @property (nonatomic, assign) CFAbsoluteTime playingSince;  // 0 while paused
@@ -93,6 +94,7 @@ static NLHistoryPlay *gPlay = nil;
 static NSTimer *gSaveTimer = nil;
 static BOOL gLookedForResume = NO;   // after SpringBoard started: whether the first play was matched with the last one written
 static NSString *gPrunedDay = nil;   // the day the old ones were last pruned on
+static NSString *gShownArt = nil;    // the cover the latest now-playing info had (its file name)
 
 static BOOL NLHistoryLengthsClose(double a, double b) {
     return a <= 0 || b <= 0 || fabs(a - b) <= 3;
@@ -276,6 +278,7 @@ static void NLHistoryIngest(NSDictionary *info, NSString *bundleID) {
         play.duration = duration;
         play.start = now;
         play.end = now;
+        play.lingeringArt = gShownArt;
         NSDictionary *np = NLHistoryNowLyricsSong(bundleID, title, duration, now);
         if (np) {
             NLHistoryAdopt(play, np);
@@ -296,17 +299,21 @@ static void NLHistoryIngest(NSDictionary *info, NSString *bundleID) {
     if (play.duration <= 0 && duration > 0) play.duration = duration;
     if (elapsed >= 0) play.lastElapsed = elapsed;
 
-    // The cover, once the song has been on for a moment (between songs the
-    // old one can linger), and again whenever it changes: a player may show a
-    // stand-in until the real one has loaded (Spotify).
+    // The cover at once, and again whenever it changes: a player may show a
+    // stand-in until the real one has loaded (Spotify). In a song's first
+    // seconds the one shown before it can linger: that one only once it is
+    // still there after three (an album's songs share it), so a song skipped
+    // at once has its own too.
     NSData *artwork = NLInfoArtwork(info);
-    if (artwork && now - play.start >= 3) {
+    if (artwork) {
         NSString *art = [NSString stringWithFormat:@"%lx.jpg", (unsigned long)NLArtworkPrint(artwork)];
-        if (![art isEqualToString:play.art]) {
+        BOOL lingering = now - play.start < 3 && [art isEqualToString:play.lingeringArt];
+        if (!lingering && ![art isEqualToString:play.art]) {
             play.art = art;
             NLHistorySaveArtwork(artwork, art);
             if (play.saved) play.savedAt = 0;   // written with the new one at the next look
         }
+        gShownArt = art;
     }
 
     play.playingSince = playing ? now : 0;

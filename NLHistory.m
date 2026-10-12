@@ -10,7 +10,7 @@ static const NSInteger kNLHistoryVersion = 1;
 static const CGFloat kNLHistoryArtworkSide = 180;   // pixels: a 60 pt cover at 3×
 
 static dispatch_queue_t NLHistoryQueue(void) {
-    return NL_ONCE(dispatch_queue_create("app.nowlyrics.history", DISPATCH_QUEUE_SERIAL));
+    return NL_ONCE(dispatch_queue_create("com.c3x14n.nowlyrics.history", DISPATCH_QUEUE_SERIAL));
 }
 
 // yyyy-MM-dd in the current time zone, whatever the calendar and locale.

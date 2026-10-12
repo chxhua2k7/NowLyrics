@@ -6,7 +6,7 @@
 ## 0. 備份現在的設定(裡面有 Musixmatch token)
 
 ```bash
-cp /var/jb/var/mobile/Library/Preferences/app.nowlyrics.plist /var/mobile/app.nowlyrics.backup.plist
+cp /var/jb/var/mobile/Library/Preferences/com.c3x14n.nowlyrics.plist /var/mobile/com.c3x14n.nowlyrics.backup.plist
 ```
 
 ## 1. 移除
@@ -16,7 +16,7 @@ sudo dpkg --purge com.c3x14n.nowlyrics
 ```
 
 ```bash
-rm -f /var/jb/var/mobile/Library/Preferences/app.nowlyrics.plist
+rm -f /var/jb/var/mobile/Library/Preferences/com.c3x14n.nowlyrics.plist
 ```
 
 之後我檢查:
@@ -49,7 +49,7 @@ killall Preferences
 ## 4. 還原你的設定
 
 ```bash
-cp /var/mobile/app.nowlyrics.backup.plist /var/jb/var/mobile/Library/Preferences/app.nowlyrics.plist
+cp /var/mobile/com.c3x14n.nowlyrics.backup.plist /var/jb/var/mobile/Library/Preferences/com.c3x14n.nowlyrics.plist
 ```
 
 ```bash
