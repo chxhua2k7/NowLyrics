@@ -54,6 +54,9 @@ void NLNowPlayingInfo(void (^completion)(NSDictionary *info));
 #define NL_MR_EXPLICIT  @"kMRMediaRemoteNowPlayingInfoIsExplicitTrack"
 #define NL_MR_ELAPSED   @"kMRMediaRemoteNowPlayingInfoElapsedTime"
 #define NL_MR_TIMESTAMP @"kMRMediaRemoteNowPlayingInfoTimestamp"
+#define NL_MR_ARTIST    @"kMRMediaRemoteNowPlayingInfoArtist"
+#define NL_MR_ALBUM     @"kMRMediaRemoteNowPlayingInfoAlbum"
+#define NL_MR_DURATION  @"kMRMediaRemoteNowPlayingInfoDuration"
 // The title, nil unless a non-empty string (a song that has one).
 static inline NSString *NLInfoTitle(NSDictionary *info) {
     NSString *title = NLString(info, NL_MR_TITLE);

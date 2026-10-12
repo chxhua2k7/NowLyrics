@@ -20,10 +20,14 @@
 - (NSTimeInterval)listenedFrom:(NSDate *)start to:(NSDate *)end;
 @end
 
-// Every play of every day, newest first. Any queue.
+// Every play of every day, newest first; a day's, oldest first. A day's file
+// is read again only once it has changed. Any queue.
 NSArray<NLHistoryItem *> *NLHistoryLoadAll(void);
-NSArray<NLHistoryItem *> *NLHistoryItemsOfDay(NSString *day);   // oldest first
+NSArray<NLHistoryItem *> *NLHistoryItemsOfDay(NSString *day);
 
+// A formatter by `name`, made by `make` the first time and kept until the
+// region or the time zone changes (they cost to make). Main queue.
+id NLHistoryFormatter(NSString *name, id (^make)(void));
 NSString *NLHistoryDayTitle(NSDate *date);       // Today, Yesterday, Saturday, October 4
 NSString *NLHistoryDuration(double seconds);     // 1 hr 32 min, 2 min 35 sec, 45 sec; 0 min for none
 UIImage *NLHistoryCover(NSString *art, CGFloat side);   // rounded; a note on grey without one

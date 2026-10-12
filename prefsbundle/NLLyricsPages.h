@@ -148,6 +148,13 @@ static inline UITableView *NLMakeTable(UIViewController *owner) {
 
 @interface NLNowPlayingController : PSViewController
 @end
+// NLNowPlayingController.m, for the songs' pages (Now Playing, a song in the
+// listening history): the Offset row for one song, `offset` being the default
+// plus its own, the control calling `action` on `target`; and a per-song
+// dictionary with `key`'s entry set to `value` (nil removes it), the others
+// going at random once there are more than kNLTrackOffsetsLimit.
+UITableViewCell *NLSongOffsetRow(double offset, id target, SEL action);
+NSDictionary *NLSettingTrackEntry(NSDictionary *all, NSString *key, id value);
 
 // A page that is a table of its own under the main page's top (NLPageTop):
 // -viewDidLoad makes both (NLMakeTable), and the top follows the page's
@@ -274,6 +281,7 @@ static const CGFloat kNLIconCornerRadius = 6.5;
 // NLRootListController.m: a Settings row icon, a white SF Symbol on a rounded
 // tile of `hex` ("#RRGGBB").
 UIImage *NLSettingsIcon(NSString *symbol, NSString *hex);
+UIColor *NLColorFromHex(id value);   // "#RRGGBB"; nil for anything else
 UIImage *NLSampleCoverIcon(void);   // the main switch's: a warm gradient with a note
 // A row's icon as the plists give it: the installed app's (`app`), else the
 // symbol on a tile of `hex`.

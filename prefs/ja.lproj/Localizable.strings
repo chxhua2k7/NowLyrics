@@ -169,8 +169,6 @@
 "Yesterday" = "昨日";
 "1 song" = "1曲";
 "%lu songs" = "%lu曲";
-"1 artist" = "アーティスト1人";
-"%lu artists" = "アーティスト%lu人";
 "1 time" = "1回";
 "%lu times" = "%lu回";
 "Paused" = "一時停止";

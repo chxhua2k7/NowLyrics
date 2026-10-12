@@ -171,8 +171,6 @@
 "Yesterday" = "昨天";
 "1 song" = "1 首";
 "%lu songs" = "%lu 首";
-"1 artist" = "1 位歌手";
-"%lu artists" = "%lu 位歌手";
 "1 time" = "1 次";
 "%lu times" = "%lu 次";
 "Paused" = "暂停";

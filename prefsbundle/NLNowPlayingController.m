@@ -333,20 +333,23 @@ static NSString *NLMissLines(NSString *status) {
            NLMusixmatchHasCredentials([self nlPref:@"musixmatchToken"], [self nlPref:@"musixmatchKey"]);
 }
 
-// One song's entry in a per-song dictionary; nil removes it. Bounded: the
-// others go, at random, once there are too many.
+NSDictionary *NLSettingTrackEntry(NSDictionary *all, NSString *key, id value) {
+    NSMutableDictionary *entries = [all mutableCopy] ?: [NSMutableDictionary dictionary];
+    if (value) entries[key] = value;
+    else [entries removeObjectForKey:key];
+    while (entries.count > kNLTrackOffsetsLimit) {
+        for (NSString *other in entries.allKeys) {
+            if (![other isEqualToString:key]) { [entries removeObjectForKey:other]; break; }
+        }
+    }
+    return [entries copy];
+}
+
+// The song playing's entry in a per-song dictionary; nil removes it.
 - (void)nlSetTrackValue:(id)value inPref:(NSString *)prefKey {
     NSString *key = [self nlString:NL_NP_KEY];
     if (key.length == 0) return;
-    NSMutableDictionary *all = [[self nlDictionaryPref:prefKey] mutableCopy];
-    if (value) all[key] = value;
-    else [all removeObjectForKey:key];
-    while (all.count > kNLTrackOffsetsLimit) {
-        for (NSString *other in all.allKeys) {
-            if (![other isEqualToString:key]) { [all removeObjectForKey:other]; break; }
-        }
-    }
-    [self nlSetPref:[all copy] forKey:prefKey];
+    [self nlSetPref:NLSettingTrackEntry([self nlDictionaryPref:prefKey], key, value) forKey:prefKey];
 }
 
 - (NSString *)nlPickedSource {
@@ -517,18 +520,22 @@ static NSString *NLMissLines(NSString *status) {
     return NLLooseNum([self nlPref:@"offset"], 0);
 }
 
-- (UITableViewCell *)nlOffsetCell {
+UITableViewCell *NLSongOffsetRow(double offset, id target, SEL action) {
     NLSongOffsetCell *cell = [[NLSongOffsetCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
     cell.textLabel.text = NLL(@"Offset");
     cell.imageView.image = NLSettingsIcon(@"clock", @"#33C759");
-    double offset = [self nlDefaultOffset] + NLTrackOffset(@{NL_TRACK_OFFSETS_KEY: [self nlDictionaryPref:NL_TRACK_OFFSETS_KEY]}, [self nlString:NL_NP_KEY]);
     // Past the slider's ±3 s (the default raised after this song got its own),
     // the range takes it in: clamped, the row would show another offset and a
     // touch would write that one back.
     [cell.control extendRangeToInclude:offset];
     cell.control.value = offset;
-    [cell.control addTarget:self action:@selector(nlOffsetChanged:) forControlEvents:UIControlEventValueChanged];
+    [cell.control addTarget:target action:action forControlEvents:UIControlEventValueChanged];
     return cell;
+}
+
+- (UITableViewCell *)nlOffsetCell {
+    double offset = [self nlDefaultOffset] + NLTrackOffset(@{NL_TRACK_OFFSETS_KEY: [self nlDictionaryPref:NL_TRACK_OFFSETS_KEY]}, [self nlString:NL_NP_KEY]);
+    return NLSongOffsetRow(offset, self, @selector(nlOffsetChanged:));
 }
 
 - (UITableViewCell *)nlDisplayCellForRow:(NSInteger)row {

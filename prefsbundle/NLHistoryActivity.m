@@ -31,11 +31,7 @@ static UIColor *NLKnownAppColor(NSString *bundleID) {
         @"com.tencent.QQMusic": @"#31C27C",
         @"com.kkbox.kkbox": @"#09CEF6",
     }));
-    NSString *hex = known[bundleID];
-    if (hex.length != 7) return nil;
-    unsigned rgb = 0;
-    [[NSScanner scannerWithString:[hex substringFromIndex:1]] scanHexInt:&rgb];
-    return [UIColor colorWithRed:((rgb >> 16) & 0xFF) / 255.0 green:((rgb >> 8) & 0xFF) / 255.0 blue:(rgb & 0xFF) / 255.0 alpha:1];
+    return NLColorFromHex(known[bundleID]);
 }
 
 static const NSUInteger kNLNamedApps = 4;
@@ -191,18 +187,24 @@ static NSArray<NSNumber *> *NLAppDurations(NSArray<NLHistoryItem *> *items, NLHi
     if ([self.start isEqualToDate:thisWeek]) return NLL(@"This Week");
     NSDate *lastWeek = [NSCalendar.currentCalendar dateByAddingUnit:NSCalendarUnitWeekOfYear value:-1 toDate:thisWeek options:0];
     if ([self.start isEqualToDate:lastWeek]) return NLL(@"Last Week");
-    NSDateIntervalFormatter *formatter = [NSDateIntervalFormatter new];
-    formatter.dateStyle = NSDateIntervalFormatterMediumStyle;
-    formatter.timeStyle = NSDateIntervalFormatterNoStyle;
+    NSDateIntervalFormatter *formatter = NLHistoryFormatter(@"week", ^id {
+        NSDateIntervalFormatter *made = [NSDateIntervalFormatter new];
+        made.dateStyle = NSDateIntervalFormatterMediumStyle;
+        made.timeStyle = NSDateIntervalFormatterNoStyle;
+        return made;
+    });
     return [formatter stringFromDate:self.start toDate:[self.end dateByAddingTimeInterval:-1]];
 }
 
 - (NSString *)titleForBarAtIndex:(NSUInteger)index {
     NLActivityBar *bar = self.bars[index];
     if (self.scale == NLActivityScaleWeek) return NLHistoryDayTitle(bar.start);
-    NSDateIntervalFormatter *formatter = [NSDateIntervalFormatter new];
-    formatter.dateStyle = NSDateIntervalFormatterNoStyle;
-    formatter.timeStyle = NSDateIntervalFormatterShortStyle;
+    NSDateIntervalFormatter *formatter = NLHistoryFormatter(@"hour", ^id {
+        NSDateIntervalFormatter *made = [NSDateIntervalFormatter new];
+        made.dateStyle = NSDateIntervalFormatterNoStyle;
+        made.timeStyle = NSDateIntervalFormatterShortStyle;
+        return made;
+    });
     return [NSString stringWithFormat:@"%@ %@", NLHistoryDayTitle(bar.start), [formatter stringFromDate:bar.start toDate:bar.end]];
 }
 
@@ -216,16 +218,22 @@ static const CGFloat kNLChartTopInset = 8;
 
 // The scale: hours on a week (12h), minutes on a day (30m).
 static NSString *NLAxisString(NSTimeInterval seconds, BOOL hours) {
-    NSDateComponentsFormatter *formatter = [NSDateComponentsFormatter new];
-    formatter.unitsStyle = NSDateComponentsFormatterUnitsStyleAbbreviated;
-    formatter.allowedUnits = hours ? NSCalendarUnitHour : NSCalendarUnitMinute;
+    NSDateComponentsFormatter *formatter = NLHistoryFormatter(hours ? @"axis hours" : @"axis minutes", ^id {
+        NSDateComponentsFormatter *made = [NSDateComponentsFormatter new];
+        made.unitsStyle = NSDateComponentsFormatterUnitsStyleAbbreviated;
+        made.allowedUnits = hours ? NSCalendarUnitHour : NSCalendarUnitMinute;
+        return made;
+    });
     return [formatter stringFromTimeInterval:seconds] ?: @"";
 }
 
 // 0時, 6 AM, as the user's 12/24-hour setting has it.
 static NSString *NLHourString(NSDate *date) {
-    NSDateFormatter *formatter = [NSDateFormatter new];
-    [formatter setLocalizedDateFormatFromTemplate:@"j"];
+    NSDateFormatter *formatter = NLHistoryFormatter(@"axis hour", ^id {
+        NSDateFormatter *made = [NSDateFormatter new];
+        [made setLocalizedDateFormatFromTemplate:@"j"];
+        return made;
+    });
     return [formatter stringFromDate:date];
 }
 
@@ -745,12 +753,16 @@ static const NSUInteger kNLCollapsedSongs = 5;
 - (void)nlLoad {
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         NSArray<NLHistoryItem *> *items = NLHistoryLoadAll();
+        NLHistoryApps *apps = [NLHistoryApps appsForItems:items];
         dispatch_async(dispatch_get_main_queue(), ^{
-            NSDate *showing = self->_loaded ? [self nlPeriodAtPage:self->_pager.page].start : self->_initialDate;
+            // Loaded again (SpringBoard writes each minute while a song
+            // plays): the same page, with the bar picked still picked.
+            BOOL again = self->_loaded;
+            NSDate *showing = again ? [self nlPeriodAtPage:self->_pager.page].start : self->_initialDate;
             self->_items = items;
-            self->_apps = [NLHistoryApps appsForItems:items];
+            self->_apps = apps;
             self->_loaded = YES;
-            [self nlReloadPagesShowingDate:showing];
+            [self nlReloadPagesShowingDate:showing selectedBar:again ? self->_selectedBar : NSNotFound];
         });
     });
 }
@@ -766,7 +778,8 @@ static const NSUInteger kNLCollapsedSongs = 5;
     return _scale == NLActivityScaleWeek ? components.weekOfYear : components.day;
 }
 
-- (void)nlReloadPagesShowingDate:(NSDate *)date {
+// `bar`: the bar to show picked on the page with `date`, NSNotFound for none.
+- (void)nlReloadPagesShowingDate:(NSDate *)date selectedBar:(NSInteger)bar {
     NSDate *current = [NLActivityPeriod startOfPeriodWithScale:_scale containingDate:[NSDate date]];
     NSDate *oldest = _items.lastObject.start;
     _firstStart = oldest ? [NLActivityPeriod startOfPeriodWithScale:_scale containingDate:[oldest earlierDate:current]] : current;
@@ -774,7 +787,7 @@ static const NSUInteger kNLCollapsedSongs = 5;
     NSDate *target = [NLActivityPeriod startOfPeriodWithScale:_scale containingDate:date];
     _pager.page = MIN(MAX([self nlPagesFrom:_firstStart to:target], 0), _pageCount - 1);
     [_periods removeAllObjects];
-    _selectedBar = NSNotFound;
+    _selectedBar = bar >= 0 && bar < (NSInteger)[self nlPeriodAtPage:_pager.page].bars.count ? bar : NSNotFound;
     [_pager reloadData];
     [_pager scrollToPage:_pager.page];
     [self nlUpdateContent];
@@ -801,7 +814,7 @@ static const NSUInteger kNLCollapsedSongs = 5;
         else date = [period.end compare:now] == NSOrderedDescending ? now : [period.end dateByAddingTimeInterval:-1];
     }
     _scale = scale;
-    [self nlReloadPagesShowingDate:date];
+    [self nlReloadPagesShowingDate:date selectedBar:NSNotFound];
 }
 
 #pragma mark Content
@@ -944,7 +957,7 @@ static const NSUInteger kNLCollapsedSongs = 5;
             content.textProperties.color = UIColor.secondaryLabelColor;
         } else {
             content.text = _showAllSongs ? NLL(@"Show Less") : NLL(@"Show More");
-            content.textProperties.color = self.view.tintColor;
+            content.textProperties.color = UIColor.tintColor;   // the theme's, when it changes too
             cell.selectionStyle = UITableViewCellSelectionStyleDefault;
         }
     } else if (indexPath.row == NLListeningRowTimeline) {

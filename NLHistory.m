@@ -30,8 +30,19 @@ NSDate *NLHistoryDayDate(NSString *dayKey) {
     return dayKey.length == 10 ? [NLHistoryDayFormatter() dateFromString:dayKey] : nil;
 }
 
-static NSString *NLHistoryDayPath(NSString *dayKey) {
+NSString *NLHistoryDayPath(NSString *dayKey) {
     return [NL_HISTORY_DIR stringByAppendingPathComponent:[dayKey stringByAppendingPathExtension:@"json"]];
+}
+
+// yyyy-MM-dd by its shape: the folder is listed on every load, and a
+// formatter for each of a year's files is not cheap.
+static BOOL NLHistoryIsDayKey(NSString *name) {
+    if (name.length != 10) return NO;
+    for (NSUInteger i = 0; i < 10; i++) {
+        unichar c = [name characterAtIndex:i];
+        if ((i == 4 || i == 7) ? c != '-' : (c < '0' || c > '9')) return NO;
+    }
+    return YES;
 }
 
 NSArray<NSString *> *NLHistoryDays(void) {
@@ -39,7 +50,7 @@ NSArray<NSString *> *NLHistoryDays(void) {
     for (NSString *name in [[NSFileManager defaultManager] contentsOfDirectoryAtPath:NL_HISTORY_DIR error:nil]) {
         if (![name.pathExtension isEqualToString:@"json"]) continue;
         NSString *day = name.stringByDeletingPathExtension;
-        if (NLHistoryDayDate(day)) [days addObject:day];
+        if (NLHistoryIsDayKey(day)) [days addObject:day];
     }
     // The names sort as the dates do.
     return [days sortedArrayUsingSelector:@selector(compare:)].reverseObjectEnumerator.allObjects;
@@ -126,6 +137,7 @@ void NLHistoryPrune(NSInteger keepDays) {
     dispatch_async(NLHistoryQueue(), ^{
         NSFileManager *fm = [NSFileManager defaultManager];
         NSArray<NSString *> *days = NLHistoryDays();
+        NSUInteger found = days.count;
         if (keepDays > 0) {
             NSCalendar *calendar = NSCalendar.currentCalendar;
             NSDate *today = [calendar startOfDayForDate:[NSDate date]];
@@ -137,6 +149,7 @@ void NLHistoryPrune(NSInteger keepDays) {
             }
             days = kept;
         }
+        if (days.count < found) NLPostDarwin(NL_HISTORY_WRITTEN_NOTIFICATION);
         // Covers no kept play uses.
         NSMutableSet<NSString *> *used = [NSMutableSet set];
         for (NSString *day in days) {

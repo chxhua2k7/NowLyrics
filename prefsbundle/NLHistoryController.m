@@ -62,9 +62,26 @@ static const NSUInteger kNLTopSongs = 5;                   // this week's Most P
 
 @end
 
+// Read again only once its file has changed: the pages load every day
+// whenever SpringBoard writes (each minute while a song plays), and it is
+// mostly today's that did.
 NSArray<NLHistoryItem *> *NLHistoryItemsOfDay(NSString *day) {
+    static NSMutableDictionary<NSString *, NSArray *> *cache;   // day → @[@[file date, size], items]
+    NSLock *lock = NL_ONCE([NSLock new]);
+    NSDictionary *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:NLHistoryDayPath(day) error:nil];
+    if (!attributes) return @[];
+    NSArray *version = @[attributes.fileModificationDate ?: NSDate.distantPast, @(attributes.fileSize)];
+    [lock lock];
+    NSArray *cached = cache[day];
+    [lock unlock];
+    if ([cached.firstObject isEqual:version]) return cached.lastObject;
+
     NSMutableArray<NLHistoryItem *> *items = [NSMutableArray array];
     for (NSDictionary *entry in NLHistoryReadDay(day)) [items addObject:[NLHistoryItem itemWithEntry:entry day:day]];
+    [lock lock];
+    if (!cache) cache = [NSMutableDictionary dictionary];
+    cache[day] = @[version, [items copy]];
+    [lock unlock];
     return items;
 }
 
@@ -84,33 +101,61 @@ static double NLHistoryTotalListened(NSArray<NLHistoryItem *> *items) {
 
 #pragma mark - Formatting
 
+id NLHistoryFormatter(NSString *name, id (^make)(void)) {
+    static NSMutableDictionary<NSString *, id> *made;
+    if (!made) {
+        made = [NSMutableDictionary dictionary];
+        for (NSNotificationName change in @[NSCurrentLocaleDidChangeNotification, NSSystemTimeZoneDidChangeNotification]) {
+            [NSNotificationCenter.defaultCenter addObserverForName:change object:nil queue:NSOperationQueue.mainQueue
+                                                        usingBlock:^(NSNotification *note) { [made removeAllObjects]; }];
+        }
+    }
+    id formatter = made[name];
+    if (!formatter) made[name] = formatter = make();
+    return formatter;
+}
+
 NSString *NLHistoryDayTitle(NSDate *date) {
     NSCalendar *calendar = NSCalendar.currentCalendar;
     if ([calendar isDateInToday:date]) return NLL(@"Today");
     if ([calendar isDateInYesterday:date]) return NLL(@"Yesterday");
-    NSDateFormatter *formatter = [NSDateFormatter new];
     BOOL thisYear = [calendar component:NSCalendarUnitYear fromDate:date] == [calendar component:NSCalendarUnitYear fromDate:[NSDate date]];
-    [formatter setLocalizedDateFormatFromTemplate:thisYear ? @"MMMdEEEE" : @"yMMMdEEEE"];
+    NSString *template = thisYear ? @"MMMdEEEE" : @"yMMMdEEEE";
+    NSDateFormatter *formatter = NLHistoryFormatter(template, ^id {
+        NSDateFormatter *made = [NSDateFormatter new];
+        [made setLocalizedDateFormatFromTemplate:template];
+        return made;
+    });
     return [formatter stringFromDate:date];
 }
 
 static NSString *NLHistoryTime(NSDate *date) {
-    return [NSDateFormatter localizedStringFromDate:date dateStyle:NSDateFormatterNoStyle timeStyle:NSDateFormatterShortStyle];
+    NSDateFormatter *formatter = NLHistoryFormatter(@"time", ^id {
+        NSDateFormatter *made = [NSDateFormatter new];
+        made.timeStyle = NSDateFormatterShortStyle;
+        return made;
+    });
+    return [formatter stringFromDate:date];
 }
 
 // `toTheSecond`: below an hour, minutes and seconds (listening); else whole minutes (a pause).
 static NSString *NLHistoryFormatDuration(double seconds, BOOL toTheSecond) {
     seconds = MAX(round(seconds), 0);
-    NSDateComponentsFormatter *formatter = [NSDateComponentsFormatter new];
-    formatter.unitsStyle = NSDateComponentsFormatterUnitsStyleShort;
-    formatter.zeroFormattingBehavior = NSDateComponentsFormatterZeroFormattingBehaviorDropAll;
-    if (seconds >= 3600) formatter.allowedUnits = NSCalendarUnitHour | NSCalendarUnitMinute;
-    else if (seconds >= 60) formatter.allowedUnits = NSCalendarUnitMinute | (toTheSecond ? NSCalendarUnitSecond : 0);
-    else if (seconds > 0) formatter.allowedUnits = NSCalendarUnitSecond;
-    else {
-        formatter.allowedUnits = NSCalendarUnitMinute;
-        formatter.zeroFormattingBehavior = NSDateComponentsFormatterZeroFormattingBehaviorDefault;
-    }
+    NSCalendarUnit units = NSCalendarUnitMinute;
+    if (seconds >= 3600) units = NSCalendarUnitHour | NSCalendarUnitMinute;
+    else if (seconds >= 60 && toTheSecond) units = NSCalendarUnitMinute | NSCalendarUnitSecond;
+    else if (seconds > 0 && seconds < 60) units = NSCalendarUnitSecond;
+    BOOL none = seconds == 0;
+    NSString *name = [NSString stringWithFormat:@"duration %lu%@", (unsigned long)units, none ? @" none" : @""];
+    NSDateComponentsFormatter *formatter = NLHistoryFormatter(name, ^id {
+        NSDateComponentsFormatter *made = [NSDateComponentsFormatter new];
+        made.unitsStyle = NSDateComponentsFormatterUnitsStyleShort;
+        made.allowedUnits = units;
+        // 2 hr rather than 2 hr 0 min; nothing at all still reads 0 min.
+        made.zeroFormattingBehavior = none ? NSDateComponentsFormatterZeroFormattingBehaviorDefault
+                                           : NSDateComponentsFormatterZeroFormattingBehaviorDropAll;
+        return made;
+    });
     return [formatter stringFromTimeInterval:seconds] ?: @"";
 }
 
@@ -180,30 +225,6 @@ void NLHistoryPush(PSViewController *from, PSViewController *page) {
 @interface NLHistorySongController () <UITableViewDataSource, UITableViewDelegate>
 @end
 
-// The offset row, laid out like the main page's: title and value on the first
-// line, the slider underneath.
-@interface NLHistoryOffsetCell : UITableViewCell
-@property (nonatomic, readonly) NLOffsetControl *control;
-@end
-
-@implementation NLHistoryOffsetCell
-
-- (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
-    if ((self = [super initWithStyle:style reuseIdentifier:reuseIdentifier])) {
-        self.selectionStyle = UITableViewCellSelectionStyleNone;
-        _control = [[NLOffsetControl alloc] initWithFrame:CGRectZero];
-        [self.contentView addSubview:_control];
-    }
-    return self;
-}
-
-- (void)layoutSubviews {
-    [super layoutSubviews];
-    NLLayoutStackedOffsetRow(self, _control, self.contentView.layoutMargins.left);
-}
-
-@end
-
 typedef NS_ENUM(NSInteger, NLSongSection) { NLSongSectionStats, NLSongSectionLyrics, NLSongSectionOffset };
 
 @implementation NLHistorySongController {
@@ -214,7 +235,7 @@ typedef NS_ENUM(NSInteger, NLSongSection) { NLSongSectionStats, NLSongSectionLyr
     NSString *_lyricsPath;    // the song's lyrics there, added by hand or saved; nil without
     NSUInteger _plays;
     double _listened;
-    NSDate *_first, *_last;
+    NSDate *_first;
     BOOL _statsLoaded;
 }
 
@@ -289,15 +310,12 @@ typedef NS_ENUM(NSInteger, NLSongSection) { NLSongSectionStats, NLSongSectionLyr
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         NSUInteger plays = 0;
         double listened = 0;
-        NSDate *first = nil, *last = nil;
-        for (NSString *day in NLHistoryDays()) {
-            for (NLHistoryItem *other in NLHistoryItemsOfDay(day)) {
-                if (![other isSameSongAs:item]) continue;
-                plays++;
-                listened += other.listened;
-                if (!first || [other.start compare:first] == NSOrderedAscending) first = other.start;
-                if (!last || [other.start compare:last] == NSOrderedDescending) last = other.start;
-            }
+        NSDate *first = nil;
+        for (NLHistoryItem *other in NLHistoryLoadAll()) {   // newest first
+            if (![other isSameSongAs:item]) continue;
+            plays++;
+            listened += other.listened;
+            first = other.start;
         }
         // Its lyrics in the app that played it: added by hand first, as the app looks.
         NSString *folder = NLLyricsFolderForBundle(item.app);
@@ -317,7 +335,6 @@ typedef NS_ENUM(NSInteger, NLSongSection) { NLSongSectionStats, NLSongSectionLyr
             self->_plays = plays;
             self->_listened = listened;
             self->_first = first;
-            self->_last = last;
             self->_folder = folder;
             self->_lyricsPath = lyrics;
             self->_statsLoaded = YES;
@@ -376,13 +393,18 @@ typedef NS_ENUM(NSInteger, NLSongSection) { NLSongSectionStats, NLSongSectionLyr
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     switch ([self nlSection:indexPath.section]) {
         case NLSongSectionStats: {
-            NSDateFormatter *dates = [NSDateFormatter new];
-            dates.dateStyle = NSDateFormatterMediumStyle;
-            dates.timeStyle = NSDateFormatterShortStyle;
-            dates.doesRelativeDateFormatting = YES;
             if (indexPath.row == 0) return [self nlValueCell:NLL(@"Plays") value:NLHistoryCount(_plays, @"1 time", @"%lu times")];
             if (indexPath.row == 1) return [self nlValueCell:NLL(@"Listening Time") value:NLHistoryDuration(_listened)];
-            if (indexPath.row == 2) return [self nlValueCell:NLL(@"First Played") value:_first ? [dates stringFromDate:_first] : @""];
+            if (indexPath.row == 2) {
+                NSDateFormatter *dates = NLHistoryFormatter(@"first played", ^id {
+                    NSDateFormatter *made = [NSDateFormatter new];
+                    made.dateStyle = NSDateFormatterMediumStyle;
+                    made.timeStyle = NSDateFormatterShortStyle;
+                    made.doesRelativeDateFormatting = YES;
+                    return made;
+                });
+                return [self nlValueCell:NLL(@"First Played") value:_first ? [dates stringFromDate:_first] : @""];
+            }
             UITableViewCell *cell = [self nlValueCell:NLL(@"Played In") value:NLAppName(_item.app)];
             UIImage *icon = NLAppIcon(_item.app);
             if (icon) cell.imageView.image = NLRowSizedImage(icon, YES);
@@ -397,14 +419,8 @@ typedef NS_ENUM(NSInteger, NLSongSection) { NLSongSectionStats, NLSongSectionLyr
             return cell;
         }
         case NLSongSectionOffset: {
-            NLHistoryOffsetCell *cell = [[NLHistoryOffsetCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
-            cell.textLabel.text = NLL(@"Offset");
-            cell.imageView.image = NLSettingsIcon(@"clock", @"#33C759");
             double offset = [self nlDefaultOffset] + NLTrackOffset(@{NL_TRACK_OFFSETS_KEY: [self nlOffsets]}, _item.key);
-            [cell.control extendRangeToInclude:offset];   // past the slider's range: shown as it is, not clamped
-            cell.control.value = offset;
-            [cell.control addTarget:self action:@selector(nlOffsetChanged:) forControlEvents:UIControlEventValueChanged];
-            return cell;
+            return NLSongOffsetRow(offset, self, @selector(nlOffsetChanged:));
         }
     }
     return [UITableViewCell new];
@@ -428,21 +444,11 @@ typedef NS_ENUM(NSInteger, NLSongSection) { NLSongSectionStats, NLSongSectionLyr
     return [value isKindOfClass:NSDictionary.class] ? value : @{};
 }
 
-// The song's own entry in trackOffsets (none when it is 0), the others kept
-// within the limit as the Now Playing page keeps them.
+// The song's own entry in trackOffsets (none when it is 0), as the Now Playing page keeps it.
 - (void)nlOffsetChanged:(NLOffsetControl *)control {
-    NSString *key = _item.key;
-    if (key.length == 0) return;
+    if (_item.key.length == 0) return;
     double value = round((control.value - [self nlDefaultOffset]) * 100) / 100;
-    NSMutableDictionary *all = [[self nlOffsets] mutableCopy];
-    if (value == 0) [all removeObjectForKey:key];
-    else all[key] = @(value);
-    while (all.count > kNLTrackOffsetsLimit) {
-        for (NSString *other in all.allKeys) {
-            if (![other isEqualToString:key]) { [all removeObjectForKey:other]; break; }
-        }
-    }
-    [self nlSetPref:[all copy] forKey:NL_TRACK_OFFSETS_KEY];
+    [self nlSetPref:NLSettingTrackEntry([self nlOffsets], _item.key, value == 0 ? nil : @(value)) forKey:NL_TRACK_OFFSETS_KEY];
 }
 
 @end
@@ -814,7 +820,7 @@ typedef NS_ENUM(NSInteger, NLHistorySection) {
             if (indexPath.row == 0) return _cardCell;
             UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
             cell.textLabel.text = NLL(@"Show All Activity");
-            cell.textLabel.textColor = self.view.tintColor;
+            cell.textLabel.textColor = UIColor.tintColor;   // the theme's, when it changes too
             cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
             return cell;
         }
@@ -865,10 +871,8 @@ typedef NS_ENUM(NSInteger, NLHistorySection) {
     NSDate *oldest = keep > 0 ? [NSCalendar.currentCalendar dateByAddingUnit:NSCalendarUnitDay value:-(keep - 1)
                                                                        toDate:[NSCalendar.currentCalendar startOfDayForDate:[NSDate date]] options:0] : nil;
     BOOL losesSome = oldest && _items.lastObject && [_items.lastObject.start compare:oldest] == NSOrderedAscending;
-    void (^apply)(void) = ^{
-        [self nlSetPref:days forKey:NL_HISTORY_DAYS_PREF];
-        NLAfter(1, ^{ [self nlLoad]; });   // SpringBoard deletes them
-    };
+    // SpringBoard deletes them, and says so (the page loads again).
+    void (^apply)(void) = ^{ [self nlSetPref:days forKey:NL_HISTORY_DAYS_PREF]; };
     if (!losesSome) {
         apply();
         return;

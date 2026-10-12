@@ -35,10 +35,6 @@
 #define NLH_LOG(...) do {} while (0)
 #endif
 
-#define NL_MR_ARTIST   @"kMRMediaRemoteNowPlayingInfoArtist"
-#define NL_MR_ALBUM    @"kMRMediaRemoteNowPlayingInfoAlbum"
-#define NL_MR_DURATION @"kMRMediaRemoteNowPlayingInfoDuration"
-
 static const NSTimeInterval kNLHistoryCountAfter = 30;     // seconds played for a play to count (or half the song)
 static const NSTimeInterval kNLHistoryLongPause = 10 * 60; // back after longer than this: another play
 static const NSTimeInterval kNLHistorySaveEvery = 60;      // while playing
@@ -74,10 +70,13 @@ static const NSTimeInterval kNLHistoryResumeGap = 2 * 60;  // after a respring: 
     return entry;
 }
 
-// Played long enough to count.
+// How long it has to play to count: 30 seconds, or half a shorter song.
+- (double)countsAfter {
+    return self.duration > 0 ? MIN(kNLHistoryCountAfter, self.duration / 2) : kNLHistoryCountAfter;
+}
+
 - (BOOL)counts {
-    double needed = self.duration > 0 ? MIN(kNLHistoryCountAfter, self.duration / 2) : kNLHistoryCountAfter;
-    return self.listened >= needed;
+    return self.listened >= [self countsAfter];
 }
 
 @end
@@ -270,8 +269,7 @@ static void NLHistoryIngest(NSDictionary *info, NSString *bundleID) {
         // A look again in a few seconds for the cover (between songs the old
         // one can linger), and once the song would count.
         NLAfter(4, ^{ if (gPlay == play) NLHistoryRefresh(); });
-        double countsAt = play.duration > 0 ? MIN(kNLHistoryCountAfter, play.duration / 2) : kNLHistoryCountAfter;
-        NLAfter(countsAt + 1, ^{ if (gPlay == play) NLHistoryRefresh(); });
+        NLAfter([play countsAfter] + 1, ^{ if (gPlay == play) NLHistoryRefresh(); });
     }
     play.shownTitle = title;
     if (play.album.length == 0 && album.length) play.album = album;
@@ -339,7 +337,8 @@ static void NLHistoryReadPrefs(BOOL atLaunch) {
     if (atLaunch) return;
     if (wasOn && !gHistoryOn) NLHistoryFinish();
     if (!wasOn && gHistoryOn) NLHistoryRefresh();
-    if (gHistoryOn && daysChanged) NLHistoryPrune(gHistoryDays);
+    // A shorter limit applies at once, recording or not: the page asked first.
+    if (daysChanged) NLHistoryPrune(gHistoryDays);
 }
 
 static void NLHistoryPrefsChanged(CFNotificationCenterRef center, void *observer, CFStringRef name,

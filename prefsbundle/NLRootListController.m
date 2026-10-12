@@ -61,7 +61,7 @@
 static const CGFloat kNLIconGlyphPointSize = 15;
 
 // "#RRGGBB" → UIColor, nil for anything else.
-static UIColor *NLColorFromHex(id value) {
+UIColor *NLColorFromHex(id value) {
     if (![value isKindOfClass:[NSString class]]) return nil;
     NSString *digits = [value hasPrefix:@"#"] ? [value substringFromIndex:1] : value;
     unsigned rgb = 0;

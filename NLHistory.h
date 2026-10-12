@@ -1,8 +1,8 @@
 //
 //  NLHistory.h
 //  Listening history: SpringBoard writes down each song played long enough
-//  (NLHistorySB.x), whichever app plays it; the settings page lists the days
-//  and shows one day's timeline (prefsbundle/NLHistoryController.m).
+//  (NLHistorySB.x), whichever app plays it; the settings pages show it
+//  (prefsbundle/NLHistoryPages.h).
 //
 //  One JSON file per day, named by the local date the play started on
 //  (yyyy-MM-dd.json): {"version": 1, "plays": [entry, …]} sorted by start.
@@ -22,8 +22,9 @@ extern "C" {
 #define NL_HISTORY_DIR      @"/var/mobile/Library/NowLyrics/History"
 #define NL_HISTORY_ART_DIR  NL_HISTORY_DIR @"/Artwork"
 
-// SpringBoard wrote a play (the pages showing the history load again), and the
-// settings page deleted some or all of it (SpringBoard checks the play it is on).
+// SpringBoard wrote a play or deleted old days (the pages showing the history
+// load again), and the settings page deleted some or all of it (SpringBoard
+// checks the play it is on).
 #define NL_HISTORY_WRITTEN_NOTIFICATION @"app.nowlyrics/HistoryWritten"
 #define NL_HISTORY_EDITED_NOTIFICATION  @"app.nowlyrics/HistoryEdited"
 
@@ -53,6 +54,7 @@ NSDate *NLHistoryDayDate(NSString *dayKey);   // that day's midnight; nil for a 
 
 // Every day that has a file, newest first.
 NSArray<NSString *> *NLHistoryDays(void);
+NSString *NLHistoryDayPath(NSString *dayKey);   // that day's file
 // A day's plays, oldest first (dictionaries with the NL_HP_* keys); empty when it has none.
 NSArray<NSDictionary *> *NLHistoryReadDay(NSString *dayKey);
 // A cover's path in Artwork/ by its file name; nil for a name that is not one.
@@ -69,7 +71,7 @@ void NLHistorySavePlay(NSDictionary *entry);
 // shrunk to a small JPEG.
 void NLHistorySaveArtwork(NSData *data, NSString *name);
 // SpringBoard: days older than `keepDays` deleted (0 keeps them all), and
-// covers no play uses any more.
+// covers no play uses any more. Announced as written when days went.
 void NLHistoryPrune(NSInteger keepDays);
 // SpringBoard: whether the play with this id is in its day's file; on the main queue.
 void NLHistoryContainsPlay(NSString *dayKey, NSString *identifier, void (^done)(BOOL found));
