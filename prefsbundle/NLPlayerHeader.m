@@ -7,8 +7,8 @@
 //  cover its cover blurred over that. Shown on the main page, the "Now
 //  Playing" page and (NLPageTop) the other pages but the island's.
 //
-//  And the pages' theme: the color of what the island preview shows, the
-//  album's or NowLyrics' own.
+//  And the pages' theme, which goes with Player over its cover: the color of
+//  the song playing, or NowLyrics' own.
 //
 
 #import "NLLyricsPages.h"
@@ -90,22 +90,12 @@ static void NLSetTableHeader(UITableView *table, UIView *header, CGFloat height)
     NLCrescendoSyncPlayer(_platter);
     [self refreshTint];
 
-    // A new song's color as soon as MediaRemote has its cover, rather than at
-    // the next refresh.
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        void (*registerFor)(dispatch_queue_t) = (void (*)(dispatch_queue_t))NLMediaRemote("MRMediaRemoteRegisterForNowPlayingNotifications");
-        if (registerFor) registerFor(dispatch_get_main_queue());
-    });
     __weak typeof(self) weakSelf = self;
     // NextUp's row comes and goes with the queue: the player's height with it.
     _nextUpObserver = NLObserveNextUp(^{ [weakSelf layout]; });
-    _infoObserver = [[NSNotificationCenter defaultCenter] addObserverForName:@"kMRMediaRemoteNowPlayingInfoDidChangeNotification"
-                                                                      object:nil queue:NSOperationQueue.mainQueue
-                                                                  usingBlock:^(NSNotification *note) {
-        [weakSelf refreshTint];
-        NLThemeRefresh();
-    }];
+    // A new song's color as soon as MediaRemote has its cover, rather than at
+    // the next refresh. (The theme has its own observer, NLThemeFollowNowPlaying.)
+    _infoObserver = NLObserveNowPlaying(^{ [weakSelf refreshTint]; });
     return self;
 }
 
@@ -353,7 +343,25 @@ static CGFloat NLIslandHeaderHeight(void) { return NLIslandPreviewOpenBottom() +
 
 #pragma mark - Theme
 
+// MediaRemote's now-playing changes, on the main queue; registered for once.
+id NLObserveNowPlaying(void (^block)(void)) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        void (*registerFor)(dispatch_queue_t) = (void (*)(dispatch_queue_t))NLMediaRemote("MRMediaRemoteRegisterForNowPlayingNotifications");
+        if (registerFor) registerFor(dispatch_get_main_queue());
+    });
+    return [[NSNotificationCenter defaultCenter] addObserverForName:@"kMRMediaRemoteNowPlayingInfoDidChangeNotification"
+                                                             object:nil queue:NSOperationQueue.mainQueue
+                                                         usingBlock:^(NSNotification *note) { block(); }];
+}
+
 NSString *const NLThemeChangedNotification = @"NLThemeChangedNotification";
+
+// What a cover with no color of its own (grey, black and white, dark) gives
+// the theme: grey.
+UIColor *NLThemeGreyCover(void) {
+    return NL_ONCE([UIColor colorWithRed:0.5 green:0.5 blue:0.5 alpha:1]);
+}
 
 static UIColor *gThemeColor;
 static UIColor *gThemeSource;   // the color gThemeColor was made from
@@ -364,10 +372,15 @@ UIColor *NLThemeColor(void) {
 }
 
 // A cover's color as a tint that reads on the page: light on dark, deep on
-// light. nil (the system's) for a grey one.
+// light. A grey one (NLThemeGreyCover) gives a grey that reads the same way.
 static UIColor *NLThemeFrom(UIColor *color) {
     CGFloat h = 0, s = 0, b = 0, a = 1;
-    if (![color getHue:&h saturation:&s brightness:&b alpha:&a] || s < 0.15) return nil;
+    if (![color getHue:&h saturation:&s brightness:&b alpha:&a]) return nil;
+    if (s < 0.15) {
+        return [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
+            return [UIColor colorWithWhite:traits.userInterfaceStyle == UIUserInterfaceStyleDark ? 0.78 : 0.42 alpha:1];
+        }];
+    }
     s = MIN(s, 0.85);
     return [UIColor colorWithDynamicProvider:^UIColor *(UITraitCollection *traits) {
         BOOL dark = traits.userInterfaceStyle == UIUserInterfaceStyleDark;
@@ -397,21 +410,25 @@ UIColor *NLArtworkColorCached(NSData *artwork) {
     return color;
 }
 
-// What the island preview shows, without it on screen: what is playing, when
-// its "Preview what's playing" switch is on, this iOS lets it show that and
-// the cover has a color; NowLyrics' sample otherwise.
+// The theme goes with Player over its cover (below iOS 26): on, the cover's
+// color of the song playing, grey for a cover with none; off, and with nothing
+// playing or no cover, NowLyrics' own.
 void NLThemeRefresh(void) {
-    if (!NLReadPrefBool(nil, @"islandPreviewLive", NO)) {
+    if (!NLPlayerTintAvailable() || !NLReadPrefBool(nil, NL_PLAYER_TINT_KEY, YES)) {
         NLThemeSetColor(NLNowLyricsColor());
         return;
     }
     NLNowPlayingInfo(^(NSDictionary *info) {
         NSData *artwork = NLInfoArtwork(info);
-        // Asked last: the first ask loads MediaControls, which only a song
-        // with a cover needs, as for the preview itself.
-        UIColor *color = (NLInfoTitle(info) && artwork && NLIslandPreviewCanGoLive()) ? NLArtworkColorCached(artwork) : nil;
-        NLThemeSetColor(color ?: NLNowLyricsColor());
+        BOOL shown = NLInfoTitle(info) && artwork;
+        NLThemeSetColor(shown ? (NLArtworkColorCached(artwork) ?: NLThemeGreyCover()) : NLNowLyricsColor());
     });
+}
+
+// While a NowLyrics page is up the theme takes a new song's color at once, on
+// every page: the root page sits under them all and keeps this observer.
+id NLThemeFollowNowPlaying(void) {
+    return NLObserveNowPlaying(^{ NLThemeRefresh(); });
 }
 
 static void NLThemeSwitches(UIView *view, UIColor *color) {

@@ -18,8 +18,8 @@
 //  - The "Now Playing" page is its own controller (NLLyricsPages.h), linked
 //    from here; this one writes the per-song offsets for it.
 //  - The lock screen's player at the top (NLPlayerHeader), or the island
-//    preview, or nothing (Advanced › Top of main page), and the pages' theme:
-//    the color the island preview shows (NLThemeRefresh).
+//    preview, or nothing (Advanced › Top of main page), and the pages' theme,
+//    which goes with Player over its cover (NLThemeRefresh).
 //  - NLIslandListController, the "Lyrics Island" page (with a live
 //    preview at the top, NLIslandPreviewCell.m), loaded from
 //    Island.plist inside this bundle (outside the folder PreferenceLoader scans
@@ -440,6 +440,7 @@ UIBarButtonItem *NLApplyButton(UIViewController *controller) {
     NLPlayerHeader *_player;
     NSTimer *_refresh;
     NSUInteger _ticks;
+    id _nowPlayingObserver;   // the theme follows what plays on every page above this one
 }
 
 - (void)viewDidLoad {
@@ -448,10 +449,12 @@ UIBarButtonItem *NLApplyButton(UIViewController *controller) {
     [self nlApplyHeader];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(nlApplyTheme)
                                                  name:NLThemeChangedNotification object:nil];
+    _nowPlayingObserver = NLThemeFollowNowPlaying();
 }
 
 - (void)dealloc {
     [_refresh invalidate];
+    if (_nowPlayingObserver) [[NSNotificationCenter defaultCenter] removeObserver:_nowPlayingObserver];
 }
 
 - (void)viewDidLayoutSubviews {
@@ -751,6 +754,8 @@ static void NLMarkMissingTweaks(NSArray<PSSpecifier *> *all) {
     // Advanced › Top of main page or Other pages too: this page's top at once.
     NSString *key = [specifier propertyForKey:@"key"];
     if ([key isEqual:@"topOnEveryPage"] || [key isEqual:@"pageHeader"]) [_pageTop update];
+    // Player over its cover: the theme goes with it, at once.
+    if ([key isEqual:NL_PLAYER_TINT_KEY]) NLThemeRefresh();
     // Supported Tweaks: the players and island previews take their rows in or
     // out now (NextUp's own views and our players redo theirs on its notice).
     if ([key isEqual:@"tweakCrescendo"] || [key isEqual:@"tweakNextUp"]) {

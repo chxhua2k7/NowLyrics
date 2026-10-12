@@ -282,13 +282,6 @@ UIColor *NLNowLyricsColor(void) {
     return NL_ONCE(NLColorFromArtwork(UIImagePNGRepresentation(NLSampleCoverIcon())));
 }
 
-// The theme is the color of what the island shows: the album's, or NowLyrics'
-// for the sample (and for a grey cover).
-- (void)nlReportTheme {
-    if (![self nlOnScreen]) return;   // a cell waiting for reuse has no say
-    NLThemeSetColor((_liveInfo && _albumColor) ? _albumColor : NLNowLyricsColor());
-}
-
 // `block` on the main queue after `delay` seconds, given the cell if it is still
 // around. The block reads state only through `cell`.
 - (void)nlAfter:(NSTimeInterval)delay run:(void (^)(NLIslandPreviewCell *cell))block {
@@ -563,7 +556,6 @@ static __weak NLIslandPreviewCell *gIslandOwner;
     }
     _generation++;
     [self nlApplyValues];
-    [self nlReportTheme];
     [self nlWakeKeyLine];
     [self nlAnimateBars];
     [self nlNextLine];
@@ -1050,12 +1042,6 @@ static Class NLActivityClass(void) {
     return activityClass;
 }
 
-// Whether the preview can show what plays at all: the theme, worked out
-// without the preview (NLThemeRefresh), follows what it would show.
-BOOL NLIslandPreviewCanGoLive(void) {
-    return NLActivityClass() != Nil;
-}
-
 // Made once, as MediaRemoteUI makes it: it brings its own now-playing
 // controller and loads what is playing by itself.
 - (UIViewController *)nlActivity {
@@ -1392,7 +1378,6 @@ CGFloat NLIslandPreviewMostExtraHeight(void) {
         [self nlApplyValues];
         [self nlAnimateBars];
         [self nlNextLine];   // the sample lines again
-        [self nlReportTheme];
         return;
     }
     if (!wasLive) {
@@ -1412,7 +1397,6 @@ CGFloat NLIslandPreviewMostExtraHeight(void) {
         _art.image = cover ?: NLSampleArtwork();
         [self nlApplyValues];
     }
-    [self nlReportTheme];
 
     NSString *title = NLInfoTitle(info);
     BOOL explicitTrack = NLPrefBool(info, NL_MR_EXPLICIT, NO);

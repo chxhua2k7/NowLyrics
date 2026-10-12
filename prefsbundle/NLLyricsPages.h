@@ -243,14 +243,17 @@ NSDictionary *NLIslandPreviewValuesFromPlist(PSListController *controller);
 @end
 static const NSTimeInterval kNLPageRefreshInterval = 0.75;   // how often a page looks at what is playing
 
-// The pages' theme: the color of what the island preview shows
-// (NLIslandPreviewCell.m), the album's or NowLyrics' own. NLThemeSetColor takes
+// The pages' theme, which goes with Player over its cover: the color of the
+// song playing, or NowLyrics' own (NLThemeRefresh). NLThemeSetColor takes
 // the raw color and posts NLThemeChangedNotification when it changed. Tint
 // follows from the navigation controller's view; switches are set per cell.
 extern NSString *const NLThemeChangedNotification;
 UIColor *NLThemeColor(void);
 void NLThemeSetColor(UIColor *color);
 void NLThemeRefresh(void);   // from the preferences and what is playing
+UIColor *NLThemeGreyCover(void);   // the raw color for a cover with no color of its own: the theme goes grey
+id NLThemeFollowNowPlaying(void);   // an observer that refreshes the theme at every now-playing change; remove it when done
+id NLObserveNowPlaying(void (^block)(void));   // MediaRemote's now-playing changes, main queue; remove it when done
 UIColor *NLNowLyricsColor(void);   // NLIslandPreviewCell.m
 void NLThemeCell(UITableViewCell *cell);
 void NLThemeTable(UITableView *table);
@@ -365,7 +368,6 @@ id NLObserveNextUp(void (^changed)(void));
 // tweaks add, which the island page keeps room for under it.
 CGFloat NLIslandPreviewMostExtraHeight(void);
 CGFloat NLIslandPreviewOpenBottom(void);   // the open island's bottom, from the table's top
-BOOL NLIslandPreviewCanGoLive(void);   // whether this iOS lets the preview show what is playing
 // NLIslandPreviewCell.m: the island preview row (its page posts
 // NLIslandPreviewChangedNotification after an island setting changed).
 @interface NLIslandPreviewCell : PSTableCell
