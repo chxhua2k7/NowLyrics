@@ -159,7 +159,7 @@
 "90 Days" = "90 天";
 "1 Year" = "1 年";
 "Forever" = "永久";
-"SpringBoard writes down every song you play for 30 seconds or half its length, in any app. The history stays on this iPhone." = "SpringBoard 会记下每首播放满 30 秒或一半时长的歌，任何 App 播放的都算。记录只保存在这台 iPhone 上。";
+"SpringBoard writes down every song you play, in any app. One played less than 30 seconds (or half of a shorter song) is marked as skipped. The history stays on this iPhone." = "SpringBoard 会记下任何 App 播放的每一首歌，播放不到 30 秒（较短的歌为一半长度）的会标为“已跳过”。记录只存在这台 iPhone 上。";
 "No listening history yet" = "还没有收听记录";
 "Turn on Record Listening History to start." = "打开“记录收听记录”后开始记录。";
 "Delete All History…" = "删除所有记录…";
@@ -203,3 +203,14 @@
 "Show More" = "显示更多";
 "Show Less" = "显示更少";
 "Timeline" = "时间轴";
+"Show Skipped Songs" = "显示跳过的歌曲";
+"Skipped" = "已跳过";
+"Show Categories" = "显示类别";
+"Show Songs" = "显示歌曲";
+"Albums" = "专辑";
+"Apps" = "App";
+"Top Artists" = "最常听的歌手";
+"Top Albums" = "最常听的专辑";
+"Top Apps" = "最常用的 App";
+"Previous" = "上一个";
+"Next" = "下一个";

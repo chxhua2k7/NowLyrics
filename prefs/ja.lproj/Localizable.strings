@@ -157,7 +157,7 @@
 "90 Days" = "90日間";
 "1 Year" = "1年間";
 "Forever" = "無期限";
-"SpringBoard writes down every song you play for 30 seconds or half its length, in any app. The history stays on this iPhone." = "30秒以上、または曲の半分以上再生した曲を、どのAppで再生したものでもSpringBoardが記録します。履歴はこのiPhoneにのみ保存されます。";
+"SpringBoard writes down every song you play, in any app. One played less than 30 seconds (or half of a shorter song) is marked as skipped. The history stays on this iPhone." = "SpringBoard はどの App で再生した曲もすべて記録します。30 秒（短い曲は半分の長さ）未満で終わった曲は「スキップ」として記録されます。履歴はこの iPhone にのみ保存されます。";
 "No listening history yet" = "再生履歴はまだありません";
 "Turn on Record Listening History to start." = "「再生履歴を記録」をオンにすると記録が始まります。";
 "Delete All History…" = "すべての履歴を削除…";
@@ -201,3 +201,14 @@
 "Show More" = "さらに表示";
 "Show Less" = "表示を減らす";
 "Timeline" = "タイムライン";
+"Show Skipped Songs" = "スキップした曲を表示";
+"Skipped" = "スキップ";
+"Show Categories" = "カテゴリを表示";
+"Show Songs" = "曲を表示";
+"Albums" = "アルバム";
+"Apps" = "App";
+"Top Artists" = "よく聴いたアーティスト";
+"Top Albums" = "よく聴いたアルバム";
+"Top Apps" = "よく使った App";
+"Previous" = "前へ";
+"Next" = "次へ";

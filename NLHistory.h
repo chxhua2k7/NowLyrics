@@ -1,8 +1,8 @@
 //
 //  NLHistory.h
-//  Listening history: SpringBoard writes down each song played long enough
-//  (NLHistorySB.x), whichever app plays it; the settings pages show it
-//  (prefsbundle/NLHistoryPages.h).
+//  Listening history: SpringBoard writes down each song played, whichever app
+//  plays it, those left before they counted as skipped (NLHistorySB.x); the
+//  settings pages show it (prefsbundle/NLHistoryPages.h).
 //
 //  One JSON file per day, named by the local date the play started on
 //  (yyyy-MM-dd.json): {"version": 1, "plays": [entry, …]} sorted by start.
@@ -28,14 +28,18 @@ extern "C" {
 #define NL_HISTORY_WRITTEN_NOTIFICATION @"app.nowlyrics/HistoryWritten"
 #define NL_HISTORY_EDITED_NOTIFICATION  @"app.nowlyrics/HistoryEdited"
 
-// Preferences: the switch (off by default) and how many days are kept (0: all).
-#define NL_HISTORY_PREF       @"history"
-#define NL_HISTORY_DAYS_PREF  @"historyDays"
+// Preferences: the switch (off by default), how many days are kept (0: all),
+// and whether the pages show skipped plays (on by default).
+#define NL_HISTORY_PREF          @"history"
+#define NL_HISTORY_DAYS_PREF     @"historyDays"
+#define NL_HISTORY_SKIPPED_PREF  @"historySkipped"
 static const NSInteger kNLHistoryDefaultDays = 90;
 
 // An entry's keys. Times are Unix seconds; `listened` is the seconds it was
 // playing, pauses left out. `key` is NLTrackKey of the title and artist the
 // player reported, the one NowLyrics keys lyrics, offsets and sources on.
+// `skipped` (YES, else left out): it ended before playing 30 seconds or half
+// the song.
 #define NL_HP_ID        @"id"
 #define NL_HP_START     @"start"
 #define NL_HP_END       @"end"
@@ -47,6 +51,7 @@ static const NSInteger kNLHistoryDefaultDays = 90;
 #define NL_HP_APP       @"app"
 #define NL_HP_KEY       @"key"
 #define NL_HP_ART       @"art"     // the cover's file name in Artwork/
+#define NL_HP_SKIPPED   @"skipped"
 
 // The day a moment belongs to, as its file is named: yyyy-MM-dd, local time.
 NSString *NLHistoryDayKey(NSDate *date);

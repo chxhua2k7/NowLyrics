@@ -3,15 +3,15 @@
 //  Listening History (NLHistory.h, NLHistoryPages.h): what SpringBoard wrote down.
 //
 //  - The first page, as Screen Time's: This Week (the daily average, a bar a
-//    day stacked by app, the apps' times) and Show All Activity
-//    (NLHistoryActivity.m); this week's Most Played; the switch, how long to
-//    keep it, and Delete All History.
-//  - A day's timeline: each song in order, the pauses of five minutes or more
-//    between them; the toolbar goes to the day before or after with plays.
-//    Swipe to delete.
-//  - A song: how often and how long it was played, its lyrics in the app that
-//    played it (to the editor) and its own offset, as Now Playing has them
-//    for the song on now.
+//    day stacked by app, the apps' times; a press shows a day's) and Show
+//    All Activity (NLHistoryActivity.m); this week's Most Played; the switch,
+//    how long to keep it, whether skipped songs show, and Delete All History.
+//  - A day's timeline: each song in order (skipped ones greyed), the pauses
+//    of five minutes or more between them; the date bar on top goes to the
+//    day before or after with plays. Swipe to delete.
+//  - A song: how often (and how often skipped) and how long it was played,
+//    its lyrics in the app that played it (to the editor) and its own offset,
+//    as Now Playing has them for the song on now.
 //
 //  The pages load again when SpringBoard writes (NL_HISTORY_WRITTEN_NOTIFICATION).
 //
@@ -44,6 +44,7 @@ static const NSUInteger kNLTopSongs = 5;                   // this week's Most P
     item.end = end > 0 ? [NSDate dateWithTimeIntervalSince1970:end] : item.start;
     item.listened = NLNum(entry[NL_HP_LISTENED], 0);
     item.duration = NLNum(entry[NL_HP_DURATION], 0);
+    item.skipped = NLLooseBool(entry[NL_HP_SKIPPED], NO);
     return item;
 }
 
@@ -62,10 +63,10 @@ static const NSUInteger kNLTopSongs = 5;                   // this week's Most P
 
 @end
 
-// Read again only once its file has changed: the pages load every day
-// whenever SpringBoard writes (each minute while a song plays), and it is
-// mostly today's that did.
-NSArray<NLHistoryItem *> *NLHistoryItemsOfDay(NSString *day) {
+// Every play of the day, read again only once its file has changed: the pages
+// load every day whenever SpringBoard writes (each minute while a song
+// plays), and it is mostly today's that did.
+static NSArray<NLHistoryItem *> *NLHistoryAllOfDay(NSString *day) {
     static NSMutableDictionary<NSString *, NSArray *> *cache;   // day → @[@[file date, size], items]
     NSLock *lock = NL_ONCE([NSLock new]);
     NSDictionary *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:NLHistoryDayPath(day) error:nil];
@@ -85,12 +86,21 @@ NSArray<NLHistoryItem *> *NLHistoryItemsOfDay(NSString *day) {
     return items;
 }
 
-NSArray<NLHistoryItem *> *NLHistoryLoadAll(void) {
+NSArray<NLHistoryItem *> *NLHistoryItemsOfDay(NSString *day, BOOL skipped) {
+    NSArray<NLHistoryItem *> *items = NLHistoryAllOfDay(day);
+    return skipped ? items : [items filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"skipped == NO"]];
+}
+
+NSArray<NLHistoryItem *> *NLHistoryLoadAll(BOOL skipped) {
     NSMutableArray<NLHistoryItem *> *all = [NSMutableArray array];
     for (NSString *day in NLHistoryDays()) {   // newest first
-        [all addObjectsFromArray:NLHistoryItemsOfDay(day).reverseObjectEnumerator.allObjects];
+        [all addObjectsFromArray:NLHistoryItemsOfDay(day, skipped).reverseObjectEnumerator.allObjects];
     }
     return all;
+}
+
+BOOL NLHistoryShowsSkipped(PSViewController *page) {
+    return [page nlBoolPref:NL_HISTORY_SKIPPED_PREF fallback:YES];
 }
 
 static double NLHistoryTotalListened(NSArray<NLHistoryItem *> *items) {
@@ -196,6 +206,24 @@ UIImage *NLHistoryCover(NSString *art, CGFloat side) {
     return image;
 }
 
+UIImage *NLHistoryAppIcon(NSString *bundleID, CGFloat side) {
+    static NSCache<NSString *, UIImage *> *cache;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ cache = [NSCache new]; });
+    NSString *cacheKey = [NSString stringWithFormat:@"%@@%.0f", bundleID ?: @"", side];
+    UIImage *cached = [cache objectForKey:cacheKey];
+    if (cached) return cached;
+    UIImage *icon = bundleID.length ? NLAppIcon(bundleID) : nil;
+    if (!icon) return NLHistoryCover(nil, side);
+    CGRect tile = CGRectMake(0, 0, side, side);
+    UIImage *image = [[[UIGraphicsImageRenderer alloc] initWithSize:tile.size] imageWithActions:^(UIGraphicsImageRendererContext *context) {
+        [[UIBezierPath bezierPathWithRoundedRect:tile cornerRadius:side * 0.225] addClip];
+        [icon drawInRect:tile];
+    }];
+    [cache setObject:image forKey:cacheKey];
+    return image;
+}
+
 #pragma mark - Change notices and pushes
 
 static NSString *const NLHistoryChangedNotification = @"NLHistoryChanged";
@@ -226,14 +254,16 @@ void NLHistoryPush(PSViewController *from, PSViewController *page) {
 @end
 
 typedef NS_ENUM(NSInteger, NLSongSection) { NLSongSectionStats, NLSongSectionLyrics, NLSongSectionOffset };
+typedef NS_ENUM(NSInteger, NLSongStat) { NLSongStatPlays, NLSongStatSkipped, NLSongStatListened, NLSongStatFirst, NLSongStatApp };
 
 @implementation NLHistorySongController {
     NLHistoryItem *_item;
     UITableView *_table;
     NSArray<NSNumber *> *_sections;
+    NSArray<NSNumber *> *_stats;   // NLSongStat rows shown
     NSString *_folder;        // the app's Library/NowLyrics; nil when NowLyrics never ran there
     NSString *_lyricsPath;    // the song's lyrics there, added by hand or saved; nil without
-    NSUInteger _plays;
+    NSUInteger _plays, _skips;
     double _listened;
     NSDate *_first;
     BOOL _statsLoaded;
@@ -307,13 +337,15 @@ typedef NS_ENUM(NSInteger, NLSongSection) { NLSongSectionStats, NLSongSectionLyr
 
 - (void)nlLoad {
     NLHistoryItem *item = _item;
+    BOOL skipped = NLHistoryShowsSkipped(self);
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        NSUInteger plays = 0;
+        NSUInteger plays = 0, skips = 0;
         double listened = 0;
         NSDate *first = nil;
-        for (NLHistoryItem *other in NLHistoryLoadAll()) {   // newest first
+        for (NLHistoryItem *other in NLHistoryLoadAll(skipped)) {   // newest first
             if (![other isSameSongAs:item]) continue;
             plays++;
+            if (other.skipped) skips++;
             listened += other.listened;
             first = other.start;
         }
@@ -333,11 +365,17 @@ typedef NS_ENUM(NSInteger, NLSongSection) { NLSongSectionStats, NLSongSectionLyr
         }
         dispatch_async(dispatch_get_main_queue(), ^{
             self->_plays = plays;
+            self->_skips = skips;
             self->_listened = listened;
             self->_first = first;
             self->_folder = folder;
             self->_lyricsPath = lyrics;
             self->_statsLoaded = YES;
+            NSMutableArray *stats = [NSMutableArray arrayWithObject:@(NLSongStatPlays)];
+            if (skips) [stats addObject:@(NLSongStatSkipped)];
+            [stats addObjectsFromArray:@[@(NLSongStatListened), @(NLSongStatFirst)]];
+            if (item.app.length) [stats addObject:@(NLSongStatApp)];
+            self->_stats = stats;
             NSMutableArray *sections = [NSMutableArray arrayWithObject:@(NLSongSectionStats)];
             if (folder) [sections addObject:@(NLSongSectionLyrics)];
             if (folder && item.key.length) [sections addObject:@(NLSongSectionOffset)];
@@ -357,7 +395,7 @@ typedef NS_ENUM(NSInteger, NLSongSection) { NLSongSectionStats, NLSongSectionLyr
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     switch ([self nlSection:section]) {
-        case NLSongSectionStats: return _item.app.length ? 4 : 3;
+        case NLSongSectionStats: return (NSInteger)_stats.count;
         case NLSongSectionLyrics: return 1;
         case NLSongSectionOffset: return 1;
     }
@@ -393,22 +431,28 @@ typedef NS_ENUM(NSInteger, NLSongSection) { NLSongSectionStats, NLSongSectionLyr
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     switch ([self nlSection:indexPath.section]) {
         case NLSongSectionStats: {
-            if (indexPath.row == 0) return [self nlValueCell:NLL(@"Plays") value:NLHistoryCount(_plays, @"1 time", @"%lu times")];
-            if (indexPath.row == 1) return [self nlValueCell:NLL(@"Listening Time") value:NLHistoryDuration(_listened)];
-            if (indexPath.row == 2) {
-                NSDateFormatter *dates = NLHistoryFormatter(@"first played", ^id {
-                    NSDateFormatter *made = [NSDateFormatter new];
-                    made.dateStyle = NSDateFormatterMediumStyle;
-                    made.timeStyle = NSDateFormatterShortStyle;
-                    made.doesRelativeDateFormatting = YES;
-                    return made;
-                });
-                return [self nlValueCell:NLL(@"First Played") value:_first ? [dates stringFromDate:_first] : @""];
+            switch ((NLSongStat)_stats[indexPath.row].integerValue) {
+                case NLSongStatPlays: return [self nlValueCell:NLL(@"Plays") value:NLHistoryCount(_plays, @"1 time", @"%lu times")];
+                case NLSongStatSkipped: return [self nlValueCell:NLL(@"Skipped") value:NLHistoryCount(_skips, @"1 time", @"%lu times")];
+                case NLSongStatListened: return [self nlValueCell:NLL(@"Listening Time") value:NLHistoryDuration(_listened)];
+                case NLSongStatFirst: {
+                    NSDateFormatter *dates = NLHistoryFormatter(@"first played", ^id {
+                        NSDateFormatter *made = [NSDateFormatter new];
+                        made.dateStyle = NSDateFormatterMediumStyle;
+                        made.timeStyle = NSDateFormatterShortStyle;
+                        made.doesRelativeDateFormatting = YES;
+                        return made;
+                    });
+                    return [self nlValueCell:NLL(@"First Played") value:_first ? [dates stringFromDate:_first] : @""];
+                }
+                case NLSongStatApp: {
+                    UITableViewCell *cell = [self nlValueCell:NLL(@"Played In") value:NLAppName(_item.app)];
+                    UIImage *icon = NLAppIcon(_item.app);
+                    if (icon) cell.imageView.image = NLRowSizedImage(icon, YES);
+                    return cell;
+                }
             }
-            UITableViewCell *cell = [self nlValueCell:NLL(@"Played In") value:NLAppName(_item.app)];
-            UIImage *icon = NLAppIcon(_item.app);
-            if (icon) cell.imageView.image = NLRowSizedImage(icon, YES);
-            return cell;
+            return [UITableViewCell new];
         }
         case NLSongSectionLyrics: {
             if (!_lyricsPath) return NLNoteCell(NLL(@"No lyrics saved for this song yet."));
@@ -473,8 +517,8 @@ typedef NS_ENUM(NSInteger, NLSongSection) { NLSongSectionStats, NLSongSectionLyr
     NSArray<NLHistoryItem *> *_items;        // the day's, oldest first
     NSArray<NLHistoryRow *> *_rows;
     UITableView *_table;
-    UIBarButtonItem *_previousItem, *_nextItem;
-    UILabel *_statusLabel;
+    NLDateBar *_dateBar;
+    NSString *_status;                       // its songs and their time, over them
     BOOL _loaded;
     NSUInteger _loads;                       // each load counts up; an older one's answer is dropped
 }
@@ -490,47 +534,36 @@ typedef NS_ENUM(NSInteger, NLSongSection) { NLSongSectionStats, NLSongSectionLyr
 
 - (void)viewDidLoad {
     [super viewDidLoad];
+    self.title = NLL(@"Timeline");
     self.navigationItem.largeTitleDisplayMode = UINavigationItemLargeTitleDisplayModeNever;
     self.navigationItem.rightBarButtonItem = NLApplyButton(self);
     _table = NLMakeTable(self);
     _table.estimatedRowHeight = 60;
 
-    _previousItem = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"chevron.backward"]
-                                                     style:UIBarButtonItemStylePlain target:self action:@selector(nlPreviousDay)];
-    _previousItem.accessibilityLabel = NLL(@"Previous Day");
-    _nextItem = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"chevron.forward"]
-                                                 style:UIBarButtonItemStylePlain target:self action:@selector(nlNextDay)];
-    _nextItem.accessibilityLabel = NLL(@"Next Day");
-    _statusLabel = [UILabel new];
-    _statusLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleCaption1];
-    _statusLabel.textColor = UIColor.secondaryLabelColor;
-    _statusLabel.adjustsFontForContentSizeCategory = YES;
-    self.toolbarItems = @[_previousItem, [UIBarButtonItem flexibleSpaceItem],
-                          [[UIBarButtonItem alloc] initWithCustomView:_statusLabel],
-                          [UIBarButtonItem flexibleSpaceItem], _nextItem];
-    // The toolbar's background follows the list, not a scroll view it finds itself.
-    [self setContentScrollView:_table forEdge:NSDirectionalRectEdgeBottom];
+    // The day stays on top with buttons to the days around it, as All
+    // Activity's once its chart has gone; the list starts under it.
+    _dateBar = [NLDateBar barOnPage:self];
+    [_dateBar.previousButton addTarget:self action:@selector(nlPreviousDay) forControlEvents:UIControlEventTouchUpInside];
+    [_dateBar.nextButton addTarget:self action:@selector(nlNextDay) forControlEvents:UIControlEventTouchUpInside];
+    _dateBar.previousButton.accessibilityLabel = NLL(@"Previous Day");
+    _dateBar.nextButton.accessibilityLabel = NLL(@"Next Day");
+    [_dateBar setShown:YES animated:NO];
+    _table.contentInset = UIEdgeInsetsMake(NLDateBar.height, 0, 0, 0);
+    _table.verticalScrollIndicatorInsets = _table.contentInset;
 
     NLHistoryObserve(self, @selector(nlLoad));
     [self nlShowDay:_day];
 }
 
-// The toolbar is this page's only.
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
-    [self.navigationController setToolbarHidden:NO animated:animated];
     if (_loaded) [self nlLoad];   // back from a song: its plays may be gone
-}
-
-- (void)viewWillDisappear:(BOOL)animated {
-    [super viewWillDisappear:animated];
-    [self.navigationController setToolbarHidden:YES animated:animated];
 }
 
 - (void)nlShowDay:(NSString *)day {
     _day = [day copy];
     NSDate *date = NLHistoryDayDate(day);
-    self.title = date ? NLHistoryDayTitle(date) : day;
+    _dateBar.titleLabel.text = date ? NLHistoryDayTitle(date) : day;
     _items = nil;
     _rows = nil;
     _loaded = NO;
@@ -541,10 +574,11 @@ typedef NS_ENUM(NSInteger, NLSongSection) { NLSongSectionStats, NLSongSectionLyr
 
 - (void)nlLoad {
     NSString *day = _day;
+    BOOL skipped = NLHistoryShowsSkipped(self);
     NSUInteger load = ++_loads;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         NSArray<NSString *> *days = NLHistoryDays();
-        NSArray<NLHistoryItem *> *items = NLHistoryItemsOfDay(day);
+        NSArray<NLHistoryItem *> *items = NLHistoryItemsOfDay(day, skipped);
         dispatch_async(dispatch_get_main_queue(), ^{
             if (load != self->_loads) return;
             self->_days = days;
@@ -573,11 +607,10 @@ typedef NS_ENUM(NSInteger, NLSongSection) { NLSongSectionStats, NLSongSectionLyr
     }
     _rows = rows;
 
-    _previousItem.enabled = [self nlNeighbour:+1] != nil;
-    _nextItem.enabled = [self nlNeighbour:-1] != nil;
-    _statusLabel.text = _items.count ? [NSString stringWithFormat:@"%@ · %@", NLHistorySongCount(_items.count),
-                                        NLHistoryDuration(NLHistoryTotalListened(_items))] : nil;
-    [_statusLabel sizeToFit];
+    _dateBar.previousButton.enabled = [self nlNeighbour:+1] != nil;
+    _dateBar.nextButton.enabled = [self nlNeighbour:-1] != nil;
+    _status = _items.count ? [NSString stringWithFormat:@"%@ · %@", NLHistorySongCount(_items.count),
+                              NLHistoryDuration(NLHistoryTotalListened(_items))] : nil;
     _table.backgroundView = _items.count ? nil : [self nlEmptyView];
     [_table reloadData];
 }
@@ -630,6 +663,10 @@ typedef NS_ENUM(NSInteger, NLSongSection) { NLSongSectionStats, NLSongSectionLyr
     return (NSInteger)_rows.count;
 }
 
+- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
+    return _status;
+}
+
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     NLHistoryRow *row = _rows[indexPath.row];
     UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"row"] ?: [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"row"];
@@ -641,7 +678,9 @@ typedef NS_ENUM(NSInteger, NLSongSection) { NLSongSectionStats, NLSongSectionLyr
         content.imageProperties.maximumSize = CGSizeMake(kNLHistoryCoverSide, kNLHistoryCoverSide);
         content.text = item.title;
         content.textProperties.numberOfLines = 1;
-        NSString *when = NLHistoryTime(item.start);
+        // A skipped one greyed, and said so after its time.
+        if (item.skipped) content.textProperties.color = UIColor.secondaryLabelColor;
+        NSString *when = item.skipped ? [NSString stringWithFormat:@"%@ · %@", NLHistoryTime(item.start), NLL(@"Skipped")] : NLHistoryTime(item.start);
         content.secondaryText = item.artist.length ? [NSString stringWithFormat:@"%@ · %@", item.artist, when] : when;
         content.secondaryTextProperties.color = UIColor.secondaryLabelColor;
         content.secondaryTextProperties.numberOfLines = 1;
@@ -698,6 +737,13 @@ typedef NS_ENUM(NSInteger, NLHistorySection) {
     NLHistorySectionCount,
 };
 
+typedef NS_ENUM(NSInteger, NLHistorySetting) {
+    NLHistorySettingRecord,
+    NLHistorySettingKeep,
+    NLHistorySettingSkipped,
+    NLHistorySettingCount,
+};
+
 @interface NLHistoryController () <UITableViewDataSource, UITableViewDelegate>
 @end
 
@@ -705,7 +751,7 @@ typedef NS_ENUM(NSInteger, NLHistorySection) {
     NSArray<NLHistoryItem *> *_items;      // every play, newest first
     NLHistoryApps *_apps;
     NLActivityPeriod *_week;
-    NSArray<NLSongUsage *> *_topSongs;
+    NSArray<NLUsage *> *_topSongs;
     NLActivityCardCell *_cardCell;
     NLActivityChartView *_chart;
     BOOL _loaded;
@@ -720,8 +766,7 @@ typedef NS_ENUM(NSInteger, NLHistorySection) {
     [super viewDidLoad];
     self.title = NLL(@"Listening History");
     [_table registerClass:[NLUsageCell class] forCellReuseIdentifier:@"usage"];
-    _chart = [NLActivityChartView new];
-    _chart.userInteractionEnabled = NO;   // the whole card opens All Activity
+    _chart = [NLActivityChartView new];   // a press shows a day; a tap still opens All Activity (the card's)
     _cardCell = [[NLActivityCardCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
     _cardCell.chartView = _chart;
     NLHistoryObserve(self, @selector(nlLoad));
@@ -740,12 +785,13 @@ typedef NS_ENUM(NSInteger, NLHistorySection) {
 }
 
 - (void)nlLoad {
+    BOOL skipped = NLHistoryShowsSkipped(self);
     NSUInteger load = ++_loads;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        NSArray<NLHistoryItem *> *items = NLHistoryLoadAll();
+        NSArray<NLHistoryItem *> *items = NLHistoryLoadAll(skipped);
         NLHistoryApps *apps = [NLHistoryApps appsForItems:items];
         NLActivityPeriod *week = [NLActivityPeriod periodWithScale:NLActivityScaleWeek containingDate:[NSDate date] items:items apps:apps];
-        NSArray<NLSongUsage *> *top = NLSongUsages(week.items, week.start, week.end);
+        NSArray<NLUsage *> *top = NLUsages(week.items, week.start, week.end, NLUsageKindSongs);
         dispatch_async(dispatch_get_main_queue(), ^{
             if (load != self->_loads) return;
             self->_items = items;
@@ -771,7 +817,7 @@ typedef NS_ENUM(NSInteger, NLHistorySection) {
     switch (section) {
         case NLHistorySectionWeek: return 2;
         case NLHistorySectionTopSongs: return MAX(_topSongs.count, 1);
-        case NLHistorySectionSettings: return 2;
+        case NLHistorySectionSettings: return NLHistorySettingCount;
         default: return 1;
     }
 }
@@ -781,7 +827,7 @@ typedef NS_ENUM(NSInteger, NLHistorySection) {
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
-    if (section == NLHistorySectionSettings) return NLL(@"SpringBoard writes down every song you play for 30 seconds or half its length, in any app. The history stays on this iPhone.");
+    if (section == NLHistorySectionSettings) return NLL(@"SpringBoard writes down every song you play, in any app. One played less than 30 seconds (or half of a shorter song) is marked as skipped. The history stays on this iPhone.");
     return nil;
 }
 
@@ -796,21 +842,22 @@ typedef NS_ENUM(NSInteger, NLHistorySection) {
 - (UITableViewCell *)nlSettingsCell:(NSInteger)row {
     UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
     cell.selectionStyle = UITableViewCellSelectionStyleNone;
-    if (row == 0) {
-        cell.textLabel.text = NLL(@"Record Listening History");
-        cell.imageView.image = NLSettingsIcon(@"clock.arrow.circlepath", @"#FF9500");
-        UISwitch *toggle = [UISwitch new];
-        toggle.on = [self nlOn];
-        [toggle addTarget:self action:@selector(nlSwitchChanged:) forControlEvents:UIControlEventValueChanged];
-        cell.accessoryView = toggle;
-        NLThemeCell(cell);
-    } else {
+    if (row == NLHistorySettingKeep) {
         cell.textLabel.text = NLL(@"Keep History");
         cell.imageView.image = NLSettingsIcon(@"calendar", @"#FF3B30");
         NSArray *titles = @[NLL(@"30 Days"), NLL(@"90 Days"), NLL(@"1 Year"), NLL(@"Forever")];
         __weak typeof(self) weakSelf = self;
         cell.accessoryView = NLPopUpButton(titles, @[@30, @90, @365, @0], @([self nlKeepDays]), ^(id value) { [weakSelf nlKeepChanged:value]; });
+        return cell;
     }
+    BOOL record = row == NLHistorySettingRecord;
+    cell.textLabel.text = record ? NLL(@"Record Listening History") : NLL(@"Show Skipped Songs");
+    cell.imageView.image = record ? NLSettingsIcon(@"clock.arrow.circlepath", @"#FF9500") : NLSettingsIcon(@"forward.end.fill", @"#5856D6");
+    UISwitch *toggle = [UISwitch new];
+    toggle.on = record ? [self nlOn] : NLHistoryShowsSkipped(self);
+    [toggle addTarget:self action:record ? @selector(nlSwitchChanged:) : @selector(nlSkippedChanged:) forControlEvents:UIControlEventValueChanged];
+    cell.accessoryView = toggle;
+    NLThemeCell(cell);
     return cell;
 }
 
@@ -830,7 +877,7 @@ typedef NS_ENUM(NSInteger, NLHistorySection) {
                                                                                          : NLL(@"Turn on Record Listening History to start."));
             }
             NLUsageCell *cell = [tableView dequeueReusableCellWithIdentifier:@"usage" forIndexPath:indexPath];
-            NLSongUsage *usage = _topSongs[indexPath.row];
+            NLUsage *usage = _topSongs[indexPath.row];
             NSTimeInterval longest = _topSongs.firstObject.duration;
             [cell showUsage:usage fraction:longest > 0 ? usage.duration / longest : 0
                       color:[_apps colorForCategory:[_apps categoryForApp:usage.item.app]]];
@@ -863,6 +910,12 @@ typedef NS_ENUM(NSInteger, NLHistorySection) {
 - (void)nlSwitchChanged:(UISwitch *)toggle {
     [self nlSetPref:@(toggle.on) forKey:NL_HISTORY_PREF];
     if (!_topSongs.count) [_table reloadSections:[NSIndexSet indexSetWithIndex:NLHistorySectionTopSongs] withRowAnimation:UITableViewRowAnimationNone];
+}
+
+// The pages only show them or not; the files keep them either way.
+- (void)nlSkippedChanged:(UISwitch *)toggle {
+    [self nlSetPref:@(toggle.on) forKey:NL_HISTORY_SKIPPED_PREF];
+    [self nlLoad];
 }
 
 // Fewer days than kept now deletes the older ones: asked first when there are some.

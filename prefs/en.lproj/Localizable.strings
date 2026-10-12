@@ -159,7 +159,7 @@
 "90 Days" = "90 Days";
 "1 Year" = "1 Year";
 "Forever" = "Forever";
-"SpringBoard writes down every song you play for 30 seconds or half its length, in any app. The history stays on this iPhone." = "SpringBoard writes down every song you play for 30 seconds or half its length, in any app. The history stays on this iPhone.";
+"SpringBoard writes down every song you play, in any app. One played less than 30 seconds (or half of a shorter song) is marked as skipped. The history stays on this iPhone." = "SpringBoard writes down every song you play, in any app. One played less than 30 seconds (or half of a shorter song) is marked as skipped. The history stays on this iPhone.";
 "No listening history yet" = "No listening history yet";
 "Turn on Record Listening History to start." = "Turn on Record Listening History to start.";
 "Delete All History…" = "Delete All History…";
@@ -203,3 +203,14 @@
 "Show More" = "Show More";
 "Show Less" = "Show Less";
 "Timeline" = "Timeline";
+"Show Skipped Songs" = "Show Skipped Songs";
+"Skipped" = "Skipped";
+"Show Categories" = "Show Categories";
+"Show Songs" = "Show Songs";
+"Albums" = "Albums";
+"Apps" = "Apps";
+"Top Artists" = "Top Artists";
+"Top Albums" = "Top Albums";
+"Top Apps" = "Top Apps";
+"Previous" = "Previous";
+"Next" = "Next";

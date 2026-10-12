@@ -15,7 +15,9 @@
 //    (repeat), or coming back after a long pause, begins another play.
 //  - Time: only while playing, pauses left out. A play counts once it has
 //    played 30 seconds or half the song, whichever is shorter; it is written
-//    then, on every pause, at its end, and every minute in between.
+//    then, on every pause, at its end, and every minute in between. One that
+//    ends before it counts is written at its end, as skipped, unless it hardly
+//    played (kNLHistoryKeepAfter) or was a lyric line taken for a song.
 //  - After a respring the song playing goes on in the play it was in, rather
 //    than starting a second one.
 //
@@ -36,6 +38,7 @@
 #endif
 
 static const NSTimeInterval kNLHistoryCountAfter = 30;     // seconds played for a play to count (or half the song)
+static const NSTimeInterval kNLHistoryKeepAfter = 2;       // seconds played for a skipped one to be written
 static const NSTimeInterval kNLHistoryLongPause = 10 * 60; // back after longer than this: another play
 static const NSTimeInterval kNLHistorySaveEvery = 60;      // while playing
 static const NSTimeInterval kNLHistoryResumeGap = 2 * 60;  // after a respring: the last play goes on if it ended this recently
@@ -50,6 +53,8 @@ static const NSTimeInterval kNLHistoryResumeGap = 2 * 60;  // after a respring: 
 @property (nonatomic, assign) CFAbsoluteTime savedAt;
 @property (nonatomic, assign) double listened, lastElapsed;
 @property (nonatomic, assign) BOOL fromNowLyrics, saved, dropped;
+@property (nonatomic, assign) BOOL ended;          // another song began, or nothing plays
+@property (nonatomic, assign) BOOL savedCounted;   // it counted when last written
 @end
 
 @implementation NLHistoryPlay
@@ -67,6 +72,7 @@ static const NSTimeInterval kNLHistoryResumeGap = 2 * 60;  // after a respring: 
     entry[NL_HP_APP] = self.bundleID.length ? self.bundleID : nil;
     entry[NL_HP_KEY] = self.key;
     entry[NL_HP_ART] = self.art;
+    entry[NL_HP_SKIPPED] = [self counts] ? nil : @YES;
     return entry;
 }
 
@@ -143,11 +149,16 @@ static void NLHistoryAdopt(NLHistoryPlay *play, NSDictionary *np) {
 #pragma mark - Saving
 
 static void NLHistorySave(NLHistoryPlay *play, BOOL now) {
-    if (!play || play.dropped || ![play counts]) return;
+    if (!play || play.dropped) return;
+    BOOL counts = [play counts];
+    // Until it counts only its end writes it, as skipped.
+    if (!counts && !(play.ended && play.listened >= kNLHistoryKeepAfter)) return;
     CFAbsoluteTime time = CFAbsoluteTimeGetCurrent();
-    if (!now && play.saved && time - play.savedAt < kNLHistorySaveEvery) return;
+    // While playing, once a minute, and at once when it has just come to count.
+    if (!now && play.saved && counts == play.savedCounted && time - play.savedAt < kNLHistorySaveEvery) return;
     play.saved = YES;
     play.savedAt = time;
+    play.savedCounted = counts;
     NLH_LOG(@"save %@", [play entry]);
     NLHistorySavePlay([play entry]);
     // Once a day, the days past what is kept go.
@@ -183,11 +194,19 @@ static void NLHistorySetTimer(BOOL on) {
     gSaveTimer.tolerance = 10;
 }
 
-static void NLHistoryFinish(void) {
+// The play on now is over. `ended`: the song is (another began, or nothing
+// plays), so one that never counted is written as skipped; NO when only the
+// recording stopped.
+static void NLHistoryFinish(BOOL ended) {
     NLHistoryAccount();
-    NLHistorySave(gPlay, YES);
+    NLHistoryPlay *play = gPlay;
     gPlay = nil;
     NLHistorySetTimer(NO);
+    if (!play) return;
+    play.ended = ended;
+    // A line NowLyrics showed, taken for a song of its own, is no skip.
+    if (ended && ![play counts] && !play.fromNowLyrics && NLHistoryIsLyricLine(NLReadNowPlaying(play.bundleID), play.title)) return;
+    NLHistorySave(play, YES);
 }
 
 // After SpringBoard started: the song playing may be the one the last play
@@ -204,6 +223,7 @@ static void NLHistoryResume(NLHistoryPlay *play) {
     play.listened = NLNum(last[NL_HP_LISTENED], 0);
     play.art = play.art ?: NLString(last, NL_HP_ART);
     play.saved = YES;
+    play.savedCounted = [play counts];
 }
 
 #pragma mark - Following what plays
@@ -217,7 +237,7 @@ static void NLHistoryIngest(NSDictionary *info, NSString *bundleID) {
             info[NL_MR_ARTIST], info[NL_MR_ALBUM], info[NL_MR_DURATION], info[NL_MR_RATE], info[NL_MR_ELAPSED],
             [info.allKeys componentsJoinedByString:@","]);
     if (!title || !bundleID) {
-        NLHistoryFinish();   // nothing plays (or no song to name)
+        NLHistoryFinish(YES);   // nothing plays (or no song to name)
         return;
     }
     CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
@@ -248,7 +268,7 @@ static void NLHistoryIngest(NSDictionary *info, NSString *bundleID) {
     if (same && playing && play.playingSince <= 0 && now - play.end > kNLHistoryLongPause) same = NO;
 
     if (!same) {
-        NLHistoryFinish();
+        NLHistoryFinish(YES);
         play = [NLHistoryPlay new];
         play.identifier = NSUUID.UUID.UUIDString;
         play.bundleID = bundleID;
@@ -335,7 +355,7 @@ static void NLHistoryReadPrefs(BOOL atLaunch) {
     gHistoryDays = days;
     NLH_LOG(@"prefs on=%d days=%ld launch=%d", gHistoryOn, (long)days, atLaunch);
     if (atLaunch) return;
-    if (wasOn && !gHistoryOn) NLHistoryFinish();
+    if (wasOn && !gHistoryOn) NLHistoryFinish(NO);
     if (!wasOn && gHistoryOn) NLHistoryRefresh();
     // A shorter limit applies at once, recording or not: the page asked first.
     if (daysChanged) NLHistoryPrune(gHistoryDays);

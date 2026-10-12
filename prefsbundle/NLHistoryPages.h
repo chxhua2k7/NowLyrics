@@ -1,9 +1,10 @@
 //
 //  NLHistoryPages.h
 //  The Listening History pages (NLHistory.h has the files): the first page
-//  and its This Week card, All Activity (Screen Time's charts, by app), a
-//  day's timeline and a song's page. NLHistoryController.m has the pages,
-//  NLHistoryActivity.m the charts and All Activity.
+//  and its This Week card, All Activity (Screen Time's charts, by app), an
+//  artist's, album's or app's songs, a day's timeline and a song's page.
+//  NLHistoryController.m has the pages, NLHistoryActivity.m the charts, the
+//  date bar, All Activity and the artist's, album's or app's.
 //
 
 #import "NLLyricsPages.h"
@@ -14,16 +15,19 @@
 @property (nonatomic, copy) NSString *identifier, *day, *title, *artist, *album, *app, *key, *art;
 @property (nonatomic, strong) NSDate *start, *end;
 @property (nonatomic, assign) double listened, duration;
+@property (nonatomic, assign) BOOL skipped;   // it ended before it counted (NL_HP_SKIPPED)
 - (BOOL)isSameSongAs:(NLHistoryItem *)other;
 // The time it played inside [start, end): its listening spread over the
 // span from its start to its end.
 - (NSTimeInterval)listenedFrom:(NSDate *)start to:(NSDate *)end;
 @end
 
-// Every play of every day, newest first; a day's, oldest first. A day's file
-// is read again only once it has changed. Any queue.
-NSArray<NLHistoryItem *> *NLHistoryLoadAll(void);
-NSArray<NLHistoryItem *> *NLHistoryItemsOfDay(NSString *day);
+// Every play of every day, newest first; a day's, oldest first. `skipped`:
+// the skipped ones too (Show Skipped Songs, NLHistoryShowsSkipped). A day's
+// file is read again only once it has changed. Any queue.
+NSArray<NLHistoryItem *> *NLHistoryLoadAll(BOOL skipped);
+NSArray<NLHistoryItem *> *NLHistoryItemsOfDay(NSString *day, BOOL skipped);
+BOOL NLHistoryShowsSkipped(PSViewController *page);   // read through the page; on by default
 
 // A formatter by `name`, made by `make` the first time and kept until the
 // region or the time zone changes (they cost to make). Main queue.
@@ -31,6 +35,7 @@ id NLHistoryFormatter(NSString *name, id (^make)(void));
 NSString *NLHistoryDayTitle(NSDate *date);       // Today, Yesterday, Saturday, October 4
 NSString *NLHistoryDuration(double seconds);     // 1 hr 32 min, 2 min 35 sec, 45 sec; 0 min for none
 UIImage *NLHistoryCover(NSString *art, CGFloat side);   // rounded; a note on grey without one
+UIImage *NLHistoryAppIcon(NSString *bundleID, CGFloat side);   // the app's icon, rounded; a cover tile without one
 void NLHistoryObserve(id observer, SEL selector);       // `selector` whenever SpringBoard writes a play
 void NLHistoryPush(PSViewController *from, PSViewController *page);   // reading prefs through the same list page
 
@@ -75,6 +80,8 @@ typedef NS_ENUM(NSInteger, NLActivityScale) {
 
 // Stacked bars, the scale on the right, weekdays or hours under them, the
 // week's average dashed. With didSelectBar a tap selects a bar (NSNotFound: none).
+// A press shows the bar's day and time over the card it is on (Screen Time's
+// green callout); sliding goes along the bars.
 @interface NLActivityChartView : UIView
 @property (nonatomic, strong) NLActivityPeriod *period;
 @property (nonatomic) NSInteger selectedIndex;
@@ -88,22 +95,57 @@ typedef NS_ENUM(NSInteger, NLActivityScale) {
         durations:(NSArray<NSNumber *> *)durations apps:(NLHistoryApps *)apps;
 @end
 
-// A song in Most Played: cover, title and a bar as long as its share, its time on the right.
-@interface NLSongUsage : NSObject
+// What Most Played ranks: songs, or (Show Categories, as Screen Time's) their
+// artists, albums or apps.
+typedef NS_ENUM(NSInteger, NLUsageKind) {
+    NLUsageKindSongs = 0,
+    NLUsageKindArtists,
+    NLUsageKindAlbums,
+    NLUsageKindApps,
+};
+
+// One row of Most Played: cover (an app's icon), name and a bar as long as its share, its time on the right.
+@interface NLUsage : NSObject
+@property (nonatomic) NLUsageKind kind;
+@property (nonatomic, copy) NSString *key;           // what its plays share (NLUsageKey)
+@property (nonatomic, copy) NSString *name;
 @property (nonatomic, strong) NLHistoryItem *item;   // its latest play in the range
 @property (nonatomic) NSTimeInterval duration;
 @property (nonatomic) NSUInteger plays;
 @end
 
 @interface NLUsageCell : UITableViewCell
-- (void)showUsage:(NLSongUsage *)usage fraction:(CGFloat)fraction color:(UIColor *)color;
+- (void)showUsage:(NLUsage *)usage fraction:(CGFloat)fraction color:(UIColor *)color;
 @end
 
-// The songs played in [start, end), longest first.
-NSArray<NLSongUsage *> *NLSongUsages(NSArray<NLHistoryItem *> *items, NSDate *start, NSDate *end);
+// What a play is ranked by in `kind`: the song's key, its artist, album or
+// app; nil when it has none (left out of that ranking).
+NSString *NLUsageKey(NLHistoryItem *item, NLUsageKind kind);
+// What was played in [start, end), by `kind`, longest first.
+NSArray<NLUsage *> *NLUsages(NSArray<NLHistoryItem *> *items, NSDate *start, NSDate *end, NLUsageKind kind);
 
 @interface NLHistoryActivityController : PSViewController
 - (instancetype)initWithScale:(NLActivityScale)scale date:(NSDate *)date;
+@end
+
+// An artist, album or app from Most Played: its time and plays in the same
+// range (`range` names it), its songs longest first.
+@interface NLHistoryGroupController : PSViewController
+- (instancetype)initWithUsage:(NLUsage *)usage items:(NSArray<NLHistoryItem *> *)items range:(NSString *)range
+                        start:(NSDate *)start end:(NSDate *)end apps:(NLHistoryApps *)apps;
+@end
+
+// Screen Time's bar under the navigation bar: what the page shows, round
+// buttons to the one before and after. Pinned to the top of `page`'s view,
+// hidden until shown; while it shows, the navigation bar keeps its material
+// and loses its line, one bar with it.
+@interface NLDateBar : UIView
++ (instancetype)barOnPage:(UIViewController *)page;
++ (CGFloat)height;
+@property (nonatomic, readonly) UILabel *titleLabel;
+@property (nonatomic, readonly) UIButton *previousButton, *nextButton;
+@property (nonatomic, readonly, getter=isShown) BOOL shown;
+- (void)setShown:(BOOL)shown animated:(BOOL)animated;
 @end
 
 @interface NLHistoryDayController : PSViewController
