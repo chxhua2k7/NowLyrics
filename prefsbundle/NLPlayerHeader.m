@@ -439,7 +439,9 @@ static void NLThemeSwitches(UIView *view, UIColor *color) {
     for (UIView *sub in view.subviews) NLThemeSwitches(sub, color);
 }
 
+// An accessory view is not among the cell's subviews until the cell is laid out.
 void NLThemeCell(UITableViewCell *cell) {
+    if (cell.accessoryView) NLThemeSwitches(cell.accessoryView, gThemeColor);
     NLThemeSwitches(cell, gThemeColor);
 }
 

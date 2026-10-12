@@ -98,15 +98,24 @@ static NSString *NLHistoryTime(NSDate *date) {
     return [NSDateFormatter localizedStringFromDate:date dateStyle:NSDateFormatterNoStyle timeStyle:NSDateFormatterShortStyle];
 }
 
-NSString *NLHistoryDuration(double seconds) {
+// `toTheSecond`: below an hour, minutes and seconds (listening); else whole minutes (a pause).
+static NSString *NLHistoryFormatDuration(double seconds, BOOL toTheSecond) {
+    seconds = MAX(round(seconds), 0);
     NSDateComponentsFormatter *formatter = [NSDateComponentsFormatter new];
     formatter.unitsStyle = NSDateComponentsFormatterUnitsStyleShort;
     formatter.zeroFormattingBehavior = NSDateComponentsFormatterZeroFormattingBehaviorDropAll;
     if (seconds >= 3600) formatter.allowedUnits = NSCalendarUnitHour | NSCalendarUnitMinute;
-    else if (seconds >= 60 || seconds <= 0) formatter.allowedUnits = NSCalendarUnitMinute;
-    else formatter.allowedUnits = NSCalendarUnitSecond;
-    if (seconds <= 0) formatter.zeroFormattingBehavior = NSDateComponentsFormatterZeroFormattingBehaviorDefault;
-    return [formatter stringFromTimeInterval:MAX(round(seconds), 0)] ?: @"";
+    else if (seconds >= 60) formatter.allowedUnits = NSCalendarUnitMinute | (toTheSecond ? NSCalendarUnitSecond : 0);
+    else if (seconds > 0) formatter.allowedUnits = NSCalendarUnitSecond;
+    else {
+        formatter.allowedUnits = NSCalendarUnitMinute;
+        formatter.zeroFormattingBehavior = NSDateComponentsFormatterZeroFormattingBehaviorDefault;
+    }
+    return [formatter stringFromTimeInterval:seconds] ?: @"";
+}
+
+NSString *NLHistoryDuration(double seconds) {
+    return NLHistoryFormatDuration(seconds, YES);
 }
 
 static NSString *NLHistoryCount(NSUInteger count, NSString *one, NSString *many) {
@@ -641,7 +650,7 @@ typedef NS_ENUM(NSInteger, NLSongSection) { NLSongSectionStats, NLSongSectionLyr
         content.text = NLL(@"Paused");
         content.textProperties.font = [UIFont preferredFontForTextStyle:UIFontTextStyleSubheadline];
         content.textProperties.color = UIColor.secondaryLabelColor;
-        content.secondaryText = NLHistoryDuration(row.pause);
+        content.secondaryText = NLHistoryFormatDuration(row.pause, NO);
         content.secondaryTextProperties.font = [UIFont preferredFontForTextStyle:UIFontTextStyleSubheadline];
         cell.accessoryType = UITableViewCellAccessoryNone;
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
@@ -710,11 +719,18 @@ typedef NS_ENUM(NSInteger, NLHistorySection) {
     _cardCell = [[NLActivityCardCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
     _cardCell.chartView = _chart;
     NLHistoryObserve(self, @selector(nlLoad));
+    // The root page re-themes the list pages only; this one sets its switch itself.
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(nlThemeChanged)
+                                               name:NLThemeChangedNotification object:nil];
 }
 
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     [self nlLoad];
+}
+
+- (void)nlThemeChanged {
+    NLThemeTable(_table);
 }
 
 - (void)nlLoad {

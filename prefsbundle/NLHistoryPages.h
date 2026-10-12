@@ -25,7 +25,7 @@ NSArray<NLHistoryItem *> *NLHistoryLoadAll(void);
 NSArray<NLHistoryItem *> *NLHistoryItemsOfDay(NSString *day);   // oldest first
 
 NSString *NLHistoryDayTitle(NSDate *date);       // Today, Yesterday, Saturday, October 4
-NSString *NLHistoryDuration(double seconds);     // 1 hr 32 min, 3 min, 45 sec; 0 min for none
+NSString *NLHistoryDuration(double seconds);     // 1 hr 32 min, 2 min 35 sec, 45 sec; 0 min for none
 UIImage *NLHistoryCover(NSString *art, CGFloat side);   // rounded; a note on grey without one
 void NLHistoryObserve(id observer, SEL selector);       // `selector` whenever SpringBoard writes a play
 void NLHistoryPush(PSViewController *from, PSViewController *page);   // reading prefs through the same list page
