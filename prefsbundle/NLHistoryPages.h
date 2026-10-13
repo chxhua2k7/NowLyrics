@@ -32,7 +32,7 @@ BOOL NLHistoryShowsSkipped(PSViewController *page);   // read through the page; 
 // A formatter by `name`, made by `make` the first time and kept until the
 // region or the time zone changes (they cost to make). Main queue.
 id NLHistoryFormatter(NSString *name, id (^make)(void));
-NSString *NLHistoryDayTitle(NSDate *date);       // Today, Yesterday, Saturday, October 4
+NSString *NLHistoryDayTitle(NSDate *date);       // Today, Oct 14; Sunday, Oct 11 (10月14日 今天), as Screen Time's
 NSString *NLHistoryDuration(double seconds);     // 1 hr 32 min, 2 min 35 sec, 45 sec; 0 min for none
 UIImage *NLHistoryCover(NSString *art, CGFloat side);   // rounded; a note on grey without one
 UIImage *NLHistoryAppIcon(NSString *bundleID, CGFloat side);   // the app's icon, rounded; a cover tile without one
@@ -81,19 +81,54 @@ typedef NS_ENUM(NSInteger, NLActivityScale) {
 // Stacked bars, the scale on the right, weekdays or hours under them, the
 // week's average dashed. With didSelectBar a tap selects a bar (NSNotFound: none).
 // A press shows the bar's day and time over the card it is on (Screen Time's
-// green callout); sliding goes along the bars.
+// green callout); sliding goes along the bars. With contextIndex the chart is
+// the week around that day: the other days grey, the average too.
 @interface NLActivityChartView : UIView
 @property (nonatomic, strong) NLActivityPeriod *period;
 @property (nonatomic) NSInteger selectedIndex;
+@property (nonatomic) NSInteger contextIndex;   // NSNotFound (the default): every bar in its colors
 @property (nonatomic, copy) void (^didSelectBar)(NSInteger index);
 @end
 
-// The card: title, caption (Daily Average), the big time, the chart and the apps' times.
+// A week's daily average against the week before's: "34% from last week",
+// `rising` set; nil when either has none. Main queue.
+NSString *NLActivityTrend(NLActivityPeriod *period, NLActivityPeriod *previous, BOOL *rising);
+
+// The card, as Screen Time's: a grey title (Daily Average, a day), the big
+// time with the trend on its right, the chart (chartHeight tall; on a day the
+// week around it above, headChartView) and the three apps listened to
+// longest. With Screen Time's charts the title is theirs, the legend too.
 @interface NLActivityCardCell : UITableViewCell
 @property (nonatomic, strong) UIView *chartView;
-- (void)showTitle:(NSString *)title caption:(NSString *)caption value:(NSString *)value
+@property (nonatomic) CGFloat chartHeight;
+@property (nonatomic, strong) UIView *headChartView;   // nil: none
+@property (nonatomic) CGFloat headChartHeight;
+- (void)showTitle:(NSString *)title value:(NSString *)value trend:(NSString *)trend rising:(BOOL)rising
         durations:(NSArray<NSNumber *> *)durations apps:(NLHistoryApps *)apps;
 @end
+
+// Screen Time's own charts (NLScreenTime.m, ScreenTimeSettingsUI): whether
+// this iOS has them, and its date bar.
+BOOL NLScreenTimeChartsAvailable(void);
+BOOL NLScreenTimeDateBarAvailable(void);
+
+// One Screen Time graph: a week, titled (its title above it and the paddle a
+// press shows), or a day's hours, untitled. With selectedDay the week has that
+// day in its colors and the others grey.
+@interface NLScreenTimeChartView : UIView
++ (CGFloat)heightTitled:(BOOL)titled;
+- (instancetype)initTitled:(BOOL)titled;
+@property (nonatomic, readonly) BOOL titled;
+@property (nonatomic, copy) void (^didTapDay)(NSDate *day);   // a day tapped on a week, one that has begun
+- (void)showPeriod:(NLActivityPeriod *)period selectedDay:(NSDate *)day title:(NSString *)title value:(NSString *)value
+             trend:(NSString *)trend rising:(BOOL)rising;
+@end
+
+// Its legend, the apps given (categories, longest first) each in its color
+// with its time; and its date bar, the label and arrows handed out.
+UIView *NLScreenTimeMakeLegend(void);
+void NLScreenTimeShowLegend(UIView *legend, NSArray<NSNumber *> *categories, NSArray<NSNumber *> *durations, NLHistoryApps *apps);
+UIView *NLScreenTimeMakeDateBar(UILabel **label, UIButton **previous, UIButton **next);
 
 // What Most Played ranks: songs, or (Show Categories, as Screen Time's) their
 // artists, albums or apps.
@@ -104,7 +139,7 @@ typedef NS_ENUM(NSInteger, NLUsageKind) {
     NLUsageKindApps,
 };
 
-// One row of Most Played: cover (an app's icon), name and a bar as long as its share, its time on the right.
+// One row of Most Played: cover (an app's icon), name and a bar in its app's color as long as its share, its time after it.
 @interface NLUsage : NSObject
 @property (nonatomic) NLUsageKind kind;
 @property (nonatomic, copy) NSString *key;           // what its plays share (NLUsageKey)
@@ -138,7 +173,7 @@ NSArray<NLUsage *> *NLUsages(NSArray<NLHistoryItem *> *items, NSDate *start, NSD
 // Screen Time's bar under the navigation bar: what the page shows, round
 // buttons to the one before and after. Pinned to the top of `page`'s view,
 // hidden until shown; while it shows, the navigation bar keeps its material
-// and loses its line, one bar with it.
+// even at the top.
 @interface NLDateBar : UIView
 + (instancetype)barOnPage:(UIViewController *)page;
 + (CGFloat)height;

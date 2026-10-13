@@ -1,7 +1,8 @@
 //
 //  NLHistoryActivity.m
 //  Screen Time's charts for the listening history (the first page's This
-//  Week card and All Activity share them), by app instead of by category:
+//  Week card and All Activity share them), laid out as Screen Time's, by app
+//  instead of by category:
 //  - NLHistoryApps: the apps told apart, each with its color, the rest as Other Apps
 //  - NLActivityPeriod: a week (a bar a day) or a day (a bar an hour), each bar
 //    the time listened per app; a play across an edge counts the part inside
@@ -11,13 +12,18 @@
 //  - NLActivityCardCell, NLUsageCell: the card and Most Played's rows
 //  - NLDateBar: the period under the navigation bar, round buttons to the
 //    one before and after
+//  - With Screen Time's own charts (NLScreenTime.m) the graphs, their titles,
+//    the legend and the date bar are Screen Time's; ours where an iOS lacks them
 //  - NLHistoryActivityController: All Activity. Week | Day on top; the chart
-//    pages back to the first week or day with plays; a tapped bar narrows the
-//    card and the lists to it; once the chart has scrolled away the date bar
-//    steps through them. Most Played (to the song's page) or, with Show
-//    Categories, its artists, albums or apps (to theirs,
-//    NLHistoryGroupController); what was listened to, and for one day its
-//    timeline.
+//    pages back to the first week or day with plays (a day's hours under its
+//    week, which stays as they page, the other days grey). As Screen Time's,
+//    a day tapped on a week opens that day; an hour tapped on a day (ours)
+//    narrows the card and the lists to it. A week has its trend and its
+//    total under the card; once Week | Day has scrolled away the date bar
+//    steps through them. Most Played (to the
+//    song's page) or, with Show Categories, its artists, albums or apps (to
+//    theirs, NLHistoryGroupController); what was listened to, and for one
+//    day its timeline.
 //
 
 #import "NLHistoryPages.h"
@@ -342,6 +348,7 @@ static NSString *NLTemplateDate(NSString *template, NSDate *date) {
     self.backgroundColor = UIColor.clearColor;
     self.contentMode = UIViewContentModeRedraw;
     _selectedIndex = NSNotFound;
+    _contextIndex = NSNotFound;
     _pressedIndex = NSNotFound;
     _press = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(nlPressed:)];
     _press.minimumPressDuration = 0.3;
@@ -364,6 +371,11 @@ static NSString *NLTemplateDate(NSString *template, NSDate *date) {
 
 - (void)setSelectedIndex:(NSInteger)selectedIndex {
     _selectedIndex = selectedIndex;
+    [self setNeedsDisplay];
+}
+
+- (void)setContextIndex:(NSInteger)contextIndex {
+    _contextIndex = contextIndex;
     [self setNeedsDisplay];
 }
 
@@ -394,48 +406,61 @@ static NSString *NLTemplateDate(NSString *template, NSDate *date) {
     return 24 * 3600;
 }
 
+// As Screen Time draws it: lines across at each quarter, the scale on the
+// right at the top and 0 (a day's half too); dotted lines down between a
+// week's days and a day's six hours, the weekdays and hours just right of
+// them; the week's average dashed.
 - (void)drawRect:(CGRect)rect {
     NSArray<NLActivityBar *> *bars = self.period.bars;
     CGRect chart = [self nlChartRect];
     if (!bars.count || chart.size.width <= 0 || chart.size.height <= 0) return;
     CGContextRef context = UIGraphicsGetCurrentContext();
     BOOL week = self.period.scale == NLActivityScaleWeek;
+    BOOL aroundDay = self.contextIndex != NSNotFound;
     NSTimeInterval maximum = [self nlMaximum];
     UIFont *font = [UIFont monospacedDigitSystemFontOfSize:11 weight:UIFontWeightRegular];
     NSDictionary *axis = @{NSFontAttributeName: font, NSForegroundColorAttributeName: UIColor.secondaryLabelColor};
     NSDictionary *selectedAxis = @{NSFontAttributeName: [UIFont monospacedDigitSystemFontOfSize:11 weight:UIFontWeightSemibold],
                                    NSForegroundColorAttributeName: UIColor.labelColor};
     CGFloat hairline = 1 / MAX(self.traitCollection.displayScale, 1);
+    CGFloat column = chart.size.width / bars.count;
     // The bar pressed, else the one picked, stands out; the others fade.
     NSInteger highlighted = _pressedIndex != NSNotFound ? _pressedIndex : self.selectedIndex;
 
-    // The week's average (dashed green, as Screen Time); a scale label too close gives way to it.
+    // The week's average: green as Screen Time's, grey on the week above a day.
     NSTimeInterval average = week ? self.period.dailyAverage : 0;
     CGFloat averageY = CGRectGetMaxY(chart) - MIN(average / maximum, 1) * chart.size.height;
+    UIColor *averageColor = aroundDay ? UIColor.secondaryLabelColor : UIColor.systemGreenColor;
 
-    for (NSInteger i = 0; i <= 2; i++) {
-        CGFloat y = CGRectGetMaxY(chart) - chart.size.height * i / 2;
+    [UIColor.separatorColor setStroke];
+    for (NSInteger i = 0; i <= 4; i++) {
+        CGFloat y = CGRectGetMaxY(chart) - chart.size.height * i / 4;
         UIBezierPath *line = [UIBezierPath bezierPath];
         [line moveToPoint:CGPointMake(CGRectGetMinX(chart), y)];
         [line addLineToPoint:CGPointMake(CGRectGetMaxX(chart), y)];
         line.lineWidth = hairline;
-        if (i > 0) {
-            const CGFloat dashes[] = {2, 3};
-            [line setLineDash:dashes count:2 phase:0];
-        }
-        [UIColor.separatorColor setStroke];
         [line stroke];
-        if (i == 0 || (average > 0 && fabs(y - averageY) < font.lineHeight)) continue;
-        // Half of an hour is 30 minutes, which the hour formatter cannot say.
-        BOOL inHours = week && fmod(maximum * i / 2, 3600) == 0;
-        [NLAxisString(maximum * i / 2, inHours) drawAtPoint:CGPointMake(CGRectGetMaxX(chart) + 6, y - font.lineHeight / 2) withAttributes:axis];
+        // A label too close to the average gives way to it.
+        BOOL labeled = i == 0 || i == 4 || (!week && i == 2);
+        if (!labeled || (average > 0 && fabs(y - averageY) < font.lineHeight)) continue;
+        NSString *label = i == 0 ? @"0" : NLAxisString(maximum * i / 4, week);
+        [label drawAtPoint:CGPointMake(CGRectGetMaxX(chart) + 6, y - font.lineHeight / 2) withAttributes:axis];
+    }
+    for (NSUInteger i = 0; i <= bars.count; i += week ? 1 : 6) {
+        CGFloat x = round(CGRectGetMinX(chart) + column * i) + hairline / 2;
+        UIBezierPath *line = [UIBezierPath bezierPath];
+        [line moveToPoint:CGPointMake(x, CGRectGetMinY(chart))];
+        [line addLineToPoint:CGPointMake(x, CGRectGetMaxY(chart) + kNLChartLabelHeight)];
+        line.lineWidth = hairline;
+        const CGFloat dashes[] = {2, 2};
+        [line setLineDash:dashes count:2 phase:0];
+        [line stroke];
     }
 
     NLHistoryApps *apps = self.period.apps;
     NSCalendar *calendar = NSCalendar.currentCalendar;
-    CGFloat column = chart.size.width / bars.count;
-    CGFloat barWidth = week ? MIN(column * 0.55, 32) : MAX(column * 0.6, 2);
-    CGFloat radius = week ? 4 : 2;
+    CGFloat barWidth = week ? MIN(column * 0.5, 28) : MAX(column * 0.6, 2);
+    CGFloat radius = week ? 3 : 1.5;
     for (NSUInteger i = 0; i < bars.count; i++) {
         NLActivityBar *bar = bars[i];
         BOOL selected = (NSInteger)i == highlighted;
@@ -447,23 +472,27 @@ static NSString *NLTemplateDate(NSString *template, NSDate *date) {
             CGRect frame = CGRectMake(x, CGRectGetMaxY(chart) - height, barWidth, height);
             [[UIBezierPath bezierPathWithRoundedRect:frame byRoundingCorners:UIRectCornerTopLeft | UIRectCornerTopRight
                                          cornerRadii:CGSizeMake(radius, radius)] addClip];
-            CGFloat y = CGRectGetMaxY(chart);
-            for (NSUInteger c = 0; c < bar.durations.count; c++) {
-                CGFloat segment = bar.durations[c].doubleValue / bar.total * height;
-                if (segment <= 0) continue;
-                [[apps colorForCategory:c] setFill];
-                UIRectFillUsingBlendMode(CGRectMake(x, y - segment, barWidth, segment), kCGBlendModeNormal);
-                y -= segment;
+            if (aroundDay && (NSInteger)i != self.contextIndex) {
+                [UIColor.systemGray3Color setFill];   // the week's other days
+                UIRectFill(frame);
+            } else {
+                CGFloat y = CGRectGetMaxY(chart);
+                for (NSUInteger c = 0; c < bar.durations.count; c++) {
+                    CGFloat segment = bar.durations[c].doubleValue / bar.total * height;
+                    if (segment <= 0) continue;
+                    [[apps colorForCategory:c] setFill];
+                    UIRectFillUsingBlendMode(CGRectMake(x, y - segment, barWidth, segment), kCGBlendModeNormal);
+                    y -= segment;
+                }
             }
             CGContextRestoreGState(context);
         }
-        NSDictionary *attributes = selected ? selectedAxis : axis;
+        CGPoint labelPoint = CGPointMake(CGRectGetMinX(chart) + column * i + 4, CGRectGetMaxY(chart) + 4);
         if (week) {
             NSString *label = calendar.veryShortStandaloneWeekdaySymbols[[calendar component:NSCalendarUnitWeekday fromDate:bar.start] - 1];
-            CGSize size = [label sizeWithAttributes:attributes];
-            [label drawAtPoint:CGPointMake(CGRectGetMinX(chart) + column * i + (column - size.width) / 2, CGRectGetMaxY(chart) + 4) withAttributes:attributes];
+            [label drawAtPoint:labelPoint withAttributes:selected ? selectedAxis : axis];
         } else if (i % 6 == 0) {
-            [NLHourString(bar.start) drawAtPoint:CGPointMake(x, CGRectGetMaxY(chart) + 4) withAttributes:axis];
+            [NLHourString(bar.start) drawAtPoint:labelPoint withAttributes:axis];
         }
     }
 
@@ -474,9 +503,9 @@ static NSString *NLTemplateDate(NSString *template, NSDate *date) {
         line.lineWidth = 1;
         const CGFloat dashes[] = {3, 3};
         [line setLineDash:dashes count:2 phase:0];
-        [UIColor.systemGreenColor setStroke];
+        [averageColor setStroke];
         [line stroke];
-        NSDictionary *label = @{NSFontAttributeName: font, NSForegroundColorAttributeName: UIColor.systemGreenColor};
+        NSDictionary *label = @{NSFontAttributeName: font, NSForegroundColorAttributeName: averageColor};
         [NLL(@"avg") drawAtPoint:CGPointMake(CGRectGetMaxX(chart) + 6, averageY - font.lineHeight / 2) withAttributes:label];
     }
 }
@@ -587,30 +616,82 @@ static NSString *NLTemplateDate(NSString *template, NSDate *date) {
 
 #pragma mark - Card
 
+static const CGFloat kNLWeekChartHeight = 132;   // our chart under a card: a week's bars, or a day's hours
+
+NSString *NLActivityTrend(NLActivityPeriod *period, NLActivityPeriod *previous, BOOL *rising) {
+    NSTimeInterval now = period.dailyAverage, before = previous.dailyAverage;
+    if (now <= 0 || before <= 0) return nil;
+    double change = (now - before) / before;
+    if (fabs(change) < 0.005) return nil;
+    if (rising) *rising = change > 0;
+    NSNumberFormatter *percent = NLHistoryFormatter(@"percent", ^id {
+        NSNumberFormatter *made = [NSNumberFormatter new];
+        made.numberStyle = NSNumberFormatterPercentStyle;
+        made.maximumFractionDigits = 0;
+        return made;
+    });
+    return [NSString stringWithFormat:NLL(@"%@ from last week"), [percent stringFromNumber:@(fabs(change))]];
+}
+
+// The arrow in a grey circle, then the words, as Screen Time's.
+static NSAttributedString *NLTrendString(NSString *text, BOOL rising, UIFont *font) {
+    UIImageSymbolConfiguration *configuration = [UIImageSymbolConfiguration configurationWithFont:font];
+    UIImage *arrow = [[UIImage systemImageNamed:rising ? @"arrow.up.circle.fill" : @"arrow.down.circle.fill" withConfiguration:configuration]
+                      imageWithTintColor:UIColor.secondaryLabelColor renderingMode:UIImageRenderingModeAlwaysOriginal];
+    NSMutableAttributedString *string = [NSMutableAttributedString new];
+    [string appendAttributedString:[NSAttributedString attributedStringWithAttachment:[NSTextAttachment textAttachmentWithImage:arrow]]];
+    [string appendAttributedString:[[NSAttributedString alloc] initWithString:[@" " stringByAppendingString:text]
+                                                                   attributes:@{NSFontAttributeName: font, NSForegroundColorAttributeName: UIColor.secondaryLabelColor}]];
+    return string;
+}
+
 @implementation NLActivityCardCell {
-    UILabel *_titleLabel, *_captionLabel, *_valueLabel;
-    UIView *_chartHost;
-    UIStackView *_legend;
+    BOOL _screenTime;                 // Screen Time's charts: the title is in them, the legend is theirs
+    UILabel *_titleLabel, *_valueLabel, *_trendLabel;
+    UIView *_headHost, *_chartHost;
+    NSLayoutConstraint *_headHostHeight, *_chartHostHeight;
+    UIStackView *_legend;             // ours
+    UIView *_screenTimeLegend;
 }
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
     if (!(self = [super initWithStyle:style reuseIdentifier:reuseIdentifier])) return nil;
-    _titleLabel = NLCardLabel(UIFontTextStyleSubheadline, YES, UIColor.secondaryLabelColor);
-    _captionLabel = NLCardLabel(UIFontTextStyleFootnote, NO, UIColor.secondaryLabelColor);
-    _valueLabel = NLCardLabel(UIFontTextStyleTitle1, YES, UIColor.labelColor);
+    _titleLabel = NLCardLabel(UIFontTextStyleBody, NO, UIColor.secondaryLabelColor);
+    _titleLabel.adjustsFontSizeToFitWidth = YES;
+    _titleLabel.minimumScaleFactor = 0.7;
+    _valueLabel = NLCardLabel(UIFontTextStyleLargeTitle, NO, UIColor.labelColor);
     _valueLabel.adjustsFontSizeToFitWidth = YES;
     _valueLabel.minimumScaleFactor = 0.6;
+    _trendLabel = NLCardLabel(UIFontTextStyleBody, NO, UIColor.secondaryLabelColor);
+    [_trendLabel setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    UIStackView *valueRow = [[UIStackView alloc] initWithArrangedSubviews:@[_valueLabel, _trendLabel]];
+    valueRow.axis = UILayoutConstraintAxisHorizontal;
+    valueRow.alignment = UIStackViewAlignmentLastBaseline;
+    valueRow.spacing = 8;
+    _headHost = [UIView new];
+    _headHostHeight = [_headHost.heightAnchor constraintEqualToConstant:0];
+    _headHostHeight.active = YES;
+    _headHost.hidden = YES;
     _chartHost = [UIView new];
-    [_chartHost.heightAnchor constraintEqualToConstant:190].active = YES;
-    _legend = [UIStackView new];
-    _legend.axis = UILayoutConstraintAxisHorizontal;
-    _legend.alignment = UIStackViewAlignmentTop;
-    _legend.spacing = 16;
-    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[_titleLabel, _captionLabel, _valueLabel, _chartHost, _legend]];
+    _chartHostHeight = [_chartHost.heightAnchor constraintEqualToConstant:kNLWeekChartHeight];
+    _chartHostHeight.active = YES;
+    _screenTime = NLScreenTimeChartsAvailable();
+    UIView *legend;
+    if (_screenTime) {
+        legend = _screenTimeLegend = NLScreenTimeMakeLegend();
+        _titleLabel.hidden = YES;
+        valueRow.hidden = YES;
+    } else {
+        legend = _legend = [UIStackView new];
+        _legend.axis = UILayoutConstraintAxisHorizontal;
+        _legend.alignment = UIStackViewAlignmentTop;
+        _legend.spacing = 12;
+    }
+    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[_titleLabel, valueRow, _headHost, _chartHost, legend]];
     stack.axis = UILayoutConstraintAxisVertical;
-    stack.spacing = 2;
-    [stack setCustomSpacing:12 afterView:_valueLabel];
-    [stack setCustomSpacing:10 afterView:_chartHost];
+    [stack setCustomSpacing:12 afterView:valueRow];
+    [stack setCustomSpacing:16 afterView:_headHost];
+    [stack setCustomSpacing:12 afterView:_chartHost];
     stack.translatesAutoresizingMaskIntoConstraints = NO;
     [self.contentView addSubview:stack];
     UILayoutGuide *margins = self.contentView.layoutMarginsGuide;
@@ -623,28 +704,58 @@ static NSString *NLTemplateDate(NSString *template, NSDate *date) {
     return self;
 }
 
-- (void)setChartView:(UIView *)chartView {
-    [_chartView removeFromSuperview];
-    _chartView = chartView;
-    if (!chartView) return;
-    chartView.translatesAutoresizingMaskIntoConstraints = NO;
-    [_chartHost addSubview:chartView];
+- (CGFloat)chartHeight {
+    return _chartHostHeight.constant;
+}
+
+- (void)setChartHeight:(CGFloat)chartHeight {
+    _chartHostHeight.constant = chartHeight;
+}
+
+- (CGFloat)headChartHeight {
+    return _headHostHeight.constant;
+}
+
+- (void)setHeadChartHeight:(CGFloat)headChartHeight {
+    _headHostHeight.constant = headChartHeight;
+}
+
+static void NLFill(UIView *host, UIView *view) {
+    view.translatesAutoresizingMaskIntoConstraints = NO;
+    [host addSubview:view];
     [NSLayoutConstraint activateConstraints:@[
-        [chartView.topAnchor constraintEqualToAnchor:_chartHost.topAnchor],
-        [chartView.bottomAnchor constraintEqualToAnchor:_chartHost.bottomAnchor],
-        [chartView.leadingAnchor constraintEqualToAnchor:_chartHost.leadingAnchor],
-        [chartView.trailingAnchor constraintEqualToAnchor:_chartHost.trailingAnchor],
+        [view.topAnchor constraintEqualToAnchor:host.topAnchor],
+        [view.bottomAnchor constraintEqualToAnchor:host.bottomAnchor],
+        [view.leadingAnchor constraintEqualToAnchor:host.leadingAnchor],
+        [view.trailingAnchor constraintEqualToAnchor:host.trailingAnchor],
     ]];
 }
 
-// The legend: the apps with time, longest first, each named in its color with its time under it.
-- (void)showTitle:(NSString *)title caption:(NSString *)caption value:(NSString *)value
+- (void)setChartView:(UIView *)chartView {
+    [_chartView removeFromSuperview];
+    _chartView = chartView;
+    if (chartView) NLFill(_chartHost, chartView);
+}
+
+- (void)setHeadChartView:(UIView *)headChartView {
+    if (headChartView == _headChartView) return;
+    [_headChartView removeFromSuperview];
+    _headChartView = headChartView;
+    if (headChartView) NLFill(_headHost, headChartView);
+    _headHost.hidden = !headChartView;
+}
+
+// The legend, as Screen Time's three categories: the three apps listened to
+// longest, spread across, each named in its color with its time under it.
+- (void)showTitle:(NSString *)title value:(NSString *)value trend:(NSString *)trend rising:(BOOL)rising
         durations:(NSArray<NSNumber *> *)durations apps:(NLHistoryApps *)apps {
-    _titleLabel.text = title;
-    _titleLabel.hidden = !title.length;
-    _captionLabel.text = caption;
-    _captionLabel.hidden = !caption.length;
-    _valueLabel.text = value;
+    if (!_screenTime) {
+        _titleLabel.text = title;
+        _titleLabel.hidden = !title.length;
+        _valueLabel.text = value;
+        _trendLabel.attributedText = trend ? NLTrendString(trend, rising, _trendLabel.font) : nil;
+        _trendLabel.hidden = !trend;
+    }
     for (UIView *view in _legend.arrangedSubviews) {
         [_legend removeArrangedSubview:view];
         [view removeFromSuperview];
@@ -654,10 +765,16 @@ static NSString *NLTemplateDate(NSString *template, NSDate *date) {
     [order sortUsingComparator:^NSComparisonResult(NSNumber *a, NSNumber *b) {
         return [durations[b.unsignedIntegerValue] compare:durations[a.unsignedIntegerValue]];
     }];
+    if (order.count > 3) [order removeObjectsInRange:NSMakeRange(3, order.count - 3)];
+    if (_screenTime) {
+        NLScreenTimeShowLegend(_screenTimeLegend, order, durations, apps);
+        _screenTimeLegend.hidden = order.count == 0;
+        return;
+    }
     for (NSNumber *category in order) {
-        UILabel *name = NLCardLabel(UIFontTextStyleFootnote, YES, [apps colorForCategory:category.unsignedIntegerValue]);
+        UILabel *name = NLCardLabel(UIFontTextStyleSubheadline, NO, [apps colorForCategory:category.unsignedIntegerValue]);
         name.text = [apps nameForCategory:category.unsignedIntegerValue];
-        UILabel *time = NLCardLabel(UIFontTextStyleFootnote, NO, UIColor.secondaryLabelColor);
+        UILabel *time = NLCardLabel(UIFontTextStyleSubheadline, NO, UIColor.labelColor);
         time.text = NLHistoryDuration(durations[category.unsignedIntegerValue].doubleValue);
         for (UILabel *label in @[name, time]) {
             label.adjustsFontSizeToFitWidth = YES;
@@ -665,13 +782,16 @@ static NSString *NLTemplateDate(NSString *template, NSDate *date) {
         }
         UIStackView *item = [[UIStackView alloc] initWithArrangedSubviews:@[name, time]];
         item.axis = UILayoutConstraintAxisVertical;
-        item.spacing = 1;
+        item.spacing = 2;
         [_legend addArrangedSubview:item];
     }
-    UIView *spacer = [UIView new];
-    [spacer setContentHuggingPriority:UILayoutPriorityDefaultLow - 1 forAxis:UILayoutConstraintAxisHorizontal];
-    [spacer setContentCompressionResistancePriority:UILayoutPriorityDefaultLow - 1 forAxis:UILayoutConstraintAxisHorizontal];
-    [_legend addArrangedSubview:spacer];
+    // One alone stays on the left.
+    _legend.distribution = order.count > 1 ? UIStackViewDistributionEqualSpacing : UIStackViewDistributionFill;
+    if (order.count == 1) {
+        UIView *spacer = [UIView new];
+        [spacer setContentHuggingPriority:UILayoutPriorityDefaultLow - 1 forAxis:UILayoutConstraintAxisHorizontal];
+        [_legend addArrangedSubview:spacer];
+    }
     _legend.hidden = order.count == 0;
 }
 
@@ -728,79 +848,68 @@ NSArray<NLUsage *> *NLUsages(NSArray<NLHistoryItem *> *items, NSDate *start, NSD
     return usages;
 }
 
-@interface NLUsageBar : UIView
-@property (nonatomic) CGFloat fraction;
-@property (nonatomic, strong) UIColor *color;
-@end
-
-@implementation NLUsageBar
-
-- (instancetype)initWithFrame:(CGRect)frame {
-    if ((self = [super initWithFrame:frame])) {
-        self.opaque = NO;
-        self.backgroundColor = UIColor.clearColor;
-        self.contentMode = UIViewContentModeRedraw;
-    }
-    return self;
-}
-
-- (void)setFraction:(CGFloat)fraction { _fraction = fraction; [self setNeedsDisplay]; }
-- (void)setColor:(UIColor *)color { _color = color; [self setNeedsDisplay]; }
-
-- (void)drawRect:(CGRect)rect {
-    CGRect bounds = self.bounds;
-    CGFloat width = MAX(bounds.size.height, bounds.size.width * MIN(MAX(self.fraction, 0), 1));
-    [self.color ?: UIColor.systemGrayColor setFill];
-    [[UIBezierPath bezierPathWithRoundedRect:CGRectMake(0, 0, width, bounds.size.height) cornerRadius:bounds.size.height / 2] fill];
-}
-
-@end
+static const CGFloat kNLUsageIconSide = 30;
+static const CGFloat kNLUsageTimeRoom = 76;   // after the longest bar, for its time
 
 @implementation NLUsageCell {
     UIImageView *_coverView;
     UILabel *_nameLabel, *_timeLabel;
-    NLUsageBar *_bar;
+    UIView *_bar;
+    UILayoutGuide *_track;           // the room the bars share: the longest fills it
+    NSLayoutConstraint *_barWidth;
 }
 
+// As Screen Time's rows: the icon, the name, and under it a bar as long as
+// its share (in its app's color) with the time right after it.
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
     if (!(self = [super initWithStyle:style reuseIdentifier:reuseIdentifier])) return nil;
     self.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     _coverView = [UIImageView new];
     _nameLabel = NLCardLabel(UIFontTextStyleBody, NO, UIColor.labelColor);
     _timeLabel = NLCardLabel(UIFontTextStyleSubheadline, NO, UIColor.secondaryLabelColor);
-    [_timeLabel setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
-    [_timeLabel setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
-    _bar = [NLUsageBar new];
+    _bar = [UIView new];
+    _bar.layer.cornerRadius = 2;
+    _track = [UILayoutGuide new];
+    [self.contentView addLayoutGuide:_track];
     for (UIView *view in @[_coverView, _nameLabel, _timeLabel, _bar]) {
         view.translatesAutoresizingMaskIntoConstraints = NO;
         [self.contentView addSubview:view];
     }
     UILayoutGuide *margins = self.contentView.layoutMarginsGuide;
+    _barWidth = [_bar.widthAnchor constraintEqualToAnchor:_track.widthAnchor];
+    _barWidth.priority = UILayoutPriorityRequired - 1;   // a tiny share is still a dot
     [NSLayoutConstraint activateConstraints:@[
         [_coverView.leadingAnchor constraintEqualToAnchor:margins.leadingAnchor],
         [_coverView.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
-        [_coverView.widthAnchor constraintEqualToConstant:34],
-        [_coverView.heightAnchor constraintEqualToConstant:34],
-        [_nameLabel.leadingAnchor constraintEqualToAnchor:_coverView.trailingAnchor constant:12],
-        [_nameLabel.topAnchor constraintEqualToAnchor:margins.topAnchor constant:2],
-        [_nameLabel.trailingAnchor constraintLessThanOrEqualToAnchor:_timeLabel.leadingAnchor constant:-12],
+        [_coverView.widthAnchor constraintEqualToConstant:kNLUsageIconSide],
+        [_coverView.heightAnchor constraintEqualToConstant:kNLUsageIconSide],
+        [_nameLabel.leadingAnchor constraintEqualToAnchor:_coverView.trailingAnchor constant:14],
+        [_nameLabel.topAnchor constraintEqualToAnchor:margins.topAnchor],
+        [_nameLabel.trailingAnchor constraintLessThanOrEqualToAnchor:margins.trailingAnchor],
+        [_track.leadingAnchor constraintEqualToAnchor:_nameLabel.leadingAnchor],
+        [_track.trailingAnchor constraintEqualToAnchor:margins.trailingAnchor constant:-kNLUsageTimeRoom],
         [_bar.leadingAnchor constraintEqualToAnchor:_nameLabel.leadingAnchor],
-        [_bar.topAnchor constraintEqualToAnchor:_nameLabel.bottomAnchor constant:6],
-        [_bar.trailingAnchor constraintEqualToAnchor:_timeLabel.leadingAnchor constant:-12],
-        [_bar.heightAnchor constraintEqualToConstant:6],
-        [_bar.bottomAnchor constraintEqualToAnchor:margins.bottomAnchor constant:-2],
-        [_timeLabel.trailingAnchor constraintEqualToAnchor:margins.trailingAnchor],
-        [_timeLabel.centerYAnchor constraintEqualToAnchor:self.contentView.centerYAnchor],
+        [_bar.topAnchor constraintEqualToAnchor:_nameLabel.bottomAnchor constant:9],
+        [_bar.heightAnchor constraintEqualToConstant:4],
+        [_bar.widthAnchor constraintGreaterThanOrEqualToConstant:4],
+        _barWidth,
+        [_bar.bottomAnchor constraintEqualToAnchor:margins.bottomAnchor constant:-5],
+        [_timeLabel.leadingAnchor constraintEqualToAnchor:_bar.trailingAnchor constant:8],
+        [_timeLabel.centerYAnchor constraintEqualToAnchor:_bar.centerYAnchor],
+        [_timeLabel.trailingAnchor constraintLessThanOrEqualToAnchor:margins.trailingAnchor],
     ]];
     return self;
 }
 
 - (void)showUsage:(NLUsage *)usage fraction:(CGFloat)fraction color:(UIColor *)color {
-    _coverView.image = usage.kind == NLUsageKindApps ? NLHistoryAppIcon(usage.key, 34) : NLHistoryCover(usage.item.art, 34);
+    _bar.backgroundColor = color ?: UIColor.systemGrayColor;
+    _coverView.image = usage.kind == NLUsageKindApps ? NLHistoryAppIcon(usage.key, kNLUsageIconSide) : NLHistoryCover(usage.item.art, kNLUsageIconSide);
     _nameLabel.text = usage.name;
     _timeLabel.text = NLHistoryDuration(usage.duration);
-    _bar.color = color;
-    _bar.fraction = fraction;
+    _barWidth.active = NO;
+    _barWidth = [_bar.widthAnchor constraintEqualToAnchor:_track.widthAnchor multiplier:MIN(MAX(fraction, 0.001), 1)];
+    _barWidth.priority = UILayoutPriorityRequired - 1;
+    _barWidth.active = YES;
 }
 
 @end
@@ -808,17 +917,21 @@ NSArray<NLUsage *> *NLUsages(NSArray<NLHistoryItem *> *items, NSDate *start, NSD
 #pragma mark - Pager
 
 @interface NLActivityPageCell : UICollectionViewCell
-@property (nonatomic, readonly) NLActivityChartView *chartView;
+@property (nonatomic, strong) UIView *content;   // the page's chart, ours or Screen Time's
 @end
 
 @implementation NLActivityPageCell
 
-- (instancetype)initWithFrame:(CGRect)frame {
-    if (!(self = [super initWithFrame:frame])) return nil;
-    _chartView = [[NLActivityChartView alloc] initWithFrame:self.contentView.bounds];
-    _chartView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    [self.contentView addSubview:_chartView];
-    return self;
+- (void)setContent:(UIView *)content {
+    [_content removeFromSuperview];
+    _content = content;
+    if (content) [self.contentView addSubview:content];
+    [self setNeedsLayout];
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    _content.frame = self.contentView.bounds;
 }
 
 @end
@@ -827,6 +940,7 @@ NSArray<NLUsage *> *NLUsages(NSArray<NLHistoryItem *> *items, NSDate *start, NSD
 @interface NLPagerView : UICollectionView
 @property (nonatomic) NSInteger page;
 - (void)scrollToPage:(NSInteger)page;
+- (void)reloadShowingPage:(NSInteger)page;
 @end
 
 @implementation NLPagerView {
@@ -842,15 +956,26 @@ NSArray<NLUsage *> *NLUsages(NSArray<NLHistoryItem *> *items, NSDate *start, NSD
         [self.collectionViewLayout invalidateLayout];
     }
     [super layoutSubviews];
-    if (resized) self.contentOffset = CGPointMake(self.page * size.width, 0);
+    if (resized) [self setContentOffset:CGPointMake(self.page * size.width, 0) animated:NO];
 }
 
+// Not animated: that also stops one under way.
 - (void)scrollToPage:(NSInteger)page {
     self.page = page;
     CGFloat width = self.bounds.size.width;
     if (width <= 0) return;   // laid out later, onto this page
     [self layoutIfNeeded];
-    self.contentOffset = CGPointMake(page * width, 0);
+    [self setContentOffset:CGPointMake(page * width, 0) animated:NO];
+}
+
+// Fewer pages than before leave the offset past their end, and the scroll
+// view eases it back to the last one, past the page asked for: it goes there
+// first.
+- (void)reloadShowingPage:(NSInteger)page {
+    CGFloat width = self.bounds.size.width;
+    if (width > 0) [self setContentOffset:CGPointMake(MIN(self.contentOffset.x, page * width), 0) animated:NO];
+    [self reloadData];
+    [self scrollToPage:page];
 }
 
 @end
@@ -891,8 +1016,20 @@ static UIButton *NLDateBarArrow(NSString *symbol) {
     __weak UIViewController *_page;
 }
 
+// Screen Time's own bar is a little taller.
 + (CGFloat)height {
-    return kNLDateBarHeight;
+    static CGFloat height;
+    if (!height) {
+        height = kNLDateBarHeight;
+        if (NLScreenTimeDateBarAvailable()) {
+            UILabel *label;
+            UIButton *previous, *next;
+            UIView *bar = NLScreenTimeMakeDateBar(&label, &previous, &next);
+            height = ceil([bar systemLayoutSizeFittingSize:CGSizeMake(393, 0) withHorizontalFittingPriority:UILayoutPriorityRequired
+                                   verticalFittingPriority:UILayoutPriorityFittingSizeLevel].height);
+        }
+    }
+    return height;
 }
 
 + (instancetype)barOnPage:(UIViewController *)page {
@@ -904,7 +1041,7 @@ static UIButton *NLDateBarArrow(NSString *symbol) {
         [bar.topAnchor constraintEqualToAnchor:page.view.safeAreaLayoutGuide.topAnchor],
         [bar.leadingAnchor constraintEqualToAnchor:page.view.leadingAnchor],
         [bar.trailingAnchor constraintEqualToAnchor:page.view.trailingAnchor],
-        [bar.heightAnchor constraintEqualToConstant:kNLDateBarHeight],
+        [bar.heightAnchor constraintEqualToConstant:[self height]],
     ]];
     return bar;
 }
@@ -913,6 +1050,24 @@ static UIButton *NLDateBarArrow(NSString *symbol) {
     if (!(self = [super initWithFrame:frame])) return nil;
     self.hidden = YES;
     self.alpha = 0;
+    // Screen Time's own where this iOS has it: its material, date, arrows and line.
+    if (NLScreenTimeDateBarAvailable()) {
+        UILabel *label;
+        UIButton *previous, *next;
+        UIView *bar = NLScreenTimeMakeDateBar(&label, &previous, &next);
+        _titleLabel = label;
+        _previousButton = previous;
+        _nextButton = next;
+        bar.translatesAutoresizingMaskIntoConstraints = NO;
+        [self addSubview:bar];
+        [NSLayoutConstraint activateConstraints:@[
+            [bar.topAnchor constraintEqualToAnchor:self.topAnchor],
+            [bar.bottomAnchor constraintEqualToAnchor:self.bottomAnchor],
+            [bar.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
+            [bar.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
+        ]];
+        return self;
+    }
     // The navigation bar's material, and the line it has under it.
     UINavigationBarAppearance *standard = [UINavigationBarAppearance new];
     [standard configureWithDefaultBackground];
@@ -957,17 +1112,14 @@ static UIButton *NLDateBarArrow(NSString *symbol) {
 - (void)setShown:(BOOL)shown animated:(BOOL)animated {
     if (shown == _shown) return;
     _shown = shown;
-    // The page's navigation bar keeps its material even at the top and drops
-    // its line: one bar with this one.
+    // The page's navigation bar keeps its material (and its line, as Screen
+    // Time's) even at the top while this one shows under it.
     UINavigationBarAppearance *appearance = nil;
     if (shown) {
         appearance = [UINavigationBarAppearance new];
         [appearance configureWithDefaultBackground];
-        appearance.shadowColor = nil;
     }
     UINavigationItem *item = _page.navigationItem;
-    item.standardAppearance = appearance;
-    item.compactAppearance = appearance;
     item.scrollEdgeAppearance = appearance;
     item.compactScrollEdgeAppearance = appearance;
     self.hidden = NO;
@@ -1050,6 +1202,11 @@ static const NSUInteger kNLCollapsedUsages = 5;
     NSDate *_firstStart;                                            // page 0's start
     NSInteger _pageCount;
     NSMutableDictionary<NSNumber *, NLActivityPeriod *> *_periods;
+    NSMutableDictionary<NSDate *, NLActivityPeriod *> *_weekPeriods;    // a day's week, for the chart above its hours
+    BOOL _screenTime;                                               // Screen Time's own charts
+    NLPagerView *_headPager;                                        // a day's week above its hours, a page a week, paging on its own
+    NSDate *_headFirstStart;                                        // its page 0's week
+    NSInteger _headPageCount;
     NSInteger _selectedBar;
     UISegmentedControl *_scaleControl;
     NLActivityCardCell *_cardCell;
@@ -1062,6 +1219,8 @@ static const NSUInteger kNLCollapsedUsages = 5;
     BOOL _showAll;
     NSArray<NSNumber *> *_listening;                                // the NLListeningRow rows shown
     NSUInteger _playCount, _songCount, _artistCount, _skipCount;
+    BOOL _showsTotal;                                               // the week's total under the card: a week, no day picked
+    NSTimeInterval _total;
     NSString *_timelineDay;                                         // the day shown or picked, else nil
     BOOL _loaded;
     NSUInteger _loads;
@@ -1073,6 +1232,7 @@ static const NSUInteger kNLCollapsedUsages = 5;
         _initialDate = date ?: [NSDate date];
         _selectedBar = NSNotFound;
         _periods = [NSMutableDictionary dictionary];
+        _weekPeriods = [NSMutableDictionary dictionary];
     }
     return self;
 }
@@ -1098,32 +1258,24 @@ static const NSUInteger kNLCollapsedUsages = 5;
     UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 320, 48)];
     header.preservesSuperviewLayoutMargins = YES;
     [header addSubview:_scaleControl];
+    // In line with the cards' content, as Screen Time's.
     [NSLayoutConstraint activateConstraints:@[
-        [_scaleControl.leadingAnchor constraintEqualToAnchor:header.layoutMarginsGuide.leadingAnchor],
-        [_scaleControl.trailingAnchor constraintEqualToAnchor:header.layoutMarginsGuide.trailingAnchor],
+        [_scaleControl.leadingAnchor constraintEqualToAnchor:header.layoutMarginsGuide.leadingAnchor constant:16],
+        [_scaleControl.trailingAnchor constraintEqualToAnchor:header.layoutMarginsGuide.trailingAnchor constant:-16],
         [_scaleControl.centerYAnchor constraintEqualToAnchor:header.centerYAnchor constant:4],
     ]];
     _table.tableHeaderView = header;
 
-    UICollectionViewFlowLayout *layout = [UICollectionViewFlowLayout new];
-    layout.scrollDirection = UICollectionViewScrollDirectionHorizontal;
-    layout.minimumLineSpacing = 0;
-    layout.minimumInteritemSpacing = 0;
-    layout.estimatedItemSize = CGSizeZero;
-    _pager = [[NLPagerView alloc] initWithFrame:CGRectZero collectionViewLayout:layout];
-    _pager.pagingEnabled = YES;
-    _pager.showsHorizontalScrollIndicator = NO;
-    _pager.backgroundColor = UIColor.clearColor;
-    _pager.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
-    _pager.dataSource = self;
-    _pager.delegate = self;
-    [_pager registerClass:[NLActivityPageCell class] forCellWithReuseIdentifier:@"page"];
+    // The chart pages; on a day, its week above it pages on its own.
+    _screenTime = NLScreenTimeChartsAvailable();
+    _pager = [self nlMakePager];
+    _headPager = [self nlMakePager];
     _cardCell = [[NLActivityCardCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
     _cardCell.selectionStyle = UITableViewCellSelectionStyleNone;
     _cardCell.chartView = _pager;
 
-    // Once the chart has scrolled away, what it shows stays on top with
-    // buttons to the one before and after, as Screen Time's.
+    // Once Week | Day has scrolled away, what the chart shows stays on top
+    // with buttons to the one before and after, as Screen Time's.
     _dateBar = [NLDateBar barOnPage:self];
     [_dateBar.previousButton addTarget:self action:@selector(nlPrevious) forControlEvents:UIControlEventTouchUpInside];
     [_dateBar.nextButton addTarget:self action:@selector(nlNext) forControlEvents:UIControlEventTouchUpInside];
@@ -1162,6 +1314,28 @@ static const NSUInteger kNLCollapsedUsages = 5;
 
 #pragma mark Pages
 
+- (NLPagerView *)nlMakePager {
+    UICollectionViewFlowLayout *layout = [UICollectionViewFlowLayout new];
+    layout.scrollDirection = UICollectionViewScrollDirectionHorizontal;
+    layout.minimumLineSpacing = 0;
+    layout.minimumInteritemSpacing = 0;
+    layout.estimatedItemSize = CGSizeZero;
+    NLPagerView *pager = [[NLPagerView alloc] initWithFrame:CGRectZero collectionViewLayout:layout];
+    pager.pagingEnabled = YES;
+    pager.showsHorizontalScrollIndicator = NO;
+    pager.backgroundColor = UIColor.clearColor;
+    pager.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+    pager.dataSource = self;
+    pager.delegate = self;
+    [pager registerClass:[NLActivityPageCell class] forCellWithReuseIdentifier:@"page"];
+    return pager;
+}
+
+- (NSInteger)nlWeeksFrom:(NSDate *)start to:(NSDate *)date {
+    NSDate *week = [NLActivityPeriod startOfPeriodWithScale:NLActivityScaleWeek containingDate:date];
+    return [NSCalendar.currentCalendar components:NSCalendarUnitWeekOfYear fromDate:start toDate:week options:0].weekOfYear;
+}
+
 - (NSCalendarUnit)nlPageUnit {
     return _scale == NLActivityScaleWeek ? NSCalendarUnitWeekOfYear : NSCalendarUnitDay;
 }
@@ -1180,9 +1354,19 @@ static const NSUInteger kNLCollapsedUsages = 5;
     NSDate *target = [NLActivityPeriod startOfPeriodWithScale:_scale containingDate:date];
     _pager.page = MIN(MAX([self nlPagesFrom:_firstStart to:target], 0), _pageCount - 1);
     [_periods removeAllObjects];
+    [_weekPeriods removeAllObjects];
+    BOOL day = _scale == NLActivityScaleDay;
+    _cardCell.headChartView = day ? _headPager : nil;
+    if (day) {
+        _headFirstStart = [NLActivityPeriod startOfPeriodWithScale:NLActivityScaleWeek containingDate:_firstStart];
+        _headPageCount = [self nlWeeksFrom:_headFirstStart to:[NSDate date]] + 1;
+        _headPager.page = MIN(MAX([self nlWeeksFrom:_headFirstStart to:target], 0), _headPageCount - 1);
+    }
+    _cardCell.headChartHeight = !day ? 0 : _screenTime ? [NLScreenTimeChartView heightTitled:YES] : kNLWeekChartHeight;
+    _cardCell.chartHeight = _screenTime ? [NLScreenTimeChartView heightTitled:!day] : kNLWeekChartHeight;
     _selectedBar = bar >= 0 && bar < (NSInteger)[self nlPeriodAtPage:_pager.page].bars.count ? bar : NSNotFound;
-    [_pager reloadData];
-    [_pager scrollToPage:_pager.page];
+    [_pager reloadShowingPage:_pager.page];
+    if (day) [_headPager reloadShowingPage:_headPager.page];
     [self nlUpdateContent];
 }
 
@@ -1201,10 +1385,9 @@ static const NSUInteger kNLCollapsedUsages = 5;
     NLActivityPeriod *period = [self nlPeriodAtPage:_pager.page];
     NSDate *date = period.start;   // day → week: the week with this day
     if (scale == NLActivityScaleDay) {
-        // week → day: the day picked; else today in this week, a past week's last day.
+        // week → day: today in this week, a past week's last day.
         NSDate *now = [NSDate date];
-        if (_selectedBar != NSNotFound) date = period.bars[_selectedBar].start;
-        else date = [period.end compare:now] == NSOrderedDescending ? now : [period.end dateByAddingTimeInterval:-1];
+        date = [period.end compare:now] == NSOrderedDescending ? now : [period.end dateByAddingTimeInterval:-1];
     }
     _scale = scale;
     [self nlReloadPagesShowingDate:date selectedBar:NSNotFound];
@@ -1222,14 +1405,22 @@ static const NSUInteger kNLCollapsedUsages = 5;
     _rangeEnd = end;
     _rangeTitle = bar ? [period titleForBarAtIndex:_selectedBar] : period.title;
 
+    // A week: its daily average (the period named unless it is this one)
+    // against the week before's, and its total in a row under the card.
     if (bar) {
-        [_cardCell showTitle:_rangeTitle caption:nil value:NLHistoryDuration(bar.total) durations:bar.durations apps:_apps];
+        [_cardCell showTitle:_rangeTitle value:NLHistoryDuration(bar.total) trend:nil rising:NO durations:bar.durations apps:_apps];
     } else if (_scale == NLActivityScaleWeek) {
-        [_cardCell showTitle:_rangeTitle caption:NLL(@"Daily Average") value:NLHistoryDuration(period.dailyAverage)
+        BOOL rising = NO;
+        NSString *trend = _pager.page > 0 ? NLActivityTrend(period, [self nlPeriodAtPage:_pager.page - 1], &rising) : nil;
+        [_cardCell showTitle:[self nlAverageTitleAtPage:_pager.page] value:NLHistoryDuration(period.dailyAverage) trend:trend rising:rising
                    durations:period.durations apps:_apps];
     } else {
-        [_cardCell showTitle:_rangeTitle caption:nil value:NLHistoryDuration(period.total) durations:period.durations apps:_apps];
+        [_cardCell showTitle:_rangeTitle value:NLHistoryDuration(period.total) trend:nil rising:NO durations:period.durations apps:_apps];
     }
+    if (_scale == NLActivityScaleDay) [self nlSyncHeadPager];
+    BOOL hadTotal = _showsTotal;
+    _showsTotal = _scale == NLActivityScaleWeek && !bar;
+    _total = period.total;
 
     NSArray<NLUsage *> *songs = NLUsages(period.items, start, end, NLUsageKindSongs);
     _usages = _usageKind == NLUsageKindSongs ? songs : NLUsages(period.items, start, end, _usageKind);
@@ -1245,8 +1436,7 @@ static const NSUInteger kNLCollapsedUsages = 5;
     _playCount = plays;
     _skipCount = skips;
     _artistCount = artists.count;
-    NSDate *day = _scale == NLActivityScaleDay ? period.start : (bar ? bar.start : nil);
-    _timelineDay = day ? NLHistoryDayKey(day) : nil;
+    _timelineDay = _scale == NLActivityScaleDay ? NLHistoryDayKey(period.start) : nil;
     NSMutableArray<NSNumber *> *listening = [NSMutableArray arrayWithArray:@[@(NLListeningRowPlays), @(NLListeningRowSongs), @(NLListeningRowArtists)]];
     if (_showsSkipped) [listening addObject:@(NLListeningRowSkipped)];
     if (_timelineDay) [listening addObject:@(NLListeningRowTimeline)];
@@ -1257,8 +1447,13 @@ static const NSUInteger kNLCollapsedUsages = 5;
     if (!_table.window || _table.numberOfSections != NLActivitySectionCount) {
         [_table reloadData];
     } else {
+        BOOL showsTotal = _showsTotal;
+        NSArray<NSIndexPath *> *total = @[[NSIndexPath indexPathForRow:1 inSection:NLActivitySectionChart]];
         [UIView performWithoutAnimation:^{
             [self->_table beginUpdates];
+            if (hadTotal && showsTotal) [self->_table reloadRowsAtIndexPaths:total withRowAnimation:UITableViewRowAnimationNone];
+            else if (hadTotal) [self->_table deleteRowsAtIndexPaths:total withRowAnimation:UITableViewRowAnimationNone];
+            else if (showsTotal) [self->_table insertRowsAtIndexPaths:total withRowAnimation:UITableViewRowAnimationNone];
             [self->_table reloadSections:[NSIndexSet indexSetWithIndexesInRange:NSMakeRange(NLActivitySectionUsages, 2)]
                         withRowAnimation:UITableViewRowAnimationNone];
             [self->_table endUpdates];
@@ -1267,18 +1462,164 @@ static const NSUInteger kNLCollapsedUsages = 5;
     [self nlUpdateDateBarShown];
 }
 
+// A tap on a page's chart (ours): a day on a week opens it; an hour on a day
+// narrows the card and the lists to it.
 - (void)nlSelectBar:(NSInteger)index onPage:(NSInteger)page {
     if (page != _pager.page) return;
+    if (_scale == NLActivityScaleWeek && index != NSNotFound) {
+        [self nlTapDay:[self nlPeriodAtPage:page].bars[index].start];
+        return;
+    }
     _selectedBar = index;
     [self nlUpdateContent];
 }
 
-// The page's chart shows the bar picked; the others none.
-- (void)nlSyncChartSelection {
-    for (NSIndexPath *indexPath in _pager.indexPathsForVisibleItems) {
-        NLActivityPageCell *cell = (NLActivityPageCell *)[_pager cellForItemAtIndexPath:indexPath];
-        cell.chartView.selectedIndex = indexPath.item == _pager.page ? _selectedBar : NSNotFound;
+// A day tapped on a week, as Screen Time's: it opens; the day shown, tapped
+// again on the week above it, goes back to its week.
+- (void)nlTapDay:(NSDate *)day {
+    if (_scale == NLActivityScaleDay && [[NSCalendar.currentCalendar startOfDayForDate:day] isEqualToDate:[self nlPeriodAtPage:_pager.page].start]) {
+        _scale = NLActivityScaleWeek;
+        _scaleControl.selectedSegmentIndex = _scale;
+        [self nlReloadPagesShowingDate:day selectedBar:NSNotFound];
+        return;
     }
+    [self nlOpenDay:day];
+}
+
+// A day opened (Day); one before the first day with plays leaves it as it was.
+- (void)nlOpenDay:(NSDate *)day {
+    if (_scale == NLActivityScaleWeek) {
+        _scale = NLActivityScaleDay;
+        _scaleControl.selectedSegmentIndex = _scale;
+        [self nlReloadPagesShowingDate:day selectedBar:NSNotFound];
+        return;
+    }
+    NSInteger page = [self nlPagesFrom:_firstStart to:[NSCalendar.currentCalendar startOfDayForDate:day]];
+    if (page < 0 || page >= _pageCount || page == _pager.page) {
+        [self nlConfigureVisibleHeadPages];   // ours marked the one tapped
+        return;
+    }
+    [_pager scrollToPage:page];
+    _selectedBar = NSNotFound;
+    [self nlConfigureVisiblePages];
+    [self nlUpdateContent];
+}
+
+// The week pager follows the day shown: onto its week, that day picked.
+- (void)nlSyncHeadPager {
+    NSInteger page = MIN(MAX([self nlWeeksFrom:_headFirstStart to:[self nlPeriodAtPage:_pager.page].start], 0), _headPageCount - 1);
+    if (page != _headPager.page) [_headPager scrollToPage:page];
+    [self nlConfigureVisibleHeadPages];
+}
+
+// The day picked on a week above the hours: the one shown if it is in it,
+// else the same weekday there, kept within the days that have pages.
+- (NSDate *)nlDayPickedInWeek:(NLActivityPeriod *)week {
+    NSDate *shown = [self nlPeriodAtPage:_pager.page].start;
+    if ([shown compare:week.start] != NSOrderedAscending && [shown compare:week.end] == NSOrderedAscending) return shown;
+    NSCalendar *calendar = NSCalendar.currentCalendar;
+    NSDate *shownWeek = [NLActivityPeriod startOfPeriodWithScale:NLActivityScaleWeek containingDate:shown];
+    NSInteger weekday = [calendar components:NSCalendarUnitDay fromDate:shownWeek toDate:shown options:0].day;
+    NSDate *day = [calendar dateByAddingUnit:NSCalendarUnitDay value:weekday toDate:week.start options:0];
+    NSDate *today = [calendar startOfDayForDate:[NSDate date]];
+    return [[day laterDate:_firstStart] earlierDate:today];
+}
+
+// A page of the week pager: its week with the day picked in its colors (and,
+// Screen Time's, that day's title and time); a day tapped there opens it.
+- (void)nlConfigureHeadPage:(NLActivityPageCell *)cell at:(NSInteger)page {
+    NSDate *start = [NSCalendar.currentCalendar dateByAddingUnit:NSCalendarUnitWeekOfYear value:page toDate:_headFirstStart options:0];
+    NLActivityPeriod *week = [self nlWeekAroundDay:start];
+    NSDate *day = [self nlDayPickedInWeek:week];
+    NSUInteger index = [week.bars indexOfObjectPassingTest:^BOOL(NLActivityBar *bar, NSUInteger i, BOOL *stop) {
+        return [bar.start isEqualToDate:day];
+    }];
+    __weak NLHistoryActivityController *weakSelf = self;
+    if (_screenTime) {
+        NLScreenTimeChartView *chart = (NLScreenTimeChartView *)cell.content;
+        if (![chart isKindOfClass:NLScreenTimeChartView.class]) cell.content = chart = [[NLScreenTimeChartView alloc] initTitled:YES];
+        NSTimeInterval total = index != NSNotFound ? week.bars[index].total : 0;
+        [chart showPeriod:week selectedDay:day title:NLHistoryDayTitle(day) value:NLHistoryDuration(total) trend:nil rising:NO];
+        chart.didTapDay = ^(NSDate *tapped) { [weakSelf nlTapDay:tapped]; };
+        return;
+    }
+    NLActivityChartView *chart = (NLActivityChartView *)cell.content;
+    if (![chart isKindOfClass:NLActivityChartView.class]) cell.content = chart = [NLActivityChartView new];
+    chart.period = week;
+    chart.selectedIndex = NSNotFound;
+    chart.contextIndex = index;
+    chart.didSelectBar = ^(NSInteger tapped) {
+        if (tapped >= 0 && tapped < (NSInteger)week.bars.count) [weakSelf nlTapDay:week.bars[tapped].start];
+        else [weakSelf nlConfigureVisibleHeadPages];
+    };
+}
+
+- (void)nlConfigureVisibleHeadPages {
+    for (NSIndexPath *indexPath in _headPager.indexPathsForVisibleItems) {
+        [self nlConfigureHeadPage:(NLActivityPageCell *)[_headPager cellForItemAtIndexPath:indexPath] at:indexPath.item];
+    }
+}
+
+// The week pager let go on another week: the same weekday there.
+- (void)nlHeadPagerDidSettle {
+    CGFloat width = _headPager.bounds.size.width;
+    if (width <= 0 || _headPageCount <= 0) return;
+    NSInteger page = MIN(MAX((NSInteger)lround(_headPager.contentOffset.x / width), 0), _headPageCount - 1);
+    if (page == _headPager.page) return;
+    _headPager.page = page;
+    NSDate *start = [NSCalendar.currentCalendar dateByAddingUnit:NSCalendarUnitWeekOfYear value:page toDate:_headFirstStart options:0];
+    [self nlOpenDay:[self nlDayPickedInWeek:[self nlWeekAroundDay:start]]];
+}
+
+// "Daily Average", the week named unless it is this one.
+- (NSString *)nlAverageTitleAtPage:(NSInteger)page {
+    NSString *average = NLL(@"Daily Average");
+    return page == _pageCount - 1 ? average : [NSString stringWithFormat:@"%@ · %@", [self nlPeriodAtPage:page].title, average];
+}
+
+// A page's chart. Ours: its period, the bar picked on the page shown. Screen
+// Time's: a week titled with its daily average and trend, a day's hours
+// untitled (the week above carries its title).
+- (void)nlConfigurePage:(NLActivityPageCell *)cell at:(NSInteger)page {
+    NLActivityPeriod *period = [self nlPeriodAtPage:page];
+    __weak NLHistoryActivityController *weakSelf = self;
+    if (_screenTime) {
+        BOOL week = _scale == NLActivityScaleWeek;
+        NLScreenTimeChartView *chart = (NLScreenTimeChartView *)cell.content;
+        if (![chart isKindOfClass:NLScreenTimeChartView.class] || chart.titled != week) cell.content = chart = [[NLScreenTimeChartView alloc] initTitled:week];
+        if (week) {
+            BOOL rising = NO;
+            NSString *trend = page > 0 ? NLActivityTrend(period, [self nlPeriodAtPage:page - 1], &rising) : nil;
+            [chart showPeriod:period selectedDay:nil title:[self nlAverageTitleAtPage:page] value:NLHistoryDuration(period.dailyAverage)
+                        trend:trend rising:rising];
+            chart.didTapDay = ^(NSDate *day) { [weakSelf nlTapDay:day]; };
+        } else {
+            [chart showPeriod:period selectedDay:nil title:nil value:nil trend:nil rising:NO];
+            chart.didTapDay = nil;
+        }
+        return;
+    }
+    NLActivityChartView *chart = (NLActivityChartView *)cell.content;
+    if (![chart isKindOfClass:NLActivityChartView.class]) cell.content = chart = [NLActivityChartView new];
+    chart.period = period;
+    chart.selectedIndex = page == _pager.page ? _selectedBar : NSNotFound;
+    chart.didSelectBar = ^(NSInteger index) { [weakSelf nlSelectBar:index onPage:page]; };
+}
+
+- (void)nlConfigureVisiblePages {
+    for (NSIndexPath *indexPath in _pager.indexPathsForVisibleItems) {
+        [self nlConfigurePage:(NLActivityPageCell *)[_pager cellForItemAtIndexPath:indexPath] at:indexPath.item];
+    }
+}
+
+- (NLActivityPeriod *)nlWeekAroundDay:(NSDate *)day {
+    NSDate *start = [NLActivityPeriod startOfPeriodWithScale:NLActivityScaleWeek containingDate:day];
+    NLActivityPeriod *week = _weekPeriods[start];
+    if (!week) {
+        week = [NLActivityPeriod periodWithScale:NLActivityScaleWeek containingDate:start items:_items ?: @[] apps:_apps];
+        _weekPeriods[start] = week;
+    }
+    return week;
 }
 
 - (void)nlShowUsageKind:(NLUsageKind)kind {
@@ -1294,14 +1635,10 @@ static const NSUInteger kNLCollapsedUsages = 5;
 
 #pragma mark Date bar
 
-// Shown once the chart has gone up under the navigation bar.
+// Shown once Week | Day has gone up under the navigation bar, as Screen Time's.
 - (void)nlUpdateDateBarShown {
-    BOOL shown = NO;
-    if (_loaded && _table.numberOfSections > NLActivitySectionChart) {
-        CGFloat chartBottom = _pager.window ? CGRectGetMaxY([_pager convertRect:_pager.bounds toView:_table])
-                                            : CGRectGetMaxY([_table rectForRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:NLActivitySectionChart]]);
-        shown = chartBottom <= _table.contentOffset.y + _table.adjustedContentInset.top;
-    }
+    UIView *header = _table.tableHeaderView;
+    BOOL shown = _loaded && header && CGRectGetMaxY(header.frame) <= _table.contentOffset.y + _table.adjustedContentInset.top;
     [_dateBar setShown:shown animated:YES];
 }
 
@@ -1333,7 +1670,7 @@ static const NSUInteger kNLCollapsedUsages = 5;
     if (apply) {
         if (page != _pager.page) [_pager scrollToPage:page];
         _selectedBar = bar;
-        [self nlSyncChartSelection];
+        [self nlConfigureVisiblePages];
         [self nlUpdateContent];
     }
     return YES;
@@ -1350,16 +1687,14 @@ static const NSUInteger kNLCollapsedUsages = 5;
 #pragma mark Pager
 
 - (NSInteger)collectionView:(UICollectionView *)collectionView numberOfItemsInSection:(NSInteger)section {
+    if (collectionView == _headPager) return _loaded && _scale == NLActivityScaleDay ? _headPageCount : 0;
     return _loaded ? _pageCount : 0;
 }
 
 - (UICollectionViewCell *)collectionView:(UICollectionView *)collectionView cellForItemAtIndexPath:(NSIndexPath *)indexPath {
     NLActivityPageCell *cell = [collectionView dequeueReusableCellWithReuseIdentifier:@"page" forIndexPath:indexPath];
-    NSInteger page = indexPath.item;
-    cell.chartView.period = [self nlPeriodAtPage:page];
-    cell.chartView.selectedIndex = page == _pager.page ? _selectedBar : NSNotFound;
-    __weak NLHistoryActivityController *weakSelf = self;
-    cell.chartView.didSelectBar = ^(NSInteger index) { [weakSelf nlSelectBar:index onPage:page]; };
+    if (collectionView == _headPager) [self nlConfigureHeadPage:cell at:indexPath.item];
+    else [self nlConfigurePage:cell at:indexPath.item];
     return cell;
 }
 
@@ -1370,10 +1705,13 @@ static const NSUInteger kNLCollapsedUsages = 5;
 
 - (void)scrollViewDidEndDecelerating:(UIScrollView *)scrollView {
     if (scrollView == _pager) [self nlPagerDidSettle];
+    else if (scrollView == _headPager) [self nlHeadPagerDidSettle];
 }
 
 - (void)scrollViewDidEndDragging:(UIScrollView *)scrollView willDecelerate:(BOOL)decelerate {
-    if (scrollView == _pager && !decelerate) [self nlPagerDidSettle];
+    if (decelerate) return;
+    if (scrollView == _pager) [self nlPagerDidSettle];
+    else if (scrollView == _headPager) [self nlHeadPagerDidSettle];
 }
 
 - (void)nlPagerDidSettle {
@@ -1383,7 +1721,7 @@ static const NSUInteger kNLCollapsedUsages = 5;
     if (page == _pager.page) return;
     _pager.page = page;
     _selectedBar = NSNotFound;
-    [self nlSyncChartSelection];
+    [self nlConfigureVisiblePages];
     [self nlUpdateContent];
 }
 
@@ -1413,14 +1751,18 @@ static const NSUInteger kNLCollapsedUsages = 5;
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     switch (section) {
-        case NLActivitySectionChart: return 1;
+        case NLActivitySectionChart: return _showsTotal ? 2 : 1;
         case NLActivitySectionUsages: return MAX([self nlShownUsageCount], 1) + ([self nlCanExpandUsages] ? 1 : 0);
         default: return (NSInteger)_listening.count;
     }
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    return section == NLActivitySectionListening ? NLL(@"Listening") : nil;
+    switch (section) {
+        case NLActivitySectionChart: return NLL(@"Listening Time");
+        case NLActivitySectionListening: return NLL(@"Listening");
+        default: return nil;
+    }
 }
 
 - (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
@@ -1449,7 +1791,7 @@ static const NSUInteger kNLCollapsedUsages = 5;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (indexPath.section == NLActivitySectionChart) return _cardCell;
+    if (indexPath.section == NLActivitySectionChart && indexPath.row == 0) return _cardCell;
     if (indexPath.section == NLActivitySectionUsages && indexPath.row < (NSInteger)[self nlShownUsageCount]) {
         NLUsageCell *cell = [tableView dequeueReusableCellWithIdentifier:@"usage" forIndexPath:indexPath];
         NLUsage *usage = _usages[indexPath.row];
@@ -1463,7 +1805,11 @@ static const NSUInteger kNLCollapsedUsages = 5;
     cell.selectionStyle = UITableViewCellSelectionStyleNone;
     UIListContentConfiguration *content;
     NLListeningRow row = indexPath.section == NLActivitySectionListening ? (NLListeningRow)_listening[indexPath.row].integerValue : NLListeningRowPlays;
-    if (indexPath.section == NLActivitySectionUsages) {
+    if (indexPath.section == NLActivitySectionChart) {
+        content = [UIListContentConfiguration valueCellConfiguration];
+        content.text = NLL(@"Total Listening Time");
+        content.secondaryText = NLHistoryDuration(_total);
+    } else if (indexPath.section == NLActivitySectionUsages) {
         content = [UIListContentConfiguration cellConfiguration];
         if (!_usages.count) {
             content.text = NLL(@"No Plays");

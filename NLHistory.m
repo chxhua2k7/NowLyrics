@@ -185,6 +185,95 @@ void NLHistoryDeletePlays(NSString *dayKey, NSSet<NSString *> *identifiers, disp
     });
 }
 
+void NLHistoryExport(void (^done)(NSData *data, NSUInteger plays)) {
+    dispatch_async(NLHistoryQueue(), ^{
+        NSMutableDictionary<NSString *, NSArray *> *days = [NSMutableDictionary dictionary];
+        NSMutableDictionary<NSString *, NSString *> *artwork = [NSMutableDictionary dictionary];
+        NSUInteger count = 0;
+        for (NSString *day in NLHistoryDays()) {
+            NSArray<NSDictionary *> *plays = NLHistoryReadDay(day);
+            if (!plays.count) continue;
+            days[day] = plays;
+            count += plays.count;
+            for (NSDictionary *play in plays) {
+                NSString *art = NLString(play, NL_HP_ART);
+                if (!art || artwork[art]) continue;
+                NSData *jpeg = [NSData dataWithContentsOfFile:NLHistoryArtworkPath(art)];
+                if (jpeg) artwork[art] = [jpeg base64EncodedStringWithOptions:0];
+            }
+        }
+        NSDictionary *file = @{@"format": NL_HISTORY_EXPORT_FORMAT, @"version": @(kNLHistoryVersion),
+                               @"exported": @(round(NSDate.date.timeIntervalSince1970)), @"days": days, @"artwork": artwork};
+        NSData *data = count ? [NSJSONSerialization dataWithJSONObject:file options:NSJSONWritingSortedKeys error:nil] : nil;
+        dispatch_async(dispatch_get_main_queue(), ^{ done(data, count); });
+    });
+}
+
+NSDictionary *NLHistoryReadExport(NSData *data) {
+    id json = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+    id inDays = NLValue(json, @"days");
+    if (![NLString(json, @"format") isEqualToString:NL_HISTORY_EXPORT_FORMAT] || ![inDays isKindOfClass:NSDictionary.class]) return nil;
+    NSMutableDictionary<NSString *, NSArray *> *days = [NSMutableDictionary dictionary];
+    for (NSString *day in inDays) {
+        if (![day isKindOfClass:NSString.class] || !NLHistoryIsDayKey(day)) continue;
+        NSMutableArray<NSDictionary *> *plays = [NSMutableArray array];
+        for (id play in NLArray(inDays, day)) {
+            if (NLString(play, NL_HP_ID).length && NLNum(NLValue(play, NL_HP_START), 0) > 0) [plays addObject:play];
+        }
+        if (plays.count) days[day] = plays;
+    }
+    NSMutableDictionary<NSString *, NSData *> *artwork = [NSMutableDictionary dictionary];
+    id inArtwork = NLValue(json, @"artwork");
+    if ([inArtwork isKindOfClass:NSDictionary.class]) {
+        for (NSString *name in inArtwork) {
+            NSString *base64 = NLString(inArtwork, name);
+            NSData *jpeg = base64 ? [[NSData alloc] initWithBase64EncodedString:base64 options:0] : nil;
+            if (jpeg.length && NLHistoryArtworkPath(name)) artwork[name] = jpeg;
+        }
+    }
+    return @{@"days": days, @"artwork": artwork};
+}
+
+void NLHistoryImport(NSDictionary *export, BOOL replace, void (^done)(NSUInteger added)) {
+    dispatch_async(NLHistoryQueue(), ^{
+        NSFileManager *fm = [NSFileManager defaultManager];
+        if (replace) {
+            for (NSString *day in NLHistoryDays()) [fm removeItemAtPath:NLHistoryDayPath(day) error:nil];
+        }
+        // By the day each play started on here: another time zone files them otherwise.
+        NSMutableDictionary<NSString *, NSMutableArray<NSDictionary *> *> *byDay = [NSMutableDictionary dictionary];
+        for (NSArray<NSDictionary *> *plays in [export[@"days"] allValues]) {
+            for (NSDictionary *play in plays) {
+                NSString *day = NLHistoryEntryDay(play);
+                if (!byDay[day]) byDay[day] = [NSMutableArray array];
+                [byDay[day] addObject:play];
+            }
+        }
+        NSUInteger added = 0;
+        for (NSString *day in byDay) {
+            NSMutableArray<NSDictionary *> *plays = [NLHistoryReadDay(day) mutableCopy];
+            NSMutableSet *identifiers = [NSMutableSet setWithArray:[plays valueForKey:NL_HP_ID]];
+            for (NSDictionary *play in byDay[day]) {
+                if ([identifiers containsObject:play[NL_HP_ID]]) continue;
+                [identifiers addObject:play[NL_HP_ID]];
+                [plays addObject:play];
+                added++;
+            }
+            NLHistoryWriteDay(day, plays);
+        }
+        NSDictionary<NSString *, NSData *> *artwork = export[@"artwork"];
+        if (artwork.count) [fm createDirectoryAtPath:NL_HISTORY_ART_DIR withIntermediateDirectories:YES attributes:nil error:nil];
+        for (NSString *name in artwork) {
+            NSString *path = NLHistoryArtworkPath(name);
+            if (path && ![fm fileExistsAtPath:path]) [artwork[name] writeToFile:path atomically:YES];
+        }
+        // SpringBoard checks the play it is on; the pages load again.
+        NLPostDarwin(NL_HISTORY_EDITED_NOTIFICATION);
+        NLPostDarwin(NL_HISTORY_WRITTEN_NOTIFICATION);
+        dispatch_async(dispatch_get_main_queue(), ^{ done(added); });
+    });
+}
+
 void NLHistoryDeleteAll(dispatch_block_t done) {
     dispatch_async(NLHistoryQueue(), ^{
         [[NSFileManager defaultManager] removeItemAtPath:NL_HISTORY_DIR error:nil];

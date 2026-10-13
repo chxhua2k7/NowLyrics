@@ -5,7 +5,8 @@
 //  - The first page, as Screen Time's: This Week (the daily average, a bar a
 //    day stacked by app, the apps' times; a press shows a day's) and Show
 //    All Activity (NLHistoryActivity.m); this week's Most Played; the switch,
-//    how long to keep it, whether skipped songs show, and Delete All History.
+//    how long to keep it, whether skipped songs show; export and import (one
+//    JSON file, covers in it), and Delete All History.
 //  - A day's timeline: each song in order (skipped ones greyed), the pauses
 //    of five minutes or more between them; the date bar on top goes to the
 //    day before or after with plays. Swipe to delete.
@@ -16,6 +17,7 @@
 //  The pages load again when SpringBoard writes (NL_HISTORY_WRITTEN_NOTIFICATION).
 //
 
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import "NLHistoryPages.h"
 #import "NLOffsetControl.h"
 
@@ -125,18 +127,21 @@ id NLHistoryFormatter(NSString *name, id (^make)(void)) {
     return formatter;
 }
 
-NSString *NLHistoryDayTitle(NSDate *date) {
-    NSCalendar *calendar = NSCalendar.currentCalendar;
-    if ([calendar isDateInToday:date]) return NLL(@"Today");
-    if ([calendar isDateInYesterday:date]) return NLL(@"Yesterday");
-    BOOL thisYear = [calendar component:NSCalendarUnitYear fromDate:date] == [calendar component:NSCalendarUnitYear fromDate:[NSDate date]];
-    NSString *template = thisYear ? @"MMMdEEEE" : @"yMMMdEEEE";
+static NSString *NLHistoryDateString(NSString *template, NSDate *date) {
     NSDateFormatter *formatter = NLHistoryFormatter(template, ^id {
         NSDateFormatter *made = [NSDateFormatter new];
         [made setLocalizedDateFormatFromTemplate:template];
         return made;
     });
     return [formatter stringFromDate:date];
+}
+
+NSString *NLHistoryDayTitle(NSDate *date) {
+    NSCalendar *calendar = NSCalendar.currentCalendar;
+    BOOL thisYear = [calendar component:NSCalendarUnitYear fromDate:date] == [calendar component:NSCalendarUnitYear fromDate:[NSDate date]];
+    NSString *day = [calendar isDateInToday:date] ? NLL(@"Today") : [calendar isDateInYesterday:date] ? NLL(@"Yesterday")
+                                                                                                     : NLHistoryDateString(@"EEEE", date);
+    return [NSString stringWithFormat:NLL(@"%@, %@"), day, NLHistoryDateString(thisYear ? @"MMMd" : @"yMMMd", date)];
 }
 
 static NSString *NLHistoryTime(NSDate *date) {
@@ -159,7 +164,7 @@ static NSString *NLHistoryFormatDuration(double seconds, BOOL toTheSecond) {
     NSString *name = [NSString stringWithFormat:@"duration %lu%@", (unsigned long)units, none ? @" none" : @""];
     NSDateComponentsFormatter *formatter = NLHistoryFormatter(name, ^id {
         NSDateComponentsFormatter *made = [NSDateComponentsFormatter new];
-        made.unitsStyle = NSDateComponentsFormatterUnitsStyleShort;
+        made.unitsStyle = NSDateComponentsFormatterUnitsStyleAbbreviated;   // 1時53分, 1h 53m, as Screen Time's
         made.allowedUnits = units;
         // 2 hr rather than 2 hr 0 min; nothing at all still reads 0 min.
         made.zeroFormattingBehavior = none ? NSDateComponentsFormatterZeroFormattingBehaviorDefault
@@ -733,6 +738,7 @@ typedef NS_ENUM(NSInteger, NLHistorySection) {
     NLHistorySectionWeek,
     NLHistorySectionTopSongs,
     NLHistorySectionSettings,
+    NLHistorySectionBackup,    // export (with plays), import
     NLHistorySectionDelete,
     NLHistorySectionCount,
 };
@@ -744,16 +750,15 @@ typedef NS_ENUM(NSInteger, NLHistorySetting) {
     NLHistorySettingCount,
 };
 
-@interface NLHistoryController () <UITableViewDataSource, UITableViewDelegate>
+@interface NLHistoryController () <UITableViewDataSource, UITableViewDelegate, UIDocumentPickerDelegate>
 @end
 
 @implementation NLHistoryController {
     NSArray<NLHistoryItem *> *_items;      // every play, newest first
-    NLHistoryApps *_apps;
-    NLActivityPeriod *_week;
     NSArray<NLUsage *> *_topSongs;
+    NLHistoryApps *_apps;                  // the bars' colors
     NLActivityCardCell *_cardCell;
-    NLActivityChartView *_chart;
+    UIView *_chart;                        // Screen Time's own (NLScreenTimeChartView), else ours (NLActivityChartView)
     BOOL _loaded;
     NSUInteger _loads;
 }
@@ -766,9 +771,11 @@ typedef NS_ENUM(NSInteger, NLHistorySetting) {
     [super viewDidLoad];
     self.title = NLL(@"Listening History");
     [_table registerClass:[NLUsageCell class] forCellReuseIdentifier:@"usage"];
-    _chart = [NLActivityChartView new];   // a press shows a day; a tap still opens All Activity (the card's)
+    // A press shows a day; a tap still opens All Activity (the card's).
+    _chart = NLScreenTimeChartsAvailable() ? [[NLScreenTimeChartView alloc] initTitled:YES] : [NLActivityChartView new];
     _cardCell = [[NLActivityCardCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
     _cardCell.chartView = _chart;
+    if ([_chart isKindOfClass:NLScreenTimeChartView.class]) _cardCell.chartHeight = [NLScreenTimeChartView heightTitled:YES];
     NLHistoryObserve(self, @selector(nlLoad));
     // The root page re-themes the list pages only; this one sets its switch itself.
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(nlThemeChanged)
@@ -791,16 +798,24 @@ typedef NS_ENUM(NSInteger, NLHistorySetting) {
         NSArray<NLHistoryItem *> *items = NLHistoryLoadAll(skipped);
         NLHistoryApps *apps = [NLHistoryApps appsForItems:items];
         NLActivityPeriod *week = [NLActivityPeriod periodWithScale:NLActivityScaleWeek containingDate:[NSDate date] items:items apps:apps];
+        NLActivityPeriod *lastWeek = [NLActivityPeriod periodWithScale:NLActivityScaleWeek containingDate:[week.start dateByAddingTimeInterval:-1]
+                                                                 items:items apps:apps];   // for the trend
         NSArray<NLUsage *> *top = NLUsages(week.items, week.start, week.end, NLUsageKindSongs);
         dispatch_async(dispatch_get_main_queue(), ^{
             if (load != self->_loads) return;
             self->_items = items;
             self->_apps = apps;
-            self->_week = week;
             self->_topSongs = [top subarrayWithRange:NSMakeRange(0, MIN(top.count, kNLTopSongs))];
             self->_loaded = YES;
-            self->_chart.period = week;
-            [self->_cardCell showTitle:week.title caption:NLL(@"Daily Average") value:NLHistoryDuration(week.dailyAverage)
+            BOOL rising = NO;
+            NSString *trend = NLActivityTrend(week, lastWeek, &rising);
+            if ([self->_chart isKindOfClass:NLScreenTimeChartView.class]) {
+                [(NLScreenTimeChartView *)self->_chart showPeriod:week selectedDay:nil title:NLL(@"Daily Average")
+                                                            value:NLHistoryDuration(week.dailyAverage) trend:trend rising:rising];
+            } else {
+                ((NLActivityChartView *)self->_chart).period = week;
+            }
+            [self->_cardCell showTitle:NLL(@"Daily Average") value:NLHistoryDuration(week.dailyAverage) trend:trend rising:rising
                              durations:week.durations apps:apps];
             [self->_table reloadData];
         });
@@ -818,6 +833,7 @@ typedef NS_ENUM(NSInteger, NLHistorySetting) {
         case NLHistorySectionWeek: return 2;
         case NLHistorySectionTopSongs: return MAX(_topSongs.count, 1);
         case NLHistorySectionSettings: return NLHistorySettingCount;
+        case NLHistorySectionBackup: return _items.count ? 2 : 1;
         default: return 1;
     }
 }
@@ -828,6 +844,7 @@ typedef NS_ENUM(NSInteger, NLHistorySetting) {
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     if (section == NLHistorySectionSettings) return NLL(@"SpringBoard writes down every song you play, in any app. One played less than 30 seconds (or half of a shorter song) is marked as skipped. The history stays on this iPhone.");
+    if (section == NLHistorySectionBackup) return NLL(@"Export saves the history and its covers as one file. Importing adds a file's plays to the history here, or replaces it.");
     return nil;
 }
 
@@ -884,6 +901,11 @@ typedef NS_ENUM(NSInteger, NLHistorySetting) {
             return cell;
         }
         case NLHistorySectionSettings: return [self nlSettingsCell:indexPath.row];
+        case NLHistorySectionBackup: {
+            BOOL export = _items.count && indexPath.row == 0;
+            return NLActionCell(export ? NLL(@"Export History…") : NLL(@"Import History…"),
+                                export ? @"square.and.arrow.up" : @"square.and.arrow.down", UIColor.tintColor);
+        }
         default: return NLActionCell(NLL(@"Delete All History…"), @"trash", UIColor.systemRedColor);
     }
 }
@@ -897,12 +919,80 @@ typedef NS_ENUM(NSInteger, NLHistorySetting) {
         case NLHistorySectionTopSongs:
             if (indexPath.row < (NSInteger)_topSongs.count) NLHistoryPush(self, [[NLHistorySongController alloc] initWithItem:_topSongs[indexPath.row].item]);
             break;
+        case NLHistorySectionBackup:
+            if (_items.count && indexPath.row == 0) [self nlExportFrom:[tableView cellForRowAtIndexPath:indexPath]];
+            else [self nlImport];
+            break;
         case NLHistorySectionDelete:
             NLConfirm(self, NLL(@"Delete all listening history?"), NLL(@"This can't be undone."), NLL(@"Delete"), ^{
                 NLHistoryDeleteAll(^{ [self nlLoad]; });
             });
             break;
     }
+}
+
+#pragma mark Export and import
+
+// The history as one file (Listening History 2026-10-14.json), to the share sheet.
+- (void)nlExportFrom:(UIView *)source {
+    NLHistoryExport(^(NSData *data, NSUInteger plays) {
+        NSString *name = [NSString stringWithFormat:@"%@ %@.json", NLL(@"Listening History"), NLHistoryDayKey([NSDate date])];
+        NSURL *url = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:name]];
+        if (!data || ![data writeToURL:url atomically:YES]) {
+            NLAlert(self, NLL(@"Could not export"), nil);
+            return;
+        }
+        UIActivityViewController *share = [[UIActivityViewController alloc] initWithActivityItems:@[url] applicationActivities:nil];
+        share.popoverPresentationController.sourceView = source;
+        share.popoverPresentationController.sourceRect = source.bounds;
+        [self presentViewController:share animated:YES completion:nil];
+    });
+}
+
+- (void)nlImport {
+    UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeJSON] asCopy:YES];
+    picker.delegate = self;
+    [self presentViewController:picker animated:YES completion:nil];
+}
+
+- (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
+    NSURL *url = urls.firstObject;
+    if (!url) return;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSDictionary *export = NLHistoryReadExport([NSData dataWithContentsOfURL:url]);
+        dispatch_async(dispatch_get_main_queue(), ^{ [self nlConfirmImport:export]; });
+    });
+}
+
+// What the file holds is said first; then its plays are added to the history
+// here, or put in its place.
+- (void)nlConfirmImport:(NSDictionary *)export {
+    NSDictionary<NSString *, NSArray *> *days = export[@"days"];
+    NSUInteger plays = 0;
+    for (NSArray *dayPlays in days.allValues) plays += dayPlays.count;
+    if (!plays) {
+        NLAlert(self, NLL(@"Could not import"), NLL(@"This file isn't a NowLyrics listening history."));
+        return;
+    }
+    NSArray<NSString *> *sorted = [days.allKeys sortedArrayUsingSelector:@selector(compare:)];
+    NSDateFormatter *dates = NLHistoryFormatter(@"import range", ^id {
+        NSDateFormatter *made = [NSDateFormatter new];
+        made.dateStyle = NSDateFormatterMediumStyle;
+        return made;
+    });
+    NSString *message = [NSString stringWithFormat:NLL(@"%1$@, %2$@ – %3$@."), NLHistoryCount(plays, @"1 play", @"%lu plays"),
+                         [dates stringFromDate:NLHistoryDayDate(sorted.firstObject)], [dates stringFromDate:NLHistoryDayDate(sorted.lastObject)]];
+    void (^import)(BOOL) = ^(BOOL replace) {
+        NLHistoryImport(export, replace, ^(NSUInteger added) {
+            [self nlLoad];
+            NLAlert(self, [NSString stringWithFormat:NLL(@"Added %@"), NLHistoryCount(added, @"1 play", @"%lu plays")], nil);
+        });
+    };
+    NLPresentAlert(self, NLL(@"Import listening history?"), message, @[
+        [UIAlertAction actionWithTitle:NLL(@"Add to History") style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) { import(NO); }],
+        [UIAlertAction actionWithTitle:NLL(@"Replace History") style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) { import(YES); }],
+        [UIAlertAction actionWithTitle:NLL(@"Cancel") style:UIAlertActionStyleCancel handler:nil],
+    ]);
 }
 
 #pragma mark Settings

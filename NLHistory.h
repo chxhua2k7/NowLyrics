@@ -89,6 +89,20 @@ void NLHistoryContainsPlay(NSString *dayKey, NSString *identifier, void (^done)(
 void NLHistoryDeletePlays(NSString *dayKey, NSSet<NSString *> *identifiers, dispatch_block_t done);
 void NLHistoryDeleteAll(dispatch_block_t done);
 
+// The settings page: the whole history as one JSON file, covers in it
+// ({"format": NL_HISTORY_EXPORT_FORMAT, "version": 1, "days": {yyyy-MM-dd:
+// [entry, …]}, "artwork": {name: base64 JPEG}}); `done` on the main queue,
+// nil without plays.
+#define NL_HISTORY_EXPORT_FORMAT @"NowLyrics Listening History"
+void NLHistoryExport(void (^done)(NSData *data, NSUInteger plays));
+// Such a file read back: @"days" (day → its valid entries) and @"artwork"
+// (name → JPEG data); nil for data that is not one. Any queue.
+NSDictionary *NLHistoryReadExport(NSData *data);
+// Its plays added, each into the day it started on here; one whose id is
+// here already stays as it is. `replace`: every day here deleted first.
+// `done` on the main queue with the plays added; announced as an edit.
+void NLHistoryImport(NSDictionary *export, BOOL replace, void (^done)(NSUInteger added));
+
 #ifdef __cplusplus
 }
 #endif
