@@ -2,7 +2,7 @@ While a song plays, NowLyrics puts the line being sung **in place of the track t
 
 ## Features
 
-- **Lyrics Island** — optional: the current line in a strip at the bottom of the compact Dynamic Island, which grows down to meet the status bar. White or album color, a fade or scroll-up line change, adjustable size and scroll speed; long lines scroll, and lyrics with word times light up word by word. A preview on its settings page shows every change at once and can show what is playing; hold it to open it with working controls.
+- **Lyrics Island** — optional: the current line in a strip at the bottom of the compact Dynamic Island, which grows down to meet the status bar. White or album color, a fade or scroll-up line change, adjustable size and scroll speed; long lines scroll, and lyrics with word times light up word by word. A preview on its settings page — and at the top of the main settings page, if you choose it there — shows every change at once and can show what is playing; hold it to open it with working controls.
 - **Four lyrics sources** — Apple Music, Musixmatch, LRCLIB and NetEase, tried in the order you drag them into; when one has nothing, the next fills in.
 - **Now Playing page** — the Lock Screen's player in Settings, where the song's lyrics came from (or what each source answered), a source picked for this song alone, and this song's own offset.
 - **Your own lyrics** — paste them or import them from Files (LRC, word-by-word LRC, Apple Music / AMLL TTML); lyrics you add win over every source.
@@ -54,7 +54,7 @@ NowLyrics 把正在唱的那句歌詞放到曲名的位置：鎖定畫面、控�
 
 歌詞來源：LRCLIB 與網易雲音樂免設定即用（網易雲為簡體）；Apple Music 歌詞需訂閱 Apple Music（iOS 16 以上），Spotify 等其他 App 也能用，訂閱過期會自動鎖回；Musixmatch 曲庫最大、很多有逐字時間，需安裝 Musixmatch App 再貼上自己的 User Token，或用 API key。可拖曳排列來源順序，前一個找不到就由下一個補上，也能替單首歌指定來源。
 
-「歌詞上島」可在縮小的動態島底部多一列顯示當前歌詞（白色或專輯顏色、淡入或向上捲動、字體大小與捲動速度可調，長句自動捲動，有逐字時間的歌詞逐字亮起），設定頁有預覽，也能顯示正在播放的歌，長按可展開並直接操作。
+「歌詞上島」可在縮小的動態島底部多一列顯示當前歌詞（白色或專輯顏色、淡入或向上捲動、字體大小與捲動速度可調，長句自動捲動，有逐字時間的歌詞逐字亮起），設定頁有預覽（也可以放在設定主頁頂端），改什麼馬上看到，也能顯示正在播放的歌，長按可展開並直接操作。
 
 設定裡的「正在播放」頁可看歌詞來源、替這首歌換來源或調偏移，也能貼上或從檔案匯入歌詞（LRC、逐字 LRC、TTML）；「歌詞庫」依 App 列出所有存過的歌詞，可搜尋、編輯、刪除或清除快取。偏移 ±3 秒（預設與單首各一），邊拖邊套用；演出者欄位可顯示原曲名與演出者、下一句歌詞或維持原樣；可隱藏 explicit 的「E」標記；播放器可用模糊加深的封面當背景（iOS 15–18）；支援 Crescendo 與 NextUp 3。
 
