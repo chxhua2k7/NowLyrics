@@ -233,7 +233,7 @@ static const CGFloat kNLChartAxisWidth = 44;
 static const CGFloat kNLChartLabelHeight = 20;
 static const CGFloat kNLChartTopInset = 8;
 
-// The scale: hours on a week (12h), minutes on a day (30m).
+// The scale: hours on a week (12h), minutes on a day (30m) and on a week under an hour.
 static NSString *NLAxisString(NSTimeInterval seconds, BOOL hours) {
     NSDateComponentsFormatter *formatter = NLHistoryFormatter(hours ? @"axis hours" : @"axis minutes", ^id {
         NSDateComponentsFormatter *made = [NSDateComponentsFormatter new];
@@ -395,11 +395,16 @@ static NSString *NLTemplateDate(NSString *template, NSDate *date) {
                       MAX(0, bounds.size.width - kNLChartAxisWidth), MAX(0, bounds.size.height - kNLChartTopInset - kNLChartLabelHeight));
 }
 
-// The scale's top: a week rounds up to 1, 2, 4, 8, 12, 16, 20 or 24 hours (listening is
-// shorter than a day spent somewhere); a day's hour is always 60 minutes.
+// The scale's top: a week rounds up to 10, 20 or 30 minutes (a song's week),
+// then 1, 2, 4, 8, 12, 16, 20 or 24 hours (listening is shorter than a day
+// spent somewhere); a day's hour is always 60 minutes.
 - (NSTimeInterval)nlMaximum {
     if (self.period.scale == NLActivityScaleDay) return 3600;
-    double hours = [[self.period.bars valueForKeyPath:@"@max.total"] doubleValue] / 3600;
+    double most = [[self.period.bars valueForKeyPath:@"@max.total"] doubleValue];
+    for (NSNumber *minutes in @[@10, @20, @30]) {
+        if (most <= minutes.doubleValue * 60) return minutes.doubleValue * 60;
+    }
+    double hours = most / 3600;
     for (NSNumber *step in @[@1, @2, @4, @8, @12, @16, @20]) {
         if (hours <= step.doubleValue) return step.doubleValue * 3600;
     }
@@ -443,7 +448,7 @@ static NSString *NLTemplateDate(NSString *template, NSDate *date) {
         // A label too close to the average gives way to it.
         BOOL labeled = i == 0 || i == 4 || (!week && i == 2);
         if (!labeled || (average > 0 && fabs(y - averageY) < font.lineHeight)) continue;
-        NSString *label = i == 0 ? @"0" : NLAxisString(maximum * i / 4, week);
+        NSString *label = i == 0 ? @"0" : NLAxisString(maximum * i / 4, week && maximum >= 3600);
         [label drawAtPoint:CGPointMake(CGRectGetMaxX(chart) + 6, y - font.lineHeight / 2) withAttributes:axis];
     }
     for (NSUInteger i = 0; i <= bars.count; i += week ? 1 : 6) {
@@ -655,7 +660,11 @@ static NSAttributedString *NLTrendString(NSString *text, BOOL rising, UIFont *fo
 }
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
-    if (!(self = [super initWithStyle:style reuseIdentifier:reuseIdentifier])) return nil;
+    return [self initWithScreenTime:NLScreenTimeChartsAvailable()];
+}
+
+- (instancetype)initWithScreenTime:(BOOL)screenTime {
+    if (!(self = [super initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil])) return nil;
     _titleLabel = NLCardLabel(UIFontTextStyleBody, NO, UIColor.secondaryLabelColor);
     _titleLabel.adjustsFontSizeToFitWidth = YES;
     _titleLabel.minimumScaleFactor = 0.7;
@@ -675,7 +684,7 @@ static NSAttributedString *NLTrendString(NSString *text, BOOL rising, UIFont *fo
     _chartHost = [UIView new];
     _chartHostHeight = [_chartHost.heightAnchor constraintEqualToConstant:kNLWeekChartHeight];
     _chartHostHeight.active = YES;
-    _screenTime = NLScreenTimeChartsAvailable();
+    _screenTime = screenTime;
     UIView *legend;
     if (_screenTime) {
         legend = _screenTimeLegend = NLScreenTimeMakeLegend();
@@ -1862,6 +1871,12 @@ static const NSUInteger kNLCollapsedUsages = 5;
     }
 }
 
+- (UIContextMenuConfiguration *)tableView:(UITableView *)tableView contextMenuConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath point:(CGPoint)point {
+    if (indexPath.section != NLActivitySectionUsages || indexPath.row >= (NSInteger)[self nlShownUsageCount]) return nil;
+    NLUsage *usage = _usages[indexPath.row];
+    return usage.kind == NLUsageKindSongs ? NLSongContextMenu(usage.item, self) : nil;
+}
+
 @end
 
 #pragma mark - An artist, album or app
@@ -1941,6 +1956,11 @@ typedef NS_ENUM(NSInteger, NLGroupSection) {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     if (indexPath.section != NLGroupSectionSongs || indexPath.row >= (NSInteger)_songs.count) return;
     NLHistoryPush(self, [[NLHistorySongController alloc] initWithItem:_songs[indexPath.row].item]);
+}
+
+- (UIContextMenuConfiguration *)tableView:(UITableView *)tableView contextMenuConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath point:(CGPoint)point {
+    if (indexPath.section != NLGroupSectionSongs || indexPath.row >= (NSInteger)_songs.count) return nil;
+    return NLSongContextMenu(_songs[indexPath.row].item, self);
 }
 
 @end

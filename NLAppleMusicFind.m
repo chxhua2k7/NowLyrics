@@ -92,7 +92,8 @@ static NSDictionary *NLBestMatch(NSArray *results, NSString *title, NSString *ar
         double score = titleScore * 10 + (artistMeets ? 5 : 0) + (apart >= 0 ? 5 - apart : 0);
         if (score > bestScore) {
             bestScore = score;
-            best = @{@"id": trackID, @"title": result[@"trackName"] ?: @"", @"artist": result[@"artistName"] ?: @""};
+            NSString *link = [result[@"trackViewUrl"] isKindOfClass:NSString.class] ? result[@"trackViewUrl"] : @"";
+            best = @{@"id": trackID, @"title": result[@"trackName"] ?: @"", @"artist": result[@"artistName"] ?: @"", @"url": link};
         }
     }
     return best;

@@ -72,7 +72,7 @@ include $(THEOS_MAKE_PATH)/tweak.mk
 BUNDLE_NAME += NowLyricsPrefs
 
 # prefsbundle/ 裡每個 .m 都編進來(別在那裡放草稿)。
-NowLyricsPrefs_FILES += $(sort $(wildcard prefsbundle/*.m)) NLIslandStrip.m NLLyrics.m NLTTML.m NLLocate.m NLPlayerTint.m NLHistory.m
+NowLyricsPrefs_FILES += $(sort $(wildcard prefsbundle/*.m)) NLIslandStrip.m NLLyrics.m NLTTML.m NLLocate.m NLPlayerTint.m NLHistory.m NLAppleMusicFind.m
 NowLyricsPrefs_FRAMEWORKS += UIKit ImageIO QuartzCore UniformTypeIdentifiers CoreImage
 NowLyricsPrefs_PRIVATE_FRAMEWORKS += Preferences
 NowLyricsPrefs_INSTALL_PATH = /Library/PreferenceBundles

@@ -106,15 +106,12 @@ BOOL NLScreenTimeDateBarAvailable(void) {
 #pragma mark - Data
 
 // The scale's top, as Screen Time rounds it: a day's hour is 60 minutes; a
-// week's tallest day goes up to 10, 20, 30, 40 or 60 minutes, or to an even
-// number of hours (the middle line then falls on a whole one).
+// week's tallest day goes up to an even number of hours, two at least (its
+// scale is in whole hours, the middle line's too: under them it reads 0 hr).
 static NSTimeInterval NLSTMaximum(NLActivityPeriod *period) {
     if (period.scale == NLActivityScaleDay) return 3600;
     double most = [[period.bars valueForKeyPath:@"@max.total"] doubleValue];
-    for (NSNumber *step in @[@600, @1200, @1800, @2400, @3600]) {
-        if (most <= step.doubleValue) return step.doubleValue;
-    }
-    return ceil(most / 7200) * 7200;
+    return MAX(ceil(most / 7200), 1) * 7200;
 }
 
 static id NLSTDataSet(NLActivityPeriod *period) {

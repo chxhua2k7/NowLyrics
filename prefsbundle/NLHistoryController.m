@@ -9,10 +9,12 @@
 //    JSON file, covers in it), and Delete All History.
 //  - A day's timeline: each song in order (skipped ones greyed), the pauses
 //    of five minutes or more between them; the date bar on top goes to the
-//    day before or after with plays. Swipe to delete.
-//  - A song: how often (and how often skipped) and how long it was played,
-//    its lyrics in the app that played it (to the editor) and its own offset,
-//    as Now Playing has them for the song on now.
+//    day before or after with plays. Swipe to delete; a long press listens
+//    to a song again (NLListen.m), as on every song's row.
+//  - A song: its card in its cover's color with its first lines (to the
+//    editor), Listen in the app it played in and More Ways to Listen, its
+//    plays, time, first and last play as tiles, its week's chart and its own
+//    offset, as Now Playing has it for the song on now.
 //
 //  The pages load again when SpringBoard writes (NL_HISTORY_WRITTEN_NOTIFICATION).
 //
@@ -20,6 +22,7 @@
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import "NLHistoryPages.h"
 #import "NLOffsetControl.h"
+#import "../NLIslandStrip.h"
 
 static const NSTimeInterval kNLHistoryGapShown = 5 * 60;   // pauses this long or longer get a row
 static const CGFloat kNLHistoryCoverSide = 44;
@@ -258,20 +261,289 @@ void NLHistoryPush(PSViewController *from, PSViewController *page) {
 @interface NLHistorySongController () <UITableViewDataSource, UITableViewDelegate>
 @end
 
-typedef NS_ENUM(NSInteger, NLSongSection) { NLSongSectionStats, NLSongSectionLyrics, NLSongSectionOffset };
-typedef NS_ENUM(NSInteger, NLSongStat) { NLSongStatPlays, NLSongStatSkipped, NLSongStatListened, NLSongStatFirst, NLSongStatApp };
+// The song's card, as a lyrics card: its cover's color behind the cover, the
+// title and the artist, its first lines (the saved lyrics) and Edit.
+@interface NLSongCardCell : UITableViewCell
+- (void)showItem:(NLHistoryItem *)item lines:(NSArray<NSString *> *)lines editable:(BOOL)editable color:(UIColor *)color;
+@end
+
+static const CGFloat kNLSongCoverSide = 56;
+static const NSUInteger kNLSongCardLines = 3;
+
+// A deep shade of the cover's color, which white reads on; grey for a cover without one.
+static UIColor *NLSongCardColor(UIColor *cover) {
+    CGFloat h = 0, s = 0, b = 0, a = 1;
+    if (!cover || ![cover getHue:&h saturation:&s brightness:&b alpha:&a] || s < 0.12) return [UIColor colorWithWhite:0.26 alpha:1];
+    return [UIColor colorWithHue:h saturation:MIN(MAX(s, 0.35), 0.65) brightness:0.45 alpha:1];
+}
+
+static UILabel *NLSongCardLabel(UIFontTextStyle style, BOOL bold, CGFloat alpha, NSInteger lines) {
+    UILabel *label = [UILabel new];
+    UIFontDescriptor *descriptor = [UIFontDescriptor preferredFontDescriptorWithTextStyle:style];
+    if (bold) descriptor = [descriptor fontDescriptorWithSymbolicTraits:UIFontDescriptorTraitBold];
+    label.font = [UIFont fontWithDescriptor:descriptor size:0];
+    label.adjustsFontForContentSizeCategory = YES;
+    label.textColor = [UIColor colorWithWhite:1 alpha:alpha];
+    label.numberOfLines = lines;
+    return label;
+}
+
+@implementation NLSongCardCell {
+    UIImageView *_cover;
+    UILabel *_title, *_artist, *_note, *_edit;
+    NSArray<UILabel *> *_lines;
+}
+
+- (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
+    if (!(self = [super initWithStyle:style reuseIdentifier:reuseIdentifier])) return nil;
+    self.selectionStyle = UITableViewCellSelectionStyleNone;
+    _cover = [UIImageView new];
+    _title = NLSongCardLabel(UIFontTextStyleHeadline, NO, 1, 2);
+    _artist = NLSongCardLabel(UIFontTextStyleSubheadline, NO, 0.75, 2);
+    UIStackView *names = [[UIStackView alloc] initWithArrangedSubviews:@[_title, _artist]];
+    names.axis = UILayoutConstraintAxisVertical;
+    names.spacing = 2;
+    UIStackView *head = [[UIStackView alloc] initWithArrangedSubviews:@[_cover, names]];
+    head.alignment = UIStackViewAlignmentCenter;
+    head.spacing = 12;
+    NSMutableArray<UILabel *> *lines = [NSMutableArray array];
+    for (NSUInteger i = 0; i < kNLSongCardLines; i++) [lines addObject:NLSongCardLabel(UIFontTextStyleTitle3, YES, i + 1 < kNLSongCardLines ? 0.95 : 0.5, 2)];
+    _lines = lines;
+    UIStackView *lyrics = [[UIStackView alloc] initWithArrangedSubviews:lines];
+    lyrics.axis = UILayoutConstraintAxisVertical;
+    lyrics.spacing = 4;
+    _note = NLSongCardLabel(UIFontTextStyleFootnote, NO, 0.75, 0);
+    [_note setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+    _edit = NLSongCardLabel(UIFontTextStyleFootnote, NO, 0.75, 1);
+    [_edit setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [_edit setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    UIStackView *foot = [[UIStackView alloc] initWithArrangedSubviews:@[_note, _edit]];
+    foot.alignment = UIStackViewAlignmentFirstBaseline;
+    foot.spacing = 8;
+    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[head, lyrics, foot]];
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.spacing = 14;
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.contentView addSubview:stack];
+    UILayoutGuide *margins = self.contentView.layoutMarginsGuide;
+    [NSLayoutConstraint activateConstraints:@[
+        [_cover.widthAnchor constraintEqualToConstant:kNLSongCoverSide],
+        [_cover.heightAnchor constraintEqualToConstant:kNLSongCoverSide],
+        [stack.topAnchor constraintEqualToAnchor:margins.topAnchor constant:6],
+        [stack.bottomAnchor constraintEqualToAnchor:margins.bottomAnchor constant:-6],
+        [stack.leadingAnchor constraintEqualToAnchor:margins.leadingAnchor],
+        [stack.trailingAnchor constraintEqualToAnchor:margins.trailingAnchor],
+    ]];
+    return self;
+}
+
+- (void)showItem:(NLHistoryItem *)item lines:(NSArray<NSString *> *)lines editable:(BOOL)editable color:(UIColor *)color {
+    UIBackgroundConfiguration *background = [UIBackgroundConfiguration listGroupedCellConfiguration];
+    background.backgroundColor = color;
+    self.backgroundConfiguration = background;
+    _cover.image = NLHistoryCover(item.art, kNLSongCoverSide);
+    _title.text = item.title;
+    _artist.text = NLJoinNonEmpty(item.artist, item.album, @" — ");
+    _artist.hidden = !_artist.text.length;
+    for (NSUInteger i = 0; i < _lines.count; i++) {
+        _lines[i].text = i < lines.count ? lines[i] : nil;
+        _lines[i].hidden = i >= lines.count;
+    }
+    _note.text = lines.count ? NLL(@"Lyrics") : NLL(@"No lyrics saved for this song yet.");
+    NSMutableAttributedString *edit = [[NSMutableAttributedString alloc] initWithString:[NLL(@"Edit") stringByAppendingString:@" "]];
+    UIImage *chevron = [UIImage systemImageNamed:@"chevron.right" withConfiguration:[UIImageSymbolConfiguration configurationWithFont:_edit.font scale:UIImageSymbolScaleSmall]];
+    [edit appendAttributedString:[NSAttributedString attributedStringWithAttachment:[NSTextAttachment textAttachmentWithImage:
+        [chevron imageWithTintColor:_edit.textColor renderingMode:UIImageRenderingModeAlwaysOriginal]]]];
+    _edit.attributedText = edit;
+    _edit.hidden = !editable;
+}
+
+@end
+
+// Listen in the app it played in, and More Ways to Listen (the others, Share),
+// side by side under the card.
+@interface NLSongListenCell : UITableViewCell
+@property (nonatomic, readonly) UIButton *listenButton, *moreButton;
+@end
+
+@implementation NLSongListenCell
+
+- (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
+    if (!(self = [super initWithStyle:style reuseIdentifier:reuseIdentifier])) return nil;
+    self.selectionStyle = UITableViewCellSelectionStyleNone;
+    self.backgroundConfiguration = [UIBackgroundConfiguration clearConfiguration];
+    _listenButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    _moreButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    _moreButton.showsMenuAsPrimaryAction = YES;
+    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[_listenButton, _moreButton]];
+    stack.distribution = UIStackViewDistributionFillEqually;
+    stack.spacing = 10;
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.contentView addSubview:stack];
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.topAnchor constraintEqualToAnchor:self.contentView.topAnchor],
+        [stack.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor],
+        [stack.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor],
+        [stack.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor],
+        [stack.heightAnchor constraintGreaterThanOrEqualToConstant:50],
+    ]];
+    return self;
+}
+
+@end
+
+static UIButtonConfiguration *NLSongButton(NSString *title, UIColor *fill, UIColor *text, UIImage *trailing) {
+    UIButtonConfiguration *configuration = [UIButtonConfiguration filledButtonConfiguration];
+    configuration.cornerStyle = UIButtonConfigurationCornerStyleLarge;
+    configuration.baseBackgroundColor = fill;
+    configuration.baseForegroundColor = text;
+    configuration.title = title;
+    configuration.titleLineBreakMode = NSLineBreakByTruncatingTail;
+    configuration.titleTextAttributesTransformer = ^NSDictionary *(NSDictionary *attributes) {
+        NSMutableDictionary *changed = [attributes mutableCopy];
+        changed[NSFontAttributeName] = [UIFont fontWithDescriptor:[[UIFontDescriptor preferredFontDescriptorWithTextStyle:UIFontTextStyleSubheadline]
+                                                                   fontDescriptorWithSymbolicTraits:UIFontDescriptorTraitBold] size:0];
+        return changed;
+    };
+    configuration.image = trailing;
+    configuration.imagePlacement = NSDirectionalRectEdgeTrailing;
+    configuration.imagePadding = 4;
+    configuration.preferredSymbolConfigurationForImage = [UIImageSymbolConfiguration configurationWithTextStyle:UIFontTextStyleFootnote scale:UIImageSymbolScaleSmall];
+    return configuration;
+}
+
+// One of the song's numbers on a tile of its own, as Health's: a colored
+// symbol and name, the number big with its units small, a note under it.
+@interface NLSongTile : UIView
+- (instancetype)initWithTitle:(NSString *)title symbol:(NSString *)symbol color:(UIColor *)color;
+- (void)showValue:(NSAttributedString *)value detail:(NSString *)detail;
+@end
+
+@implementation NLSongTile {
+    UILabel *_value, *_detail;
+}
+
+- (instancetype)initWithTitle:(NSString *)title symbol:(NSString *)symbol color:(UIColor *)color {
+    if (!(self = [super initWithFrame:CGRectZero])) return nil;
+    self.backgroundColor = UIColor.secondarySystemGroupedBackgroundColor;
+    self.layer.cornerRadius = 10;
+    self.layer.cornerCurve = kCACornerCurveContinuous;
+    UILabel *name = [UILabel new];
+    UIFont *font = [UIFont fontWithDescriptor:[[UIFontDescriptor preferredFontDescriptorWithTextStyle:UIFontTextStyleFootnote]
+                                               fontDescriptorWithSymbolicTraits:UIFontDescriptorTraitBold] size:0];
+    NSMutableAttributedString *text = [NSMutableAttributedString new];
+    UIImage *image = [UIImage systemImageNamed:symbol withConfiguration:[UIImageSymbolConfiguration configurationWithFont:font]];
+    [text appendAttributedString:[NSAttributedString attributedStringWithAttachment:[NSTextAttachment textAttachmentWithImage:
+        [image imageWithTintColor:color renderingMode:UIImageRenderingModeAlwaysOriginal]]]];
+    [text appendAttributedString:[[NSAttributedString alloc] initWithString:[@" " stringByAppendingString:title]
+                                                                 attributes:@{NSFontAttributeName: font, NSForegroundColorAttributeName: color}]];
+    name.attributedText = text;
+    name.adjustsFontSizeToFitWidth = YES;
+    name.minimumScaleFactor = 0.7;
+    _value = [UILabel new];
+    _value.numberOfLines = 2;
+    _value.adjustsFontSizeToFitWidth = YES;
+    _value.minimumScaleFactor = 0.7;
+    _detail = [UILabel new];
+    _detail.font = [UIFont preferredFontForTextStyle:UIFontTextStyleCaption1];
+    _detail.textColor = UIColor.secondaryLabelColor;
+    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[name, _value, _detail]];
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.spacing = 4;
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    [self addSubview:stack];
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.topAnchor constraintEqualToAnchor:self.topAnchor constant:10],
+        [stack.bottomAnchor constraintLessThanOrEqualToAnchor:self.bottomAnchor constant:-10],
+        [stack.leadingAnchor constraintEqualToAnchor:self.leadingAnchor constant:12],
+        [stack.trailingAnchor constraintEqualToAnchor:self.trailingAnchor constant:-12],
+    ]];
+    return self;
+}
+
+- (void)showValue:(NSAttributedString *)value detail:(NSString *)detail {
+    _value.attributedText = value;
+    _detail.text = detail;
+    _detail.hidden = !detail.length;
+}
+
+@end
+
+// A count or a time: its digits big, the units between them small and grey.
+static NSAttributedString *NLSongTileNumber(NSString *text) {
+    UIFont *big = [UIFont preferredFontForTextStyle:UIFontTextStyleTitle2];
+    NSDictionary *unit = @{NSFontAttributeName: [UIFont preferredFontForTextStyle:UIFontTextStyleSubheadline],
+                           NSForegroundColorAttributeName: UIColor.secondaryLabelColor};
+    NSMutableAttributedString *string = [[NSMutableAttributedString alloc] initWithString:text ?: @""
+                                                                               attributes:@{NSFontAttributeName: big, NSForegroundColorAttributeName: UIColor.labelColor}];
+    NSCharacterSet *digits = NSCharacterSet.decimalDigitCharacterSet;
+    [text enumerateSubstringsInRange:NSMakeRange(0, text.length) options:NSStringEnumerationByComposedCharacterSequences
+                          usingBlock:^(NSString *character, NSRange range, NSRange enclosing, BOOL *stop) {
+        if ([character rangeOfCharacterFromSet:digits].location == NSNotFound && ![character isEqualToString:@":"]) [string addAttributes:unit range:range];
+    }];
+    return string;
+}
+
+static NSAttributedString *NLSongTileText(NSString *text) {
+    return [[NSAttributedString alloc] initWithString:text ?: @"" attributes:@{
+        NSFontAttributeName: [UIFont preferredFontForTextStyle:UIFontTextStyleBody], NSForegroundColorAttributeName: UIColor.labelColor}];
+}
+
+// Plays, Listening Time, First Played, Last Played: two by two.
+@interface NLSongTilesCell : UITableViewCell
+@property (nonatomic, readonly) NLSongTile *plays, *listened, *first, *last;
+@end
+
+@implementation NLSongTilesCell
+
+- (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
+    if (!(self = [super initWithStyle:style reuseIdentifier:reuseIdentifier])) return nil;
+    self.selectionStyle = UITableViewCellSelectionStyleNone;
+    self.backgroundConfiguration = [UIBackgroundConfiguration clearConfiguration];
+    _plays = [[NLSongTile alloc] initWithTitle:NLL(@"Plays") symbol:@"play.fill" color:UIColor.systemPinkColor];
+    _listened = [[NLSongTile alloc] initWithTitle:NLL(@"Listening Time") symbol:@"clock.fill" color:UIColor.systemGreenColor];
+    _first = [[NLSongTile alloc] initWithTitle:NLL(@"First Played") symbol:@"calendar" color:UIColor.systemBlueColor];
+    _last = [[NLSongTile alloc] initWithTitle:NLL(@"Last Played") symbol:@"clock.arrow.circlepath" color:UIColor.systemOrangeColor];
+    NSMutableArray<UIStackView *> *rows = [NSMutableArray array];
+    for (NSArray *pair in @[@[_plays, _listened], @[_first, _last]]) {
+        UIStackView *row = [[UIStackView alloc] initWithArrangedSubviews:pair];
+        row.distribution = UIStackViewDistributionFillEqually;
+        row.spacing = 10;
+        [rows addObject:row];
+    }
+    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:rows];
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.spacing = 10;
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.contentView addSubview:stack];
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.topAnchor constraintEqualToAnchor:self.contentView.topAnchor],
+        [stack.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor],
+        [stack.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor],
+        [stack.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor],
+    ]];
+    return self;
+}
+
+@end
+
+// The song's page: its card (Edit opens the editor), how to listen to it
+// again, its numbers, its week's chart (a tapped day opens that day) and its offset.
+typedef NS_ENUM(NSInteger, NLSongSection) { NLSongSectionCard, NLSongSectionListen, NLSongSectionNumbers, NLSongSectionWeek, NLSongSectionOffset };
 
 @implementation NLHistorySongController {
     NLHistoryItem *_item;
     UITableView *_table;
     NSArray<NSNumber *> *_sections;
-    NSArray<NSNumber *> *_stats;   // NLSongStat rows shown
+    NLSongCardCell *_cardCell;
+    NLSongListenCell *_listenCell;
+    NLSongTilesCell *_tilesCell;
+    NLActivityCardCell *_weekCell;
+    NLActivityChartView *_chart;
+    NLActivityPeriod *_week;       // the week of its latest play
     NSString *_folder;        // the app's Library/NowLyrics; nil when NowLyrics never ran there
     NSString *_lyricsPath;    // the song's lyrics there, added by hand or saved; nil without
-    NSUInteger _plays, _skips;
-    double _listened;
-    NSDate *_first;
-    BOOL _statsLoaded;
+    BOOL _loaded;
 }
 
 - (instancetype)initWithItem:(NLHistoryItem *)item {
@@ -285,7 +557,23 @@ typedef NS_ENUM(NSInteger, NLSongStat) { NLSongStatPlays, NLSongStatSkipped, NLS
     self.navigationItem.largeTitleDisplayMode = UINavigationItemLargeTitleDisplayModeNever;
     self.navigationItem.rightBarButtonItem = NLApplyButton(self);
     _table = NLMakeTable(self);
-    _table.tableHeaderView = [self nlHeader];
+    _cardCell = [[NLSongCardCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+    _listenCell = [[NLSongListenCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+    [_listenCell.listenButton addTarget:self action:@selector(nlListen) forControlEvents:UIControlEventTouchUpInside];
+    _tilesCell = [[NLSongTilesCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+    // Ours, not Screen Time's: its week scale is in whole hours, and a song's
+    // week is minutes. A tapped day opens its timeline.
+    __weak typeof(self) weakSelf = self;
+    _chart = [NLActivityChartView new];
+    __weak NLActivityChartView *weakChart = _chart;
+    _chart.didSelectBar = ^(NSInteger index) {
+        if (index == NSNotFound) return;
+        weakChart.selectedIndex = NSNotFound;
+        [weakSelf nlOpenDay:weakChart.period.bars[index].start];
+    };
+    _weekCell = [[NLActivityCardCell alloc] initWithScreenTime:NO];
+    _weekCell.selectionStyle = UITableViewCellSelectionStyleNone;
+    _weekCell.chartView = _chart;
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -293,67 +581,46 @@ typedef NS_ENUM(NSInteger, NLSongStat) { NLSongStatPlays, NLSongStatSkipped, NLS
     [self nlLoad];   // again after the editor saved or deleted
 }
 
-- (void)viewDidLayoutSubviews {
-    [super viewDidLayoutSubviews];
-    UIView *header = _table.tableHeaderView;
-    CGFloat height = [header systemLayoutSizeFittingSize:CGSizeMake(_table.bounds.size.width, 0)
-                           withHorizontalFittingPriority:UILayoutPriorityRequired
-                                 verticalFittingPriority:UILayoutPriorityFittingSizeLevel].height;
-    if (fabs(header.frame.size.height - height) > 0.5 || fabs(header.frame.size.width - _table.bounds.size.width) > 0.5) {
-        header.frame = CGRectMake(0, 0, _table.bounds.size.width, height);
-        _table.tableHeaderView = header;
-    }
+- (void)nlOpenDay:(NSDate *)day {
+    NLHistoryPush(self, [[NLHistoryDayController alloc] initWithDay:NLHistoryDayKey(day)]);
 }
 
-// The cover, the title, the artist and album.
-- (UIView *)nlHeader {
-    UIView *header = [UIView new];
-    UIImageView *cover = [[UIImageView alloc] initWithImage:NLHistoryCover(_item.art, 120)];
-    cover.translatesAutoresizingMaskIntoConstraints = NO;
-    UILabel *title = [UILabel new];
-    title.text = _item.title;
-    title.font = [UIFont fontWithDescriptor:[[UIFontDescriptor preferredFontDescriptorWithTextStyle:UIFontTextStyleTitle3]
-                                             fontDescriptorWithSymbolicTraits:UIFontDescriptorTraitBold] size:0];
-    title.numberOfLines = 0;
-    title.textAlignment = NSTextAlignmentCenter;
-    UILabel *detail = [UILabel new];
-    detail.text = NLJoinNonEmpty(_item.artist, _item.album, @" — ");
-    detail.font = [UIFont preferredFontForTextStyle:UIFontTextStyleSubheadline];
-    detail.textColor = UIColor.secondaryLabelColor;
-    detail.numberOfLines = 0;
-    detail.textAlignment = NSTextAlignmentCenter;
-    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[cover, title, detail]];
-    stack.axis = UILayoutConstraintAxisVertical;
-    stack.alignment = UIStackViewAlignmentCenter;
-    stack.spacing = 4;
-    [stack setCustomSpacing:12 afterView:cover];
-    stack.translatesAutoresizingMaskIntoConstraints = NO;
-    [header addSubview:stack];
-    [NSLayoutConstraint activateConstraints:@[
-        [cover.widthAnchor constraintEqualToConstant:120],
-        [cover.heightAnchor constraintEqualToConstant:120],
-        [stack.topAnchor constraintEqualToAnchor:header.topAnchor constant:16],
-        [stack.bottomAnchor constraintEqualToAnchor:header.bottomAnchor constant:-8],
-        [stack.leadingAnchor constraintEqualToAnchor:header.layoutMarginsGuide.leadingAnchor constant:16],
-        [stack.trailingAnchor constraintEqualToAnchor:header.layoutMarginsGuide.trailingAnchor constant:-16],
-    ]];
-    return header;
+- (void)nlListen {
+    NSArray<NSString *> *apps = NLListenApps(_item);
+    if (apps.count) NLListen(_item, apps.firstObject);
+}
+
+- (NSString *)nlDateString:(NSDate *)date {
+    NSDateFormatter *dates = NLHistoryFormatter(@"first played", ^id {
+        NSDateFormatter *made = [NSDateFormatter new];
+        made.dateStyle = NSDateFormatterMediumStyle;
+        made.timeStyle = NSDateFormatterShortStyle;
+        made.doesRelativeDateFormatting = YES;
+        return made;
+    });
+    return date ? [dates stringFromDate:date] : @"";
 }
 
 - (void)nlLoad {
     NLHistoryItem *item = _item;
     BOOL skipped = NLHistoryShowsSkipped(self);
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        NSUInteger plays = 0, skips = 0;
+        NSMutableArray<NLHistoryItem *> *mine = [NSMutableArray array];
+        NSUInteger skips = 0;
         double listened = 0;
-        NSDate *first = nil;
         for (NLHistoryItem *other in NLHistoryLoadAll(skipped)) {   // newest first
             if (![other isSameSongAs:item]) continue;
-            plays++;
+            [mine addObject:other];
             if (other.skipped) skips++;
             listened += other.listened;
-            first = other.start;
         }
+        NLHistoryApps *apps = [NLHistoryApps appsForItems:mine];
+        NSDate *latest = mine.firstObject.start ?: item.start ?: [NSDate date];
+        NLActivityPeriod *week = [NLActivityPeriod periodWithScale:NLActivityScaleWeek containingDate:latest items:mine apps:apps];
+        NSString *artPath = NLHistoryArtworkPath(item.art);
+        NSData *art = artPath ? [NSData dataWithContentsOfFile:artPath] : nil;
+        UIColor *color = NLSongCardColor(art ? NLColorFromArtwork(art) : nil);
+        NSArray<NSString *> *listenApps = NLListenApps(item);
         // Its lyrics in the app that played it: added by hand first, as the app looks.
         NSString *folder = NLLyricsFolderForBundle(item.app);
         BOOL isDir = NO;
@@ -368,21 +635,32 @@ typedef NS_ENUM(NSInteger, NLSongStat) { NLSongStatPlays, NLSongStatSkipped, NLS
                 if ([[NSFileManager defaultManager] fileExistsAtPath:path]) { lyrics = path; break; }
             }
         }
+        NSMutableArray<NSString *> *lines = [NSMutableArray array];
+        NSString *text = lyrics ? [NSString stringWithContentsOfFile:lyrics encoding:NSUTF8StringEncoding error:nil] : nil;
+        for (NLLyricLine *line in text ? NLParseLRC(text) : @[]) {
+            NSString *words = [line.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+            if (words.length) [lines addObject:words];
+            if (lines.count == kNLSongCardLines) break;
+        }
         dispatch_async(dispatch_get_main_queue(), ^{
-            self->_plays = plays;
-            self->_skips = skips;
-            self->_listened = listened;
-            self->_first = first;
+            self->_week = week;
             self->_folder = folder;
             self->_lyricsPath = lyrics;
-            self->_statsLoaded = YES;
-            NSMutableArray *stats = [NSMutableArray arrayWithObject:@(NLSongStatPlays)];
-            if (skips) [stats addObject:@(NLSongStatSkipped)];
-            [stats addObjectsFromArray:@[@(NLSongStatListened), @(NLSongStatFirst)]];
-            if (item.app.length) [stats addObject:@(NLSongStatApp)];
-            self->_stats = stats;
-            NSMutableArray *sections = [NSMutableArray arrayWithObject:@(NLSongSectionStats)];
-            if (folder) [sections addObject:@(NLSongSectionLyrics)];
+            self->_loaded = YES;
+            [self->_cardCell showItem:item lines:lines editable:lyrics != nil color:color];
+            [self nlShowListenApps:listenApps];
+            NLSongTilesCell *tiles = self->_tilesCell;
+            [tiles.plays showValue:NLSongTileNumber(NLHistoryCount(mine.count, @"1 time", @"%lu times"))
+                            detail:skips ? [NSString stringWithFormat:NLL(@"Skipped %@"), NLHistoryCount(skips, @"1 time", @"%lu times")] : nil];
+            [tiles.listened showValue:NLSongTileNumber(NLHistoryDuration(listened)) detail:nil];
+            [tiles.first showValue:NLSongTileText([self nlDateString:mine.lastObject.start]) detail:nil];
+            [tiles.last showValue:NLSongTileText([self nlDateString:mine.firstObject.start]) detail:nil];
+            // The week's time, not its daily average: a song is played on a day or two.
+            self->_chart.period = week;
+            [self->_weekCell showTitle:NLL(@"Listening Time") value:NLHistoryDuration(week.total) trend:nil rising:NO
+                             durations:week.durations apps:apps];
+            NSMutableArray *sections = [NSMutableArray arrayWithObjects:@(NLSongSectionCard), @(NLSongSectionListen), @(NLSongSectionNumbers), nil];
+            if (mine.count) [sections addObject:@(NLSongSectionWeek)];
             if (folder && item.key.length) [sections addObject:@(NLSongSectionOffset)];
             self->_sections = sections;
             [self->_table reloadData];
@@ -390,83 +668,84 @@ typedef NS_ENUM(NSInteger, NLSongStat) { NLSongStatPlays, NLSongStatSkipped, NLS
     });
 }
 
+// The app it played in on the left; the other music apps and Share in More.
+- (void)nlShowListenApps:(NSArray<NSString *> *)apps {
+    UIButton *listen = _listenCell.listenButton, *more = _listenCell.moreButton;
+    NSString *first = apps.firstObject;
+    listen.hidden = !first;
+    if (first) {
+        UIColor *text = nil;
+        UIColor *fill = NLListenColor(first, &text);
+        listen.configuration = NLSongButton(NLListenTitle(first), fill, text, nil);
+    }
+    more.configuration = NLSongButton(NLL(@"More Ways to Listen"), UIColor.tertiarySystemFillColor, UIColor.labelColor,
+                                      [UIImage systemImageNamed:@"chevron.down"]);
+    NSArray<NSString *> *others = apps.count > 1 ? [apps subarrayWithRange:NSMakeRange(1, apps.count - 1)] : @[];
+    more.menu = NLListenMenu(_item, others, self, more);
+}
+
 - (NLSongSection)nlSection:(NSInteger)section {
     return (NLSongSection)_sections[section].integerValue;
 }
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return _statsLoaded ? (NSInteger)_sections.count : 0;
+    return _loaded ? (NSInteger)_sections.count : 0;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    switch ([self nlSection:section]) {
-        case NLSongSectionStats: return (NSInteger)_stats.count;
-        case NLSongSectionLyrics: return 1;
-        case NLSongSectionOffset: return 1;
-    }
-    return 0;
+    return 1;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     switch ([self nlSection:section]) {
-        case NLSongSectionStats: return NLL(@"This Song");
-        case NLSongSectionLyrics: return NLL(@"Lyrics");
-        case NLSongSectionOffset: return nil;
+        case NLSongSectionWeek: return _week.title;
+        case NLSongSectionOffset: return NLL(@"Offset");
+        default: return nil;
     }
-    return nil;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
-    if ([self nlSection:section] == NLSongSectionOffset) return NLL(@"This song's own offset, on top of the default one.");
-    return nil;
+    return [self nlSection:section] == NLSongSectionOffset ? NLL(@"This song's own offset, on top of the default one.") : nil;
+}
+
+// The card, its buttons and its numbers close together.
+- (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
+    switch ([self nlSection:section]) {
+        case NLSongSectionCard: return 16;
+        case NLSongSectionListen:
+        case NLSongSectionNumbers: return 12;
+        default: return UITableViewAutomaticDimension;
+    }
+}
+
+- (CGFloat)tableView:(UITableView *)tableView heightForFooterInSection:(NSInteger)section {
+    switch ([self nlSection:section]) {
+        case NLSongSectionCard:
+        case NLSongSectionListen: return CGFLOAT_MIN;
+        case NLSongSectionOffset: return UITableViewAutomaticDimension;
+        default: return 12;   // before a titled one
+    }
+}
+
+// Without views of their own the table keeps its usual space for them.
+- (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
+    return [self tableView:tableView titleForHeaderInSection:section] ? nil : [UIView new];
+}
+
+- (UIView *)tableView:(UITableView *)tableView viewForFooterInSection:(NSInteger)section {
+    return [self tableView:tableView titleForFooterInSection:section] ? nil : [UIView new];
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
     return [self nlSection:indexPath.section] == NLSongSectionOffset ? kNLStackedRowHeight : UITableViewAutomaticDimension;
 }
 
-- (UITableViewCell *)nlValueCell:(NSString *)title value:(NSString *)value {
-    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:nil];
-    cell.textLabel.text = title;
-    cell.detailTextLabel.text = value;
-    cell.selectionStyle = UITableViewCellSelectionStyleNone;
-    return cell;
-}
-
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     switch ([self nlSection:indexPath.section]) {
-        case NLSongSectionStats: {
-            switch ((NLSongStat)_stats[indexPath.row].integerValue) {
-                case NLSongStatPlays: return [self nlValueCell:NLL(@"Plays") value:NLHistoryCount(_plays, @"1 time", @"%lu times")];
-                case NLSongStatSkipped: return [self nlValueCell:NLL(@"Skipped") value:NLHistoryCount(_skips, @"1 time", @"%lu times")];
-                case NLSongStatListened: return [self nlValueCell:NLL(@"Listening Time") value:NLHistoryDuration(_listened)];
-                case NLSongStatFirst: {
-                    NSDateFormatter *dates = NLHistoryFormatter(@"first played", ^id {
-                        NSDateFormatter *made = [NSDateFormatter new];
-                        made.dateStyle = NSDateFormatterMediumStyle;
-                        made.timeStyle = NSDateFormatterShortStyle;
-                        made.doesRelativeDateFormatting = YES;
-                        return made;
-                    });
-                    return [self nlValueCell:NLL(@"First Played") value:_first ? [dates stringFromDate:_first] : @""];
-                }
-                case NLSongStatApp: {
-                    UITableViewCell *cell = [self nlValueCell:NLL(@"Played In") value:NLAppName(_item.app)];
-                    UIImage *icon = NLAppIcon(_item.app);
-                    if (icon) cell.imageView.image = NLRowSizedImage(icon, YES);
-                    return cell;
-                }
-            }
-            return [UITableViewCell new];
-        }
-        case NLSongSectionLyrics: {
-            if (!_lyricsPath) return NLNoteCell(NLL(@"No lyrics saved for this song yet."));
-            UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
-            cell.textLabel.text = NLL(@"Edit Lyrics");
-            cell.imageView.image = NLSettingsIcon(@"text.quote", @"#FF2D55");
-            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-            return cell;
-        }
+        case NLSongSectionCard: return _cardCell;
+        case NLSongSectionListen: return _listenCell;
+        case NLSongSectionNumbers: return _tilesCell;
+        case NLSongSectionWeek: return _weekCell;
         case NLSongSectionOffset: {
             double offset = [self nlDefaultOffset] + NLTrackOffset(@{NL_TRACK_OFFSETS_KEY: [self nlOffsets]}, _item.key);
             return NLSongOffsetRow(offset, self, @selector(nlOffsetChanged:));
@@ -477,7 +756,7 @@ typedef NS_ENUM(NSInteger, NLSongStat) { NLSongStatPlays, NLSongStatSkipped, NLS
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    if ([self nlSection:indexPath.section] != NLSongSectionLyrics || !_lyricsPath) return;
+    if ([self nlSection:indexPath.section] != NLSongSectionCard || !_lyricsPath) return;
     NLLyricsEditorController *editor = [[NLLyricsEditorController alloc] initWithPath:_lyricsPath title:_item.title];
     [self.navigationController pushViewController:editor animated:YES];
 }
@@ -715,6 +994,10 @@ typedef NS_ENUM(NSInteger, NLSongStat) { NLSongStatPlays, NLSongStatSkipped, NLS
     if (item) NLHistoryPush(self, [[NLHistorySongController alloc] initWithItem:item]);
 }
 
+- (UIContextMenuConfiguration *)tableView:(UITableView *)tableView contextMenuConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath point:(CGPoint)point {
+    return NLSongContextMenu(_rows[indexPath.row].item, self);
+}
+
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath {
     NLHistoryItem *item = _rows[indexPath.row].item;
     if (!item) return [UISwipeActionsConfiguration configurationWithActions:@[]];
@@ -929,6 +1212,11 @@ typedef NS_ENUM(NSInteger, NLHistorySetting) {
             });
             break;
     }
+}
+
+- (UIContextMenuConfiguration *)tableView:(UITableView *)tableView contextMenuConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath point:(CGPoint)point {
+    if (indexPath.section != NLHistorySectionTopSongs || indexPath.row >= (NSInteger)_topSongs.count) return nil;
+    return NLSongContextMenu(_topSongs[indexPath.row].item, self);
 }
 
 #pragma mark Export and import

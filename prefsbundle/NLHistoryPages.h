@@ -99,6 +99,7 @@ NSString *NLActivityTrend(NLActivityPeriod *period, NLActivityPeriod *previous, 
 // week around it above, headChartView) and the three apps listened to
 // longest. With Screen Time's charts the title is theirs, the legend too.
 @interface NLActivityCardCell : UITableViewCell
+- (instancetype)initWithScreenTime:(BOOL)screenTime;   // NO: ours even where Screen Time's are (initWithStyle: picks)
 @property (nonatomic, strong) UIView *chartView;
 @property (nonatomic) CGFloat chartHeight;
 @property (nonatomic, strong) UIView *headChartView;   // nil: none
@@ -182,6 +183,23 @@ NSArray<NLUsage *> *NLUsages(NSArray<NLHistoryItem *> *items, NSDate *start, NSD
 @property (nonatomic, readonly, getter=isShown) BOOL shown;
 - (void)setShown:(BOOL)shown animated:(BOOL)animated;
 @end
+
+// A song listened to again (NLListen.m), as Shazam's More Ways to Listen:
+// the apps it can be, the one it played in first while it is installed, then
+// the music apps on this iPhone; each one's name, its button's title and
+// colors (`text` the title's) and its icon for a menu. NLListen opens the
+// song there: Apple Music's own page of it, or the app's search for it.
+NSArray<NSString *> *NLListenApps(NLHistoryItem *item);
+NSString *NLListenName(NSString *bundleID);    // Apple Music, Spotify
+NSString *NLListenTitle(NSString *bundleID);   // Listen in Spotify; Open Safari for one that is not a music app
+UIColor *NLListenColor(NSString *bundleID, UIColor **text);
+UIImage *NLListenIcon(NSString *bundleID);
+void NLListen(NLHistoryItem *item, NSString *bundleID);
+void NLShareSong(NLHistoryItem *item, UIViewController *from, UIView *source);   // its title and artist
+// Other Apps (`apps`) and Share, the song page's More Ways to Listen; and a
+// song row's long press: the app it played in above them.
+UIMenu *NLListenMenu(NLHistoryItem *item, NSArray<NSString *> *apps, UIViewController *from, UIView *source);
+UIContextMenuConfiguration *NLSongContextMenu(NLHistoryItem *item, UIViewController *from);
 
 @interface NLHistoryDayController : PSViewController
 - (instancetype)initWithDay:(NSString *)day;
