@@ -1,9 +1,16 @@
 # Changelog
 
-## 1.2.3
+## 1.3.0
 
 ### Features
 
+- Listening History (a new settings page, off until you turn it on): every song you play, in any app, is written down and stays on the device; one left within 30 seconds (or half of a shorter song) is marked as skipped
+- Your week at a glance, as in Screen Time: listening time and how it compares with last week, a chart by day and by hour, and the songs, artists, albums and apps you played most
+- Every day as a timeline of what played, when and in which app; swipe a play to delete it
+- Each song has a page: its first lyric lines in its cover's color, Listen in the app it played in or More Ways to Listen, its plays, listening time, first and last play, its week, and its offset
+- Hold any song in the history to play it again: Apple Music opens the song itself, other apps search for it
+- Keep the history 30 days, 90 days, a year or forever; export it with its covers as one file, and import it again, added to what is here or in its place
+- The settings pages take the color of the song playing when Player over its cover is on, and grey for a cover with no color of its own
 - Always show (Lyrics Island): the island and its line stay up in the app that is playing too, where iOS would put the island away
 - Lyrics Island also works on devices given the Dynamic Island by a tweak or a MobileGestalt edit, iPads included
 - Apply sits at the top right of every settings page, not only the main one
@@ -26,7 +33,7 @@
 - Musixmatch: a User Token field with nothing in it no longer counts as a token, and its lyrics look the same the first time as when played again
 - LRCLIB finds lyrics even when the app does not say how long the song is
 - Music: Hide explicit badge no longer acts while NowLyrics is off for Music
-- Island preview in Settings: a new cover always shows, the open preview closes properly when the music stops, and the page colors match the preview
+- Island preview in Settings: a new cover always shows, and the open preview closes properly when the music stops
 - Settings: the waveform stops while its page is covered, the Apple Music test stops when you tap OK, and a song's offset is no longer cut off at ±3 s
 - Lyrics Library: song details wrap instead of being cut off, files whose names start with a dot are listed, lyrics added as ".LRC" are used, every word-by-word file is marked, and a search of only spaces shows the right note
 - Simplified Chinese and Japanese: the notes use the rows' actual names

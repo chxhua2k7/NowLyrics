@@ -11,7 +11,7 @@ Works with Spotify, Apple Music and any player that shows what it plays on the
 lock screen. Lyrics come from Apple Music (with a subscription), Musixmatch,
 LRCLIB and NetEase Cloud Music.
 
-Current version: **1.2.3** · [Changelog](CHANGELOG.md) · 繁體中文說明:[README.zh-Hant.md](README.zh-Hant.md)
+Current version: **1.3.0** · [Changelog](CHANGELOG.md) · 繁體中文說明:[README.zh-Hant.md](README.zh-Hant.md)
 
 ## Features
 
@@ -33,6 +33,14 @@ Current version: **1.2.3** · [Changelog](CHANGELOG.md) · 繁體中文說明:[R
   LRC, Apple Music / AMLL TTML); lyrics you add win over every source.
 - **Lyrics Library**: every saved song by app, searchable; view, edit and
   delete, or clear the cache (lyrics you added are kept).
+- **Listening History** (optional): every song you play, in any app, written
+  down on your device; songs left within 30 seconds are marked as skipped.
+  Your week as in Screen Time (listening time against last week, by day and by
+  hour, the songs, artists, albums and apps you played most), each day as a
+  timeline, and a page for each song with its first lyric lines, its plays and
+  its week. Hold a song to play it again: Apple Music opens the song itself,
+  other apps search for it. Kept 30 days, 90 days, a year or forever; export
+  and import it as one file.
 - **Player over its cover**: the player on the lock screen, in Control Center
   and in Settings sits on its cover, blurred and darkened, with adjustable
   transparency (iOS 15–18).
@@ -96,6 +104,10 @@ once.
   Expanded or Auto compact), Lyrics color (White or Album color), Line change
   (Fade or Scroll up), Word by word, Font size, Scroll speed. The preview at
   the top works like the real island: tap or hold it.
+- **Listening History**: This Week and Show All Activity, Most Played This
+  Week, and the days; Record Listening History, Keep History (30 days, 90
+  days, 1 year, Forever), Show Skipped Songs, Export History and Import
+  History, Delete All History.
 - **Lyrics Sources**: Lyrics Library, Source order, Apple Music lyrics (with
   Use in other apps and a test), Musixmatch, LRCLIB and NetEase Music.
 - **Advanced**:
@@ -174,6 +186,7 @@ the lyrics sources you have on. Apple Music lyrics are asked of Apple through
 your own Apple ID, after the song is found with Apple's public search; the
 subscription check also asks Apple. A Musixmatch User Token or API key is
 stored only in NowLyrics' settings on your device and sent only to Musixmatch.
+Listening History stays on your device unless you export it.
 No accounts, no analytics, no tracking.
 
 ## Credits
