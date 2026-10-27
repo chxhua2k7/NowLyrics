@@ -3,7 +3,7 @@
 <img src="logo/NowLyrics-1024.png" width="96" alt="NowLyrics">
 
 把同步歌詞放到曲名的位置:鎖定畫面、控制中心、動態島、CarPlay。支援 Spotify、Apple Music
-和任何會發布 now-playing 資訊的播放器;另可在縮小的動態島底部多一列顯示當前歌詞。
+和任何會發布 now-playing 資訊的播放器;另可在縮小的動態島底部多一列顯示當前歌詞,也可以記下聆聽紀錄。
 來源:Apple Music(需訂閱)、Musixmatch、LRCLIB、網易雲。
 
 私人原始碼 repo。公開頁面:[chxhua2k7/NowLyrics](https://github.com/chxhua2k7/NowLyrics)。
@@ -123,6 +123,18 @@ English: [README.md](README.md)
 - **選擇 App**(`NLAppListController`):AltList 的 App 清單,右上角可篩選(`appListFilter`):預設只列音樂 App
   (App Store 音樂類別 6011、「音樂」、「Podcast」和已勾選的),或列出全部。篩選是 AltList 區段的 predicate;
   AltList 是 dlopen 載入而不是連結,所以子類別在執行期才建立。
+- **聆聽紀錄**(SpringBoard 裡的 `NLHistorySB.x`、`NLHistory.m`;開關 `history`,預設關):SpringBoard 收到每次
+  now-playing 變動(`-[SBMediaController _mediaRemoteNowPlayingInfoDidChange:]`)就問 MediaRemote 正在播什麼,
+  不分 App。NowLyrics 在那個 App 裡時曲名是歌詞,所以歌名改讀 App 的 `nowplaying.plist`(`started` 記這首開始的時間)。
+  播滿 30 秒或半首才算一次;更早離開但播了 2 秒以上的記成「已跳過」(`historySkipped` 決定顯不顯示)。
+  只算播放中的時間;算數時、每次暫停、結束時和中間每分鐘寫一次,每個本地日期一個 JSON,放在越獄根目錄下的
+  `/var/mobile/Library/NowLyrics/History`(`NLJBPath`),封面在 `Artwork/`;`historyDays`(預設 90,0 = 永久)
+  刪掉更舊的日子。頁面(`prefsbundle/NLHistory*.m`)在有 ScreenTimeSettingsUI 的 iOS 上用螢幕使用時間自己的圖表
+  (`NLScreenTime.m`:`STUsageGraphViewController`、標題、圖例、日期列),沒有的就自己畫。「在 … 收聽」和長按歌曲
+  (`NLListen.m`)讓 Apple Music 直接開那首歌(Apple 搜尋給的 `trackViewUrl`),其他 App 開它們的搜尋。
+  匯出、匯入是一個 JSON 檔,封面包在裡面。
+- **設定**從 1.3.0 起存在 `com.c3x14n.nowlyrics`;舊的 `app.nowlyrics` 的值會複製過來一次(`NLMoveOldPrefs`,
+  SpringBoard 和設定頁各會做),舊檔名的檔案仍會當備援讀取。
 
 歌詞依 App 快取在 `Library/NowLyrics/`(最多 300 檔,1.2.0 起檔頭有 `[ti:]`/`[ar:]`/`[nl-source:]`,
 舊檔播到時補上);手動加入的(設定頁貼上/匯入,或自己放)`Library/NowLyrics/manual/曲名 - 演出者.lrc`
@@ -157,6 +169,7 @@ make package FINALPACKAGE=1 THEOS=~/theos-roothide THEOS_PACKAGE_SCHEME=roothide
 | `NLLyricsSources.m` | 提供和指定的來源、歌詞狀態:「正在播放」頁與控制中心共用 |
 | `cc/` | 控制中心模組:provider 和模組(`NLCCModule.m`)、1×1 與 1×2 的小方塊(`NLCCViews.m`) |
 | `prefs/`、`prefsbundle/`、`bundle/Island.plist` | 設定頁:plist 加四種語言;控制器(執行期圖示、套用、版本、歌詞上島頁)、拉桿列、文字列 |
+| `NLHistorySB.x` / `NLHistory.m`、`prefsbundle/NLHistory*.m`、`NLScreenTime.m`、`NLListen.m` | 聆聽紀錄:SpringBoard 裡的記錄器與每日檔案;頁面、螢幕使用時間的圖表、再聽一次 |
 | `docs/`、`havoc/` | vPhone 手冊;上架文案、changelog、乾淨重裝檢查表 |
 
 ## 測試

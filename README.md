@@ -5,8 +5,8 @@
 Synced lyrics in place of the track title on the lock screen, Control Center,
 the Dynamic Island and CarPlay, for Spotify, Apple Music and any player that
 publishes now-playing info, plus an optional strip with the current line under
-the compact Dynamic Island. Sources: Apple Music (with a subscription),
-Musixmatch, LRCLIB, NetEase.
+the compact Dynamic Island and an optional listening history. Sources: Apple
+Music (with a subscription), Musixmatch, LRCLIB, NetEase.
 
 Private source repo. Public page: [chxhua2k7/NowLyrics](https://github.com/chxhua2k7/NowLyrics).
 Sold on Havoc as `com.c3x14n.nowlyrics`; listing material in `havoc/`.
@@ -205,6 +205,28 @@ Sold on Havoc as `com.c3x14n.nowlyrics`; listing material in `havoc/`.
   genre 6011, Music, Podcasts and the apps already chosen) or all. The filter is
   an AltList section predicate; the subclass is made at runtime, as AltList is
   dlopen'ed rather than linked.
+- **Listening History** (`NLHistorySB.x` in SpringBoard, `NLHistory.m`; switch
+  `history`, off by default): SpringBoard hears every now-playing change
+  (`-[SBMediaController _mediaRemoteNowPlayingInfoDidChange:]`) and asks
+  MediaRemote what plays, in any app. While NowLyrics runs in that app the
+  title is a lyric line, so the song comes from the app's `nowplaying.plist`
+  (its `started` time tells the song's start). A play counts after 30 s or half
+  the song; one left earlier, after 2 s or more, is written as skipped
+  (`historySkipped` shows or hides them). Only playing time counts; a play is
+  written when it counts, at each pause, at its end and once a minute between,
+  into one JSON file per local day in `/var/mobile/Library/NowLyrics/History`
+  under the jailbreak root (`NLJBPath`), covers in `Artwork/`; `historyDays`
+  (default 90, 0 = forever) prunes older days. The pages
+  (`prefsbundle/NLHistory*.m`) use Screen Time's own charts where iOS has
+  ScreenTimeSettingsUI (`NLScreenTime.m`: `STUsageGraphViewController`, its
+  title view, legend and date bar) and draw their own elsewhere. Listen in and
+  a long press on a song (`NLListen.m`) open Apple Music at the song itself
+  (its `trackViewUrl` from Apple's search) and other apps at their search.
+  Export and import are one JSON file with the covers inside.
+- **Preferences** live under `com.c3x14n.nowlyrics` since 1.3.0; the keys of the
+  old `app.nowlyrics` domain are copied over once (`NLMoveOldPrefs`, in
+  SpringBoard and the settings page), and a file by the old name is still read
+  as a fallback.
 
 Lyrics are cached per app in `Library/NowLyrics/` (max 300 files; since 1.2.0
 with `[ti:]`/`[ar:]`/`[nl-source:]` tags on top, added to older files when they
@@ -251,6 +273,7 @@ make package FINALPACKAGE=1 THEOS=~/theos-roothide THEOS_PACKAGE_SCHEME=roothide
 | `NLLyricsSources.m` | the sources offered and picked, the lyrics' status: the Now Playing page and Control Center |
 | `cc/` | Control Center modules: the provider and the module (`NLCCModule.m`), the 1×1 and 1×2 tile (`NLCCViews.m`) |
 | `prefs/`, `prefsbundle/`, `bundle/Island.plist` | settings page: plist + 4 languages; controller (runtime icons, Apply, version, island page), slider rows, text rows |
+| `NLHistorySB.x` / `NLHistory.m`, `prefsbundle/NLHistory*.m`, `NLScreenTime.m`, `NLListen.m` | listening history: the recorder in SpringBoard and the day files; its pages, Screen Time's charts, listening again |
 | `docs/`, `havoc/` | vPhone runbook; listing text, changelog, clean-install checklist |
 
 ## Testing
