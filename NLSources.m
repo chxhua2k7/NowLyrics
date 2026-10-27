@@ -581,6 +581,12 @@ NSArray<NLLyricLine *> *NLResolveLyrics(NLSettings *settings, NSString *key,
     *transient = NO;
     *outPath = nil;
 
+    // No lyrics picked for this song: none from anywhere, added ones too.
+    if ([settings lyricsOffForTrack:key]) {
+        *source = NL_STATUS_OFF;
+        return nil;
+    }
+
     NSArray<NLLyricLine *> *manual = NLManualLyrics(title, artist, outPath);
     if (manual.count) { *source = @"manual file"; return manual; }
 

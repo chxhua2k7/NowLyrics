@@ -61,7 +61,8 @@ English: [README.md](README.md)
 - **歌詞管理**(設定頁「正在播放」「歌詞庫」):Preferences 沒有沙盒,直接讀寫各 App 容器裡的歌詞檔
   (`NLLocate.m` 用容器的 metadata plist 找 bundle ID),改完發 `com.c3x14n.nowlyrics/LyricsChanged`,
   App 先重讀設定再清掉記憶體快取、找一次。每首偏移和每首指定的來源存在設定檔的 `trackOffsets`、
-  `trackSources`(曲目 key → 秒 / 來源名);頁面上只顯示一個偏移(「進階」的預設偏移加上這首的)。
+  `trackSources`(曲目 key → 秒 / 來源名;來源是 `off` 就是「這首不顯示歌詞」,這首歌在哪裡都不顯示歌詞);
+  頁面上只顯示一個偏移(「進階」的預設偏移加上這首的)。
   主頁和「正在播放」頁最上面嵌入鎖定畫面的播放器
   (MediaControls 的 `+[MRPlatterViewController coverSheetPlatterViewController]`,`NLPlayerHeader`);
   主頁可在「進階 › 主頁頂端」(`pageHeader`)換成島預覽或隱藏;「進階 › 其他頁也一樣」
@@ -71,6 +72,28 @@ English: [README.md](README.md)
   「播放器用封面背景」蓋在上面。「歌詞來源」頁照嘗試順序列出來源
   (plist 列上的 `source`)。Musixmatch 跟 Apple Music 一樣要先解鎖:有安裝 Musixmatch App
   (`musixmatchVerified`);App 刪掉後,有存 User Token 或 API Key 就繼續用。
+- **控制中心的媒體播放器**(`NLSystemPlayerSB.x`,在 NowLyricsIsland 裡;iOS 16 和 26,17 到 25 維持原樣):
+  輸出列表下面列出「正在播放」頁提供的來源,這首指定的打勾、下面寫歌詞狀態,還有「這首不顯示歌詞」和「NowLyrics 設定⋯」
+  (iOS 16:`MRURoutingView` 輸出表格的 footer;iOS 26:路由選擇器的 collection view 下面,列的樣子照輸出列量出來)。
+  iOS 16 在那裡或設定頁選的大小(`systemPlayerSize`:1×4、2×2、2×4、3×4 或系統預設)會放進控制中心的格子
+  (`-[CCUIModuleCollectionViewController _sizesForModuleIdentifiers:…]`,有模組超過兩格寬時改用整格檢查的排列),
+  收合的播放器用它自己的元件照大小排:1×4 一列,2×2 封面在歌曲上面,2×4 大封面加歌曲和三行歌詞,
+  3×4 封面、歌詞、時間條和按鈕(MediaControls 把超過 200 pt 寬的卡片當成展開,所以把它的狀態固定在收合)。
+  展開時歌詞像 Apple Music:直向在大封面和歌曲下面,橫向在時間條和按鈕之間,iOS 26 並排輸出列表時也有;
+  正在唱的那行逐字亮起,其他行變暗模糊,長間奏有圓點,長句隨著唱往上捲,上面顯示歌曲本身的曲名,輸出名稱拿掉。
+  iOS 26 的 MediaControls 是 Swift:元件的欄位照名稱讀(`class_getInstanceVariable`);2×4、4×4、直向、橫向有歌詞,
+  小尺寸的標題保持跑馬燈。設定頁「控制中心」:大小(iOS 16)、收合時顯示歌詞、展開時顯示歌詞、輸出列表顯示歌詞來源
+  (`ccClosedLyrics`、`ccOpenLyrics`、`ccSourcesInOutputs`),以及從「進階」搬來的「播放器用封面背景」。
+  控制中心收起時只是把視窗藏起來,元件都還在裡面,MediaControls 每次正在播放的資訊一變就把每個播放器重排:
+  NowLyrics 自己的讀取和逐格更新在視窗隱藏時停下,視窗再出現時恢復(`UIWindowDidBecomeVisibleNotification`)。
+- **NowLyrics 的控制中心模組**(`cc/`,CCSupport 的 module provider,在 `/Library/ControlCenter/CCSupport_Providers`):
+  「設定 › 控制中心」的控制項裡有「NowLyrics 1×1」到「NowLyrics 3×4」,每個是一種大小(`-moduleSizeForOrientation:`;
+  iOS 17 起只有兩個小方塊),可以加好幾個。每個模組是一份照媒體模組方式建立的播放器
+  (`[MRUControlCenterViewController new]` 和它的關閉、Home 手勢、角落按鈕三個 block),交給島(`NLSPOwnModule`)
+  照媒體模組的方式依那個大小排版。輸出按鈕換成歌詞圖示(`quote.bubble`),輸出列表只有歌詞來源:
+  輸出表格藏在下面(MediaControls 用批次更新改它,所以不動它的資料來源)。1×1(封面和 App 圖示)
+  與 1×2(封面、用 MediaControls 的 `MRUMarqueeLabel` 跑馬燈的曲名和演出者、播放/暫停)是模組自己的小方塊,
+  蓋在卡片上,展開時淡出。
 - **播放器用封面背景**(`NLPlayerTint`,開關 `playerTint`):控制中心蓋在
   `-[MRUControlCenterView materialView]` 上;鎖定畫面蓋在播放器 `PLPlatterView` 的毛玻璃上,
   靠通知列表的群組 `com.apple.MediaRemoteUI` 和即時動態(同樣是 ActivityUIServices 的 scene)分開。
@@ -117,7 +140,7 @@ make package FINALPACKAGE=1 THEOS=~/theos-roothide THEOS_PACKAGE_SCHEME=roothide
 - roothide 要用 roothide 版的 Theos;套件會連結 libroothide,越獄的檔案用 `jbroot()` 找(`NLShared.h` 的 `NLJBPath()`)。
   兩種方案各自編在 `.theos/obj/<scheme>`,不會混在一起。還沒在 roothide 越獄上實際跑過。
 - 版本號只在 Makefile 的 `PACKAGE_VERSION`(套件版本、`NL_VERSION` 定義、stage 時填入 `bundle/Info.plist`)。
-- 執行期相依:PreferenceLoader、AltList。`sudo dpkg -i` 安裝後 respring 一次(設定頁的「套用」),SpringBoard 才會載入 NowLyricsIsland;歌詞本身只要播放器重開。
+- 執行期相依:PreferenceLoader、AltList;NowLyrics 的控制中心模組要 CCSupport(不列為相依:沒裝就只是不載入那個 provider)。`sudo dpkg -i` 安裝後 respring 一次(設定頁的「套用」),SpringBoard 才會載入 NowLyricsIsland;歌詞本身只要播放器重開。
 - iOS 18 起「設定」改用 Swift 重寫,PreferenceLoader 2.2.6 在那裡掛不出 tweak 頁面。裝 dhinakg 的 2.2.8
   (https://dhinakg.github.io/repo/)後,NowLyrics 在「設定 › 一般」最下面。
 
@@ -130,6 +153,9 @@ make package FINALPACKAGE=1 THEOS=~/theos-roothide THEOS_PACKAGE_SCHEME=roothide
 | `NLEngine.m` / `NLSources.m` / `NLLyrics.m` / `NLSettings.m` | 引擎、來源、LRC(含逐字、yrc)與快取、設定快照 |
 | `NLIslandStrip.m` / `NLLocate.m` | 島的歌詞列(逐字遮罩);找 App 容器與 `nowplaying.plist`(設定頁與島共用) |
 | `prefsbundle/NLNowPlayingController.m`、`NLLibraryController.m`、`NLLyricsEditor.m`、`NLLyricsImport.m` | 正在播放、歌詞庫(依 App 分類)、編輯器、貼上/匯入與 TTML |
+| `NLSystemPlayerSB.x` | SpringBoard:控制中心的媒體播放器(iOS 16、26)和 NowLyrics 模組裡的副本:輸出下的來源、大小、歌詞 |
+| `NLLyricsSources.m` | 提供和指定的來源、歌詞狀態:「正在播放」頁與控制中心共用 |
+| `cc/` | 控制中心模組:provider 和模組(`NLCCModule.m`)、1×1 與 1×2 的小方塊(`NLCCViews.m`) |
 | `prefs/`、`prefsbundle/`、`bundle/Island.plist` | 設定頁:plist 加四種語言;控制器(執行期圖示、套用、版本、歌詞上島頁)、拉桿列、文字列 |
 | `docs/`、`havoc/` | vPhone 手冊;上架文案、changelog、乾淨重裝檢查表 |
 
@@ -140,7 +166,8 @@ iPhone 14 Pro / iOS 16.5.1 測全部;vphone-cli VM(iOS 26.1、18.6.2)測 Spotify
 與 18.6.2、26.1 的 VM 上驗證過,動畫是用螢幕錄影逐格檢查的。
 iOS 17 以上改掛在元件自己的 view:那裡容器的內容 view 規定只能有一個子 view,`addContentSubview:` 會把元件換掉。
 17 以上島變大小是一步步重排那個 view(26 會先回彈,過一下再變寬),所以歌詞等它在螢幕上停住才淡入。
-18.5 與 26.1 用到的私有 API 逐一對過該版的符號。
+18.5 與 26.1 用到的私有 API 逐一對過該版的符號。控制中心在 14 Pro(16.5.1、CCSupport 1.3.13)上確認過,
+iOS 26 在 ios26 和 ipados26 VM(26.6.2)上確認過。
 
 ## 限制
 
@@ -154,7 +181,9 @@ iPadOS 26 的「設定」側邊欄浮在頁面上,所以播放器和預覽島依
 所以維持系統原樣;26 上這個設定會隱藏,設定頁的播放器也維持系統外觀,跟鎖定畫面一致。
 Spotify 的時間依據的是 16.5.1 上的量測:宣告後比平常更久才出聲的歌(看過最長 1.43 秒)歌詞最多早 0.45 秒,
 在一首歌最後 3.5 秒內切歌或回到開頭,之後的歌詞會晚約 1 秒,兩者都到下次暫停為止;交叉淡化和 Automix
-沒有處理,Spotify Connect 裝置的延遲也沒有。
+沒有處理,Spotify Connect 裝置的延遲也沒有。控制中心的媒體播放器只在 iOS 16 和 26 排版;NowLyrics 自己的模組要 CCSupport,
+裡面是 iOS 16 的播放器。每個模組都是一整份 MediaControls 播放器,控制中心收起時 MediaControls 也會在每次正在播放的資訊
+變動(每句歌詞)時更新它們,所以模組加越多越耗資源。
 
 ## 授權
 

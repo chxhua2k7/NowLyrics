@@ -33,12 +33,14 @@ static NSDictionary *NLSourceInfo(NSString *name) {
 }
 
 UIImage *NLSourceIcon(NSString *name) {
+    if ([name isEqualToString:NL_TRACK_SOURCE_OFF]) return NLSettingsIcon(@"nosign", @"#8E8E93");   // no lyrics for the song
     NSDictionary *info = NLSourceInfo(name);
     if (!info) return NLSettingsIcon(@"list.number", @"#5C5CDE");   // automatic: the source order's
     return NLRowIcon(info[@"app"], info[@"symbol"], info[@"color"]);
 }
 
 NSString *NLSourceTitle(NSString *name) {
+    if ([name isEqualToString:NL_TRACK_SOURCE_OFF]) return NLL(@"Off for This Song");
     NSDictionary *info = NLSourceInfo(name);
     return NLL(info ? info[@"title"] : name.length ? name : @"Automatic");
 }

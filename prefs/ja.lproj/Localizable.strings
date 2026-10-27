@@ -87,6 +87,7 @@
 "Clear" = "消去";
 "Apple Music lyrics" = "Apple Music の歌詞";
 "Automatic" = "自動";
+"Off for This Song" = "この曲は歌詞を表示しない";
 "Preview what’s playing" = "再生中の曲をプレビュー";
 "Paste the debug info from the Musixmatch app (Settings → Get help → Copy debug info), or use an API key of your own." = "Musixmatch アプリの debug info（設定 → Get help → Copy debug info）を貼り付けるか、自分の API キーを使います。";
 "Size" = "サイズ";
@@ -233,3 +234,21 @@
 "Top Apps" = "よく使った App";
 "Previous" = "前へ";
 "Next" = "次へ";
+
+/* Control Center: the media player's lists (NLSystemPlayerSB.x), NowLyrics' own modules (cc/, which gets a copy of this file) and their settings page. */
+"NowLyrics Settings…" = "NowLyrics設定...";
+"Off in this app" = "この App ではオフ";
+"Player Size" = "プレーヤーのサイズ";
+"Not Playing" = "再生停止中";
+"Control Center" = "コントロールセンター";
+"Media Module (System)" = "メディアモジュール（システム）";
+"System Default" = "システムのデフォルト";
+"Lyrics When Closed" = "閉じているときに歌詞を表示";
+"Lyrics When Open" = "開いているときに歌詞を表示";
+"Lyrics Sources in Outputs" = "出力リストに歌詞ソースを表示";
+"Lyrics show in the closed player at 2×4 and larger." = "閉じたプレーヤーの歌詞は 2×4 以上のサイズで表示されます。";
+"Lyrics Modules" = "歌詞モジュール";
+"Add in Control Center" = "コントロールセンターで追加";
+"Add NowLyrics 1×1 to 3×4 in Settings › Control Center: each is its own size, and you can add more than one." = "「設定 › コントロールセンター」で NowLyrics 1×1〜3×4 を追加できます。サイズごとに別のモジュールで、複数追加できます。";
+"Install CCSupport to add NowLyrics' own modules to Control Center." = "CCSupport をインストールすると、NowLyrics のモジュールをコントロールセンターに追加できます。";
+"Background" = "背景";

@@ -244,7 +244,7 @@ static NSString *NLMissLines(NSString *status) {
         [self nlRebuild:YES];
         return;
     }
-    if (_askedAt && [self nlWrittenAfter:_askedAt]) _askedAt = 0;   // the app has answered
+    if (_askedAt && NLNowPlayingWrittenAfter(_np, _askedAt)) _askedAt = 0;   // the app has answered
     NSUInteger oldRows = [self nlLyricsRowCount];
     [self nlRebuild:NO];
     if ([self nlLyricsRowCount] != oldRows) {
@@ -261,21 +261,13 @@ static NSString *NLMissLines(NSString *status) {
     [_table reloadSections:sections withRowAnimation:UITableViewRowAnimationNone];
 }
 
-// Whether the app wrote its nowplaying.plist after `time`: by its stamp, or by
-// its date (whole seconds only) for an app not restarted since NowLyrics was.
-- (BOOL)nlWrittenAfter:(CFAbsoluteTime)time {
-    BOOL wholeSeconds;
-    CFAbsoluteTime written = NLNowPlayingWritten(_np, &wholeSeconds);
-    return wholeSeconds ? written > floor(time) - 0.001 : written > time;
-}
-
 - (NSString *)nlString:(NSString *)key {
     return NLString(_np, key);
 }
 
 - (NSString *)nlPath { return [self nlString:NL_NP_PATH]; }
 
-- (BOOL)nlIsManual { return [[self nlPath] containsString:@"/" NL_MANUAL_FOLDER @"/"]; }
+- (BOOL)nlIsManual { return NLIsManualLyricsPath([self nlPath]); }
 
 // The sources switched on under Lyrics Sources (Apple Music in other apps only
 // while it may be used there), and the actions that fit the lyrics in use.
@@ -285,6 +277,7 @@ static NSString *NLMissLines(NSString *status) {
         if (name.length && ![self nlSourceEnabled:name]) continue;
         [sources addObject:name];
     }
+    [sources addObject:NL_TRACK_SOURCE_OFF];   // last: no lyrics for this song
     _sources = sources;
     NSMutableArray<NSString *> *actions = [NSMutableArray array];
     if (_np) {
@@ -334,15 +327,7 @@ static NSString *NLMissLines(NSString *status) {
 }
 
 NSDictionary *NLSettingTrackEntry(NSDictionary *all, NSString *key, id value) {
-    NSMutableDictionary *entries = [all mutableCopy] ?: [NSMutableDictionary dictionary];
-    if (value) entries[key] = value;
-    else [entries removeObjectForKey:key];
-    while (entries.count > kNLTrackOffsetsLimit) {
-        for (NSString *other in entries.allKeys) {
-            if (![other isEqualToString:key]) { [entries removeObjectForKey:other]; break; }
-        }
-    }
-    return [entries copy];
+    return NLTrackEntries(all, key, value);
 }
 
 // The song playing's entry in a per-song dictionary; nil removes it.
@@ -356,8 +341,8 @@ NSDictionary *NLSettingTrackEntry(NSDictionary *all, NSString *key, id value) {
     return NLString([self nlDictionaryPref:NL_TRACK_SOURCES_KEY], [self nlString:NL_NP_KEY] ?: @"") ?: @"";
 }
 
-// Pinned (or back to automatic): the saved copy goes, and once the apps have
-// re-read the settings, they are told to look the song up again.
+// Pinned (or back to automatic): the saved copy goes and the app is told to
+// look the song up again (NLLookUpAgain), the pick going with it.
 // A tap on a source looks the song up again with it at once; on the one ticked
 // already, the same again (what "Search again" was). The song's row says
 // "Searching…" right away.
@@ -365,9 +350,7 @@ NSDictionary *NLSettingTrackEntry(NSDictionary *all, NSString *key, id value) {
     BOOL same = [name isEqualToString:_picked];
     if (!same) [self nlSetTrackValue:(name.length ? name : nil) inPref:NL_TRACK_SOURCES_KEY];
     _picked = [self nlPickedSource];   // re-read: nothing is written without a track key
-    NSString *path = [self nlPath];
-    if (path && ![self nlIsManual]) [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
-    CFAbsoluteTime asked = CFAbsoluteTimeGetCurrent();
+    CFAbsoluteTime asked = NLLookUpAgain(_bundleID, _np, name);
     _askedAt = asked;
     _askedSource = name;
     _showResult = YES;
@@ -377,17 +360,6 @@ NSDictionary *NLSettingTrackEntry(NSDictionary *all, NSString *key, id value) {
         [self->_table reloadData];
     });
     [self nlReloadSongAndLyrics];
-    // The pick also goes beside the app's nowplaying.plist (NL_LOOKUP_FILE),
-    // which it reads when told: the preference just written may not be in the
-    // file it reads yet, and the song was looked up with the old source.
-    NSString *dir = NLLyricsFolderForBundle(_bundleID);
-    NSString *key = [self nlString:NL_NP_KEY];
-    if (dir && key.length) {
-        [@{NL_LOOKUP_KEY: key, NL_LOOKUP_SOURCE: name, NL_LOOKUP_STAMP: @(asked)}
-            writeToFile:[dir stringByAppendingPathComponent:NL_LOOKUP_FILE] atomically:YES];
-    }
-    NLSyncPrefs();
-    NLPostLyricsChanged();
     [self nlStartPolling];
 }
 
@@ -501,6 +473,8 @@ NSDictionary *NLSettingTrackEntry(NSDictionary *all, NSString *key, id value) {
         text = NLL(@"Added by you");
     } else if ([self nlSearching]) {
         text = NLL(@"Searching…");
+    } else if ([status isEqualToString:NL_STATUS_OFF]) {
+        return NLL(@"Off for This Song");
     } else if (path) {
         NSString *from = NLStatusSource(status);
         text = [status hasPrefix:NL_STATUS_CACHE]
@@ -583,6 +557,11 @@ UITableViewCell *NLSongOffsetRow(double offset, id target, SEL action) {
     }
     NSArray<NLLyricLine *> *lines = path ? NLParseLRCFile(path) : nil;   // parsed again only when the file changed
     NSArray<NSString *> *sung = NLSungTexts(lines, NSUIntegerMax);
+    if (!sung.count && [status isEqualToString:NL_STATUS_OFF]) {
+        cell.textLabel.text = NLL(@"Off for This Song");
+        cell.imageView.image = NLSourceIcon(NL_TRACK_SOURCE_OFF);
+        return cell;
+    }
     if (!sung.count) {
         cell.textLabel.text = NLL(@"No lyrics found");
         // What each source answered; with a file that no longer reads (deleted

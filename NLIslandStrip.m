@@ -79,8 +79,15 @@ static CAKeyframeAnimation *NLSlideThrough(NSArray *values, NSArray *keyTimes, C
         _fade = NLSideGradient(@[(id)UIColor.clearColor.CGColor, (id)UIColor.blackColor.CGColor,
                                  (id)UIColor.blackColor.CGColor, (id)UIColor.clearColor.CGColor]);   // the edges of a long line, faded
         _speed = kNLDefaultSpeed;
+        _alignment = NSTextAlignmentCenter;
     }
     return self;
+}
+
+- (void)setAlignment:(NSTextAlignment)alignment {
+    if (alignment == _alignment) return;
+    _alignment = alignment;
+    [self restartMarquee];
 }
 
 // Runs on every update, so nothing is built unless something changed.
@@ -170,6 +177,7 @@ static CAKeyframeAnimation *NLSlideThrough(NSArray *values, NSArray *keyTimes, C
     // start of the previous line.
     CALayer *shown = _label.layer.presentationLayer ?: _label.layer;
     UILabel *leaving = NLLineLabel();
+    leaving.textAlignment = _label.textAlignment;   // where the old line sat
     // Sung word by word, the line is all lit by the time it leaves.
     leaving.attributedText = wasWords ? [self lineWithText:old explicit:oldExplicit color:_color] : _label.attributedText;
     leaving.frame = shown.frame;
@@ -249,18 +257,22 @@ static CAKeyframeAnimation *NLSlideThrough(NSArray *values, NSArray *keyTimes, C
     [_label.layer removeAnimationForKey:@"marquee"];
     CGRect b = _content.bounds;
     _laidOutWidth = b.size.width;
+    CGFloat gutter = _alignment == NSTextAlignmentLeft ? kNLStripEdge : 0;   // see -alignment
     CGFloat textWidth = ceil([_label sizeThatFits:CGSizeMake(CGFLOAT_MAX, b.size.height)].width);
-    CGFloat overflow = textWidth - b.size.width;
+    CGFloat overflow = textWidth + gutter - b.size.width;
     BOOL fits = overflow <= 1 || b.size.width <= 0;
     _lineFits = fits;
     if (fits) {
-        _label.frame = b;
+        _label.textAlignment = _alignment;
+        _label.frame = CGRectMake(gutter, 0, b.size.width - gutter, b.size.height);
         self.layer.mask = _edgeFadeHold ? _fade : nil;   // a line leaving with faded edges keeps them (-setText:…)
     } else {
         // The label is a little wider on each side than its text (half the
-        // faded edge), so the first and last characters are not eaten by it.
-        CGFloat edge = 10;
-        textWidth += round(edge * 0.5) * 2;
+        // faded edge, or the gutter at the left), so the first and last
+        // characters are not eaten by it.
+        CGFloat edge = kNLStripEdge;
+        _label.textAlignment = NSTextAlignmentCenter;
+        textWidth += (gutter ?: round(edge * 0.5)) * 2;
         overflow = textWidth - b.size.width;
         _label.frame = CGRectMake(0, 0, textWidth, b.size.height);
         _fade.frame = b;
@@ -405,17 +417,21 @@ static CGFloat NLLineCentre(const NLWordGeometry *g, double t) {
         // single line by its font's metrics, and the default 17 pt one put
         // these copies lower than the line they replace.
         copy.font = _label.font;
+        copy.textAlignment = _label.textAlignment;
         if (copy.superview != _label) [_label addSubview:copy];
         copy.frame = _label.bounds;
     }
     [self renderLine];
 
     // Where each piece starts and ends across the label. The line is centred
-    // when it fits; the last piece lights the explicit badge after it too.
+    // (or at a side) when it fits; the last piece lights the explicit badge
+    // after it too.
     CGRect lb = _label.bounds;
     NSUInteger n = _wordTexts.count;
     CGFloat lineWidth = ceil(_lit.attributedText.size.width);
-    CGFloat x0 = MAX(0, round((lb.size.width - lineWidth) / 2));
+    NSTextAlignment alignment = _label.textAlignment;   // centred in its padded label when long
+    CGFloat x0 = alignment == NSTextAlignmentCenter ? MAX(0, round((lb.size.width - lineWidth) / 2))
+               : alignment == NSTextAlignmentRight ? MAX(0, lb.size.width - lineWidth) : 0;
     NSDictionary *attrs = @{NSFontAttributeName: _label.font};
     CGFloat xs[n + 1];
     double ts[n], te[n];

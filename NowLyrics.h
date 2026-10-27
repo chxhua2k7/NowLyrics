@@ -115,6 +115,7 @@ static inline NSArray<NSString *> *NLCompletedSourceOrder(id saved, id preferred
 @property (nonatomic, readonly) BOOL hideExplicit;     // clear the explicit flag, so no "E" badge next to the line
 - (NSTimeInterval)offsetForTrack:(NSString *)key;             // the global offset plus this song's own; positive means lyrics appear earlier
 - (NLSource)sourceForTrack:(NSString *)key;                   // the source picked for this song, NLSourceNone if none
+- (BOOL)lyricsOffForTrack:(NSString *)key;                    // no lyrics picked for this song (NL_TRACK_SOURCE_OFF)
 @property (nonatomic, readonly) NSTimeInterval cacheClearedAt; // when "Clear lyrics cache" was last tapped, 0 if never
 // Everything that invalidates lyrics already fetched, folded into one comparable string.
 @property (nonatomic, readonly, copy) NSString *sourceSignature;

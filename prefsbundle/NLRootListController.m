@@ -222,6 +222,9 @@ static BOOL NLSpecifierWanted(PSListController *controller, NSArray<PSSpecifier 
                  : [key isEqualToString:@"nlPlayerTintAvailable"] ? @(NLPlayerTintAvailable())
                  : [key isEqualToString:@"nlCrescendoUsed"] ? @(NLCrescendoUsed())
                  : [key isEqualToString:@"nlNextUpUsed"] ? @(NLNextUpUsed())
+                 : [key isEqualToString:@"nlSystemPlayer"] ? @(NLSystemPlayerAvailable())
+                 : [key isEqualToString:@"nlSystemPlayerSizes"] ? @(NLSystemPlayerSizesAvailable())
+                 : [key isEqualToString:@"nlCCSupport"] ? @(NLCCModulesAvailable())
                  : [key isEqualToString:@"nlHeaderIsland"] ? @([NLMainPageTop(controller) isEqualToString:@"island"])
                  : control ? [controller readPreferenceValue:control]
                            : NLReadPref(nil, key);
@@ -768,6 +771,11 @@ static void NLMarkMissingTweaks(NSArray<PSSpecifier *> *all) {
         [[NSNotificationCenter defaultCenter] postNotificationName:NLIslandPreviewChangedNotification object:self];
         [_pageTop layout];
     }
+}
+
+// Control Center: Settings' own page of it, where NowLyrics' modules are added.
+- (void)nlOpenControlCenterSettings {
+    [UIApplication.sharedApplication openURL:[NSURL URLWithString:@"prefs:root=ControlCenter"] options:@{} completionHandler:nil];
 }
 
 // After Apple Music or Musixmatch was unlocked or locked: their rows, and

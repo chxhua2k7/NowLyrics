@@ -167,6 +167,24 @@ void NLPostLyricsChanged(void) {
     NLPostDarwin(NL_LYRICS_CHANGED_NOTIFICATION);
 }
 
+// The preference the caller just wrote may not be in the file the app reads
+// yet (which once took a few taps), so the pick also goes beside its
+// nowplaying.plist, and the song was looked up with the old source.
+CFAbsoluteTime NLLookUpAgain(NSString *bundleID, NSDictionary *np, NSString *source) {
+    CFAbsoluteTime asked = CFAbsoluteTimeGetCurrent();
+    NSString *path = NLString(np, NL_NP_PATH);
+    if (path && !NLIsManualLyricsPath(path)) [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
+    NSString *dir = NLLyricsFolderForBundle(bundleID);
+    NSString *key = NLString(np, NL_NP_KEY);
+    if (dir && key.length) {
+        [@{NL_LOOKUP_KEY: key, NL_LOOKUP_SOURCE: source ?: @"", NL_LOOKUP_STAMP: @(asked)}
+            writeToFile:[dir stringByAppendingPathComponent:NL_LOOKUP_FILE] atomically:YES];
+    }
+    CFPreferencesAppSynchronize((__bridge CFStringRef)NL_PREFS_DOMAIN);
+    NLPostLyricsChanged();
+    return asked;
+}
+
 #pragma mark - Word by word for the line on screen
 
 @implementation NLShownWords

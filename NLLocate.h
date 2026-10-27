@@ -30,6 +30,41 @@ NSDictionary<NSString *, NSString *> *NLLyricsFolders(void);
 
 // The app's nowplaying.plist (NLShared.h's NL_NP_* keys), nil if it has none.
 NSDictionary *NLReadNowPlaying(NSString *bundleID);
+// When an app last wrote this nowplaying.plist, as a CFAbsoluteTime: its
+// stamp, to the fraction of a second; for an app not restarted since NowLyrics
+// was (no stamp yet), its date, which the plist keeps to whole seconds only
+// (`*wholeSeconds` says which, when asked). NAN when it has neither, which no
+// comparison takes.
+static inline CFAbsoluteTime NLNowPlayingWritten(NSDictionary *np, BOOL *wholeSeconds) {
+    if (wholeSeconds) *wholeSeconds = NO;
+    id stamp = np[NL_NP_STAMP];
+    if ([stamp respondsToSelector:@selector(doubleValue)]) return [stamp doubleValue];
+    NSDate *updated = np[NL_NP_UPDATED];
+    if (![updated isKindOfClass:NSDate.class]) return NAN;
+    if (wholeSeconds) *wholeSeconds = YES;
+    return updated.timeIntervalSinceReferenceDate;
+}
+// Whether the app wrote it after `time`: by its stamp, or by its date (whole
+// seconds only) for an app not restarted since NowLyrics was.
+static inline BOOL NLNowPlayingWrittenAfter(NSDictionary *np, CFAbsoluteTime time) {
+    BOOL wholeSeconds;
+    CFAbsoluteTime written = NLNowPlayingWritten(np, &wholeSeconds);
+    return wholeSeconds ? written > floor(time) - 0.001 : written > time;
+}
+// A lyrics file added by hand (in an app's manual folder), which comes before
+// the cache and the sources.
+static inline BOOL NLIsManualLyricsPath(NSString *path) {
+    return [path containsString:@"/" NL_MANUAL_FOLDER @"/"];
+}
+// The song `np` (an app's nowplaying.plist) looked up again with `source` (a
+// sourceOrder name, "" for automatic), as the Now Playing page and the
+// Control Center module ask for it: its saved lyrics go (those added by hand
+// stay), the pick goes beside the app's nowplaying.plist (NL_LOOKUP_FILE),
+// which the app reads when told, the domain is synchronized and the app told.
+// Keeping the pick in `trackSources` is the caller's, before this. Returns
+// when it asked; the app has answered once it writes its nowplaying.plist
+// after that (NLNowPlayingWrittenAfter).
+CFAbsoluteTime NLLookUpAgain(NSString *bundleID, NSDictionary *np, NSString *source);
 
 void *NLMediaRemote(const char *symbol);   // a MediaRemote function, NULL when this iOS lacks it
 

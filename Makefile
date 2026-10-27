@@ -35,7 +35,7 @@ THEOS_OBJ_DIR_NAME = obj/$(THEOS_PACKAGE_SCHEME)$(_THEOS_OBJ_DIR_EXTENSION)
 
 include $(THEOS)/makefiles/common.mk
 
-# 三個 binary 共用:ARC、NL_VERSION(只有 tweak 和設定 bundle 讀它)、符號隱藏並剝掉用不到的程式碼
+# 四個 binary 共用:ARC、NL_VERSION(只有 tweak 和設定 bundle 讀它)、符號隱藏並剝掉用不到的程式碼
 # (沒有東西靠符號名跨 binary 找:類別走 ObjC runtime,建構子照樣執行)。
 ADDITIONAL_CFLAGS += -fobjc-arc -fvisibility=hidden -DNL_VERSION=\"$(PACKAGE_VERSION)\"
 ADDITIONAL_LDFLAGS += -Wl,-dead_strip
@@ -49,10 +49,24 @@ NowLyrics_FRAMEWORKS += MediaPlayer QuartzCore AVFoundation AudioToolbox
 # Separate so nothing else of the tweak runs there.
 TWEAK_NAME += NowLyricsIsland
 
-NowLyricsIsland_FILES += NowLyricsIsland.x NLIslandStrip.m NLLyrics.m NLLocate.m NLPlayerTint.m NLPlayerTintSB.x NLAppleMusicSB.x NLAppleMusicFind.m NLHistorySB.x NLHistory.m
+NowLyricsIsland_FILES += NowLyricsIsland.x NLIslandStrip.m NLLyrics.m NLLocate.m NLPlayerTint.m NLPlayerTintSB.x NLAppleMusicSB.x NLAppleMusicFind.m NLHistorySB.x NLHistory.m NLSystemPlayerSB.x NLLyricsSources.m
 NowLyricsIsland_FRAMEWORKS += UIKit ImageIO QuartzCore CoreImage
 
 include $(THEOS_MAKE_PATH)/tweak.mk
+
+# 控制中心模組:CCSupport 的 module provider(/Library/ControlCenter/CCSupport_Providers,載入到
+# SpringBoard,也載入到「設定」列出控制項),一個大小一個模組(NowLyrics 1×1 到 3×4)。每個模組是一份
+# 和媒體模組一樣建立的系統播放器(MediaControls 的 MRUControlCenterViewController),由 NowLyricsIsland
+# 的 NLSystemPlayerSB.x 照媒體模組的方式排版;1×1、1×2 是模組自己的小方塊,輸出列表只有歌詞來源,
+# 輸出按鈕換成歌詞圖示。小方塊讀 nowplaying.plist 的 App 圖示和曲名(NLLocate.m)。
+# 沒裝 CCSupport 時這個 bundle 不會被載入,其他部分照常。
+BUNDLE_NAME += NowLyricsCC
+
+NowLyricsCC_FILES += cc/NLCCModule.m cc/NLCCViews.m cc/NLCCShared.m NLLocate.m
+NowLyricsCC_FRAMEWORKS += UIKit ImageIO QuartzCore CoreImage
+NowLyricsCC_PRIVATE_FRAMEWORKS += ControlCenterUIKit
+NowLyricsCC_INSTALL_PATH = /Library/ControlCenter/CCSupport_Providers
+NowLyricsCC_RESOURCE_DIRS = cc/Resources
 
 # 設定頁:prefs/ 裡是 NowLyrics.plist(entry + items)和各語言的 <lang>.lproj/Localizable.strings;
 # 子頁面(歌詞上島 Island.plist、歌詞來源 Sources.plist、進階 Advanced.plist、Apple Music AppleMusic.plist、
@@ -82,6 +96,7 @@ include $(THEOS_MAKE_PATH)/bundle.mk
 
 NL_PAGES = $(filter-out Info,$(basename $(notdir $(wildcard bundle/*.plist))))
 NL_BUNDLE_STAGE = $(THEOS_STAGING_DIR)/Library/PreferenceBundles/NowLyricsPrefs.bundle
+NL_CC_STAGE = $(THEOS_STAGING_DIR)/Library/ControlCenter/CCSupport_Providers/NowLyricsCC.bundle
 
 internal-stage::
 	$(ECHO_NOTHING)mkdir -p "$(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences/NowLyrics"$(ECHO_END)
@@ -94,6 +109,12 @@ internal-stage::
 			cp "$$lproj/Localizable.strings" "$$dir/$$page.strings"; \
 		done; \
 	done$(ECHO_END)
+	$(ECHO_NOTHING)sed "s/__VERSION__/$(PACKAGE_VERSION)/g" cc/Resources/Info.plist > "$(NL_CC_STAGE)/Info.plist"$(ECHO_END)
+	$(ECHO_NOTHING)for lproj in prefs/*.lproj; do \
+		mkdir -p "$(NL_CC_STAGE)/$$(basename $$lproj)"; \
+		cp "$$lproj/Localizable.strings" "$(NL_CC_STAGE)/$$(basename $$lproj)/"; \
+	done$(ECHO_END)
+	$(ECHO_NOTHING)cp bundle/NowLyrics@2x.png "$(NL_CC_STAGE)/SettingsIcon@2x.png" && cp bundle/NowLyrics@3x.png "$(NL_CC_STAGE)/SettingsIcon@3x.png"$(ECHO_END)
 
 # Finder's .DS_Store files (prefs/ has one) are not the package's: 1.2.2
 # shipped /Library/PreferenceLoader/Preferences/NowLyrics/.DS_Store.

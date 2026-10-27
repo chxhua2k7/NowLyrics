@@ -124,6 +124,31 @@ static UIImage *NLBlurredCover(NSData *data, CGFloat *scrim, NLRGB *seen) {
     return image;
 }
 
+// The cover made for `artwork` (its print), on one queue for every tint and
+// the last one kept: Control Center's players each have a tint, and they
+// would all make the same at each song.
+static void NLSharedBlurredCover(NSData *artwork, NSUInteger print, void (^done)(UIImage *cover, CGFloat scrim, NLRGB seen)) {
+    static dispatch_queue_t queue;
+    static NSUInteger madePrint;
+    static UIImage *made;
+    static CGFloat madeScrim;
+    static NLRGB madeSeen;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ queue = dispatch_queue_create("com.c3x14n.nowlyrics.tint", DISPATCH_QUEUE_SERIAL); });
+    dispatch_async(queue, ^{
+        if (!made || madePrint != print) {
+            madeScrim = 0;
+            madeSeen = (NLRGB){0, 0, 0};
+            made = NLBlurredCover(artwork, &madeScrim, &madeSeen);
+            madePrint = print;
+        }
+        UIImage *cover = made;
+        CGFloat scrim = madeScrim;
+        NLRGB seen = madeSeen;
+        dispatch_async(dispatch_get_main_queue(), ^{ done(cover, scrim, seen); });
+    });
+}
+
 // The artwork print standing for "nothing is playing".
 static const NSUInteger kNLNothing = NSUIntegerMax;
 
@@ -252,19 +277,16 @@ static void NLFadeOrSet(BOOL fade, void (^changes)(void)) {
             [self nlSetStageVisible:NO fade:fade];
             return;
         }
-        dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-            CGFloat scrim = 0;
-            NLRGB seen = {0, 0, 0};
-            UIImage *cover = artwork ? NLBlurredCover(artwork, &scrim, &seen) : nil;
-            dispatch_async(dispatch_get_main_queue(), ^{
-                if (generation != self->_generation) return;
-                shown();
-                BOOL wasHidden = !self->_stageVisible;
-                // Coming back from nothing: the look is put in place, then faded in.
-                [self nlShowCover:cover scrim:scrim seen:seen fade:fade && !wasHidden];
-                [self nlSetStageVisible:YES fade:fade];
-            });
-        });
+        void (^show)(UIImage *, CGFloat, NLRGB) = ^(UIImage *cover, CGFloat scrim, NLRGB seen) {
+            if (generation != self->_generation) return;
+            shown();
+            BOOL wasHidden = !self->_stageVisible;
+            // Coming back from nothing: the look is put in place, then faded in.
+            [self nlShowCover:cover scrim:scrim seen:seen fade:fade && !wasHidden];
+            [self nlSetStageVisible:YES fade:fade];
+        };
+        if (artwork) NLSharedBlurredCover(artwork, print, show);
+        else show(nil, 0, (NLRGB){0, 0, 0});
     };
     if (wait <= 0) work();
     else NLAfter(wait, ^{ if (generation == self->_generation) work(); });

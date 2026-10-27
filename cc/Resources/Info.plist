@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- __VERSION__ is filled in from PACKAGE_VERSION at stage time (Makefile). -->
+	<key>CFBundleDevelopmentRegion</key><string>en</string>
+	<key>CFBundleDisplayName</key><string>NowLyrics</string>
+	<key>CFBundleExecutable</key><string>NowLyricsCC</string>
+	<key>CFBundleIdentifier</key><string>com.c3x14n.nowlyrics.cc</string>
+	<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+	<key>CFBundleName</key><string>NowLyricsCC</string>
+	<key>CFBundlePackageType</key><string>BNDL</string>
+	<key>CFBundleShortVersionString</key><string>__VERSION__</string>
+	<key>CFBundleVersion</key><string>__VERSION__</string>
+	<key>CFBundleSupportedPlatforms</key>
+	<array>
+		<string>iPhoneOS</string>
+	</array>
+	<key>MinimumOSVersion</key><string>15.0</string>
+	<!-- A CCSupport module provider (/Library/ControlCenter/CCSupport_Providers): its modules, one per size. -->
+	<key>NSPrincipalClass</key><string>NLCCProvider</string>
+	<key>UIDeviceFamily</key>
+	<array>
+		<integer>1</integer>
+		<integer>2</integer>
+	</array>
+</dict>
+</plist>

@@ -89,6 +89,7 @@
 "Clear" = "清除";
 "Apple Music lyrics" = "Apple Music 歌詞";
 "Automatic" = "自動";
+"Off for This Song" = "這首不顯示歌詞";
 "Preview what’s playing" = "預覽正在播放";
 "Paste the debug info from the Musixmatch app (Settings → Get help → Copy debug info), or use an API key of your own." = "貼上 Musixmatch App 的 debug info（設定 → Get help → Copy debug info），或使用你自己的 API Key。";
 "Size" = "大小";
@@ -235,3 +236,21 @@
 "Top Apps" = "最常用的 App";
 "Previous" = "上一個";
 "Next" = "下一個";
+
+/* Control Center: the media player's lists (NLSystemPlayerSB.x), NowLyrics' own modules (cc/, which gets a copy of this file) and their settings page. */
+"NowLyrics Settings…" = "NowLyrics 設定⋯";
+"Off in this app" = "未在此 App 開啟";
+"Player Size" = "播放器大小";
+"Not Playing" = "未在播放";
+"Control Center" = "控制中心";
+"Media Module (System)" = "媒體模組（系統）";
+"System Default" = "系統預設";
+"Lyrics When Closed" = "收合時顯示歌詞";
+"Lyrics When Open" = "展開時顯示歌詞";
+"Lyrics Sources in Outputs" = "輸出列表顯示歌詞來源";
+"Lyrics show in the closed player at 2×4 and larger." = "收合時的歌詞在 2×4 以上的大小顯示。";
+"Lyrics Modules" = "歌詞模組";
+"Add in Control Center" = "到控制中心加入";
+"Add NowLyrics 1×1 to 3×4 in Settings › Control Center: each is its own size, and you can add more than one." = "在「設定 › 控制中心」加入 NowLyrics 1×1 到 3×4：每個模組是一種大小，可以加好幾個。";
+"Install CCSupport to add NowLyrics' own modules to Control Center." = "安裝 CCSupport 後，可以把 NowLyrics 自己的模組加進控制中心。";
+"Background" = "底色";

@@ -146,6 +146,11 @@ static NSDictionary *NLPerSong(NSDictionary *prefs, NSString *key) {
     return all && key.length ? NLSourceNamed(all[key]) : NLSourceNone;
 }
 
+- (BOOL)lyricsOffForTrack:(NSString *)key {
+    NSDictionary *all = NLPerSong(_prefs, NL_TRACK_SOURCES_KEY);
+    return all && key.length && [all[key] isEqual:NL_TRACK_SOURCE_OFF];
+}
+
 // What the app reads, value by value; the per-song tables whole, since any
 // song may come up.
 - (BOOL)sameEffectAs:(NLSettings *)other {

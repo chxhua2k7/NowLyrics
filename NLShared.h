@@ -237,7 +237,25 @@ static inline double NLPrefNum(NSDictionary *prefs, NSString *key, double fallba
 // The source picked for one song: track key → "applemusic", "musixmatch",
 // "lrclib" or "netease" (sourceOrder's names). Same limit as the offsets.
 #define NL_TRACK_SOURCES_KEY @"trackSources"
+// A song's pick in it for no lyrics at all, and the status that says so.
+#define NL_TRACK_SOURCE_OFF @"off"
+#define NL_STATUS_OFF @"off for this song"
 static const NSUInteger kNLTrackOffsetsLimit = 500;
+
+// A per-song dictionary with `key`'s entry set to `value` (nil removes it),
+// the others going at random once there are more than kNLTrackOffsetsLimit:
+// what the songs' pages and the Control Center module write back.
+static inline NSDictionary *NLTrackEntries(NSDictionary *all, NSString *key, id value) {
+    NSMutableDictionary *entries = [all isKindOfClass:[NSDictionary class]] ? [all mutableCopy] : [NSMutableDictionary dictionary];
+    if (value) entries[key] = value;
+    else [entries removeObjectForKey:key];
+    while (entries.count > kNLTrackOffsetsLimit) {
+        for (NSString *other in entries.allKeys) {
+            if (![other isEqual:key]) { [entries removeObjectForKey:other]; break; }
+        }
+    }
+    return [entries copy];
+}
 
 static inline double NLTrackOffset(NSDictionary *prefs, NSString *trackKey) {
     id all = prefs[NL_TRACK_OFFSETS_KEY];

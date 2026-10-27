@@ -11,6 +11,7 @@ extern const CGFloat kNLDefaultSpeed;   // marquee, pt/s
 static const CGFloat kNLDefaultFontSize = 11;
 static const CGFloat kNLDefaultSensorWidth = 125;
 static const CGFloat kNLContentGap = 4;
+static const CGFloat kNLStripEdge = 10;   // the faded edges of a long line
 // The line's font.
 static inline UIFont *NLIslandFont(CGFloat size) { return [UIFont systemFontOfSize:size weight:UIFontWeightSemibold]; }
 // The line's box height: the font's exact line height, for the last size
@@ -71,6 +72,12 @@ static inline UIView *NLAncestorOfClass(UIView *view, Class cls) {
             position:(NSTimeInterval)position rate:(double)rate;
 // Long enough to read the line once: the start, the glide, a moment at the end.
 @property (nonatomic, readonly) NSTimeInterval marqueeReadDuration;
+// Where a line that fits sits: centred (the island's, the default), or at
+// the left or right (the Control Center module's, at the left). At the left
+// the line starts a faded edge's width in (kNLStripEdge), long or not, so
+// the edge a long line scrolls out under is clear of its first letters; the
+// strip goes that much further left than the text it lines up with.
+@property (nonatomic, assign) NSTextAlignment alignment;
 @end
 
 // The most colorful bright pixel of the artwork, lifted until it reads on

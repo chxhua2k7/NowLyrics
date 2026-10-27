@@ -48,20 +48,6 @@ static inline void NLOpenURL(NSString *url) {
 // wrote its nowplaying.plist last. Looked up off the main queue, answered on
 // it; both nil when no app has one.
 void NLPlayingSong(void (^done)(NSString *bundleID, NSDictionary *np));
-// When an app last wrote this nowplaying.plist, as a CFAbsoluteTime: its
-// stamp, to the fraction of a second; for an app not restarted since NowLyrics
-// was (no stamp yet), its date, which the plist keeps to whole seconds only
-// (`*wholeSeconds` says which, when asked). NAN when it has neither, which no
-// comparison takes.
-static inline CFAbsoluteTime NLNowPlayingWritten(NSDictionary *np, BOOL *wholeSeconds) {
-    if (wholeSeconds) *wholeSeconds = NO;
-    id stamp = np[NL_NP_STAMP];
-    if ([stamp respondsToSelector:@selector(doubleValue)]) return [stamp doubleValue];
-    NSDate *updated = np[NL_NP_UPDATED];
-    if (![updated isKindOfClass:NSDate.class]) return NAN;
-    if (wholeSeconds) *wholeSeconds = YES;
-    return updated.timeIntervalSinceReferenceDate;
-}
 
 // NLLyricsImport.m. Pasted or imported text as it should be stored: LRC
 // (word-by-word too) as given, with the track named on top when it is not;
@@ -151,8 +137,7 @@ static inline UITableView *NLMakeTable(UIViewController *owner) {
 // NLNowPlayingController.m, for the songs' pages (Now Playing, a song in the
 // listening history): the Offset row for one song, `offset` being the default
 // plus its own, the control calling `action` on `target`; and a per-song
-// dictionary with `key`'s entry set to `value` (nil removes it), the others
-// going at random once there are more than kNLTrackOffsetsLimit.
+// dictionary with `key`'s entry set to `value` (NLTrackEntries, NLShared.h).
 UITableViewCell *NLSongOffsetRow(double offset, id target, SEL action);
 NSDictionary *NLSettingTrackEntry(NSDictionary *all, NSString *key, id value);
 
@@ -301,6 +286,23 @@ static inline UIImage *NLRowSizedImage(UIImage *image, BOOL rounded) {
 // ("applemusic", …; "" for automatic), as Lyrics Sources shows it.
 UIImage *NLSourceIcon(NSString *name);
 NSString *NLSourceTitle(NSString *name);   // the same, its title, localized
+
+// NowLyrics in Control Center's media player (NLSystemPlayerSB.x): iOS 16's
+// and 26's, its sizes iOS 16's alone (26 sizes it in Control Center itself).
+static inline BOOL NLSystemPlayerAvailable(void) {
+    if (@available(iOS 26.0, *)) return YES;
+    if (@available(iOS 17.0, *)) return NO;
+    return YES;
+}
+static inline BOOL NLSystemPlayerSizesAvailable(void) {
+    if (@available(iOS 17.0, *)) return NO;
+    return YES;
+}
+// NowLyrics' own Control Center modules: CCSupport installed, on iOS 16 (where they hold the media player's copy).
+static inline BOOL NLCCModulesAvailable(void) {
+    return NLSystemPlayerSizesAvailable() &&
+           [NSFileManager.defaultManager fileExistsAtPath:NLJBPath(@"/Library/MobileSubstrate/DynamicLibraries/CCSupport.dylib")];
+}
 
 // NLCrescendo.m: Crescendo's volume slider in the copies of the system's
 // players on these pages, while Crescendo is installed and wants it there.

@@ -97,7 +97,8 @@ Sold on Havoc as `com.c3x14n.nowlyrics`; listing material in `havoc/`.
   (`NLLocate.m` maps bundle IDs from the container metadata plists), then posts
   `com.c3x14n.nowlyrics/LyricsChanged`; the apps drop their memory cache and look again.
   The apps re-read the settings first. Per-song offsets and picked sources live
-  in the prefs file as `trackOffsets` and `trackSources`; the page shows one
+  in the prefs file as `trackOffsets` and `trackSources` (a pick of `off`, Off
+  for This Song, shows that song no lyrics anywhere); the page shows one
   offset (the default one under Advanced plus the song's own). The main page
   and the Now Playing page embed the lock screen's player (MediaControls'
   `+[MRPlatterViewController coverSheetPlatterViewController]`, `NLPlayerHeader`);
@@ -113,6 +114,48 @@ Sold on Havoc as `com.c3x14n.nowlyrics`; listing material in `havoc/`.
   are tried (`source` on their plist rows). Musixmatch, like Apple Music, sits
   behind an unlock: the Musixmatch app installed (`musixmatchVerified`); with
   the app gone it stays while a User Token or API key is saved.
+- **Control Center's media player** (`NLSystemPlayerSB.x`, in NowLyricsIsland;
+  iOS 16 and 26, 17 to 25 left as they are): under its outputs the sources the
+  Now Playing page offers, the song's pick ticked with the lyrics' status, Off
+  for This Song, and NowLyrics Settings… (iOS 16: the outputs table's footer in
+  `MRURoutingView`; iOS 26: under the route picker's collection view, the rows
+  measured off the outputs' own). On iOS 16 a size picked there or on the
+  settings page (`systemPlayerSize`: 1×4, 2×2, 2×4, 3×4 or the system's) goes
+  into the grid (`-[CCUIModuleCollectionViewController
+  _sizesForModuleIdentifiers:…]`, with a full-cell first-fit packing once a
+  module is wider than two cells), and the closed player's own views are laid
+  out for it: 1×4 a row, 2×2 the cover over the song, 2×4 a big cover with the
+  song and three lines of lyrics, 3×4 the cover, the lyrics, the time bar and
+  the buttons (MediaControls takes a card over 200 pt wide for the open one,
+  so its state is held closed). Open, the lyrics are Apple Music's: upright
+  under a big cover and the song, on its side between the time bar and the
+  buttons, on iOS 26 beside the outputs too; the sung line lit word by word,
+  the others dim and blurred, dots in a long pause, a long line moving up as
+  it is sung, the song's own title over them and the output's name away. iOS
+  26's MediaControls is Swift: its views' fields are read by name
+  (`class_getInstanceVariable`); 2×4, 4×4, tall and wide get the lyrics, and
+  the small sizes' titles keep their marquee running. Settings › Control
+  Center: the size (iOS 16), Lyrics When Closed, Lyrics When Open, Lyrics
+  Sources in Outputs (`ccClosedLyrics`, `ccOpenLyrics`, `ccSourcesInOutputs`)
+  and Player over its cover (moved there from Advanced). Closed, Control
+  Center hides its window but keeps its views in it, and MediaControls lays
+  every player out at each now-playing change: NowLyrics' own readings and
+  display links stop while the window is hidden and start again as it shows
+  (`UIWindowDidBecomeVisibleNotification`).
+- **NowLyrics' Control Center modules** (`cc/`, a CCSupport module provider in
+  `/Library/ControlCenter/CCSupport_Providers`): "NowLyrics 1×1" to
+  "NowLyrics 3×4" among Settings › Control Center's controls, each its own
+  size (`-moduleSizeForOrientation:`; from iOS 17 on only the two tiles), as
+  many as wanted. Each is a copy of the media player made as the media module
+  makes its own (`[MRUControlCenterViewController new]` and its dismissal,
+  home-gesture and corner-tap blocks) and handed to the island
+  (`NLSPOwnModule`), which lays it out as the media module's at that size. Its
+  output buttons show a lyrics glyph (`quote.bubble`) and its outputs' list
+  holds the sources alone: the outputs' table stays hidden under them (its
+  data source is left alone, as MediaControls applies batch updates to it).
+  1×1 (the cover and the app's icon) and 1×2 (the cover, the title and the
+  artist scrolling as MediaControls' `MRUMarqueeLabel`, play or pause) are the
+  module's own tile over the card, fading out as it opens.
 - **Player over its cover** (`NLPlayerTint`, switch `playerTint`): in Control
   Center over `-[MRUControlCenterView materialView]`; on the lock screen over the
   player's `PLPlatterView` material, the player told from Live Activities (same
@@ -186,7 +229,9 @@ make package FINALPACKAGE=1 THEOS=~/theos-roothide THEOS_PACKAGE_SCHEME=roothide
   a roothide jailbreak.
 - Version lives only in the Makefile's `PACKAGE_VERSION` (package, `NL_VERSION`
   define, `bundle/Info.plist` filled at stage time).
-- Runtime deps: PreferenceLoader, AltList. Install with `sudo dpkg -i`, then
+- Runtime deps: PreferenceLoader, AltList; CCSupport for NowLyrics' Control
+  Center modules (not a dependency: without it the provider is simply not
+  loaded). Install with `sudo dpkg -i`, then
   respring once (Apply on the settings page) so SpringBoard loads
   NowLyricsIsland; the lyrics themselves only need the player relaunched.
 - iOS 18 and later rewrote Settings in Swift: PreferenceLoader 2.2.6 shows no
@@ -202,6 +247,9 @@ make package FINALPACKAGE=1 THEOS=~/theos-roothide THEOS_PACKAGE_SCHEME=roothide
 | `NLEngine.m` / `NLSources.m` / `NLLyrics.m` / `NLSettings.m` | engine, providers, LRC (word times, yrc) + cache, settings snapshot |
 | `NLIslandStrip.m` / `NLLocate.m` | the island's line strip (word mask); app containers and `nowplaying.plist` (Settings and the island) |
 | `prefsbundle/NLNowPlayingController.m`, `NLLibraryController.m`, `NLLyricsEditor.m`, `NLLyricsImport.m` | Now Playing, the library (by app), the editor, paste/import and TTML |
+| `NLSystemPlayerSB.x` | SpringBoard: Control Center's media player (iOS 16, 26) and NowLyrics' modules' copies of it: sources under the outputs, sizes, lyrics |
+| `NLLyricsSources.m` | the sources offered and picked, the lyrics' status: the Now Playing page and Control Center |
+| `cc/` | Control Center modules: the provider and the module (`NLCCModule.m`), the 1×1 and 1×2 tile (`NLCCViews.m`) |
 | `prefs/`, `prefsbundle/`, `bundle/Island.plist` | settings page: plist + 4 languages; controller (runtime icons, Apply, version, island page), slider rows, text rows |
 | `docs/`, `havoc/` | vPhone runbook; listing text, changelog, clean-install checklist |
 
@@ -218,7 +266,9 @@ there the container's content views assert a single subview, so
 island by laying that view out step by step (26 springs past its size and
 widens it again a moment later), so the line waits until the view has stopped
 moving on screen before it fades in. Private API used on 18.5 and 26.1 was
-checked symbol by symbol against those builds.
+checked symbol by symbol against those builds. Control Center was checked on
+the 14 Pro (16.5.1, CCSupport 1.3.13) and, for iOS 26, in the ios26 and
+ipados26 VMs (26.6.2).
 
 ## Limitations
 
@@ -244,7 +294,11 @@ usual to sound after it is announced (up to 1.43 s seen) has its lyrics up to
 0.45 s early, and skipping or going back to the start in a song's last 3.5 s
 makes the lyrics that follow about 1 s late, both until the next pause;
 crossfade and Automix are not accounted for, nor is a Spotify Connect device's
-delay.
+delay. Control Center's media player is laid out on iOS 16 and 26 only;
+NowLyrics' own modules need CCSupport and hold iOS 16's player. Each module
+is a whole MediaControls player, which MediaControls updates at every
+now-playing change (every lyric line) even while Control Center is closed, so
+many modules cost more.
 
 ## License
 

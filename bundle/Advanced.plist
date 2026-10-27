@@ -83,60 +83,6 @@
 		<dict>
 			<key>cell</key>
 			<string>PSGroupCell</string>
-			<key>footerText</key>
-			<string>Colors the now-playing player in Settings, on the lock screen and in Control Center: its cover, blurred and darkened.</string>
-			<key>showIf</key>
-			<string>nlPlayerTintAvailable</string>
-		</dict>
-		<dict>
-			<key>PostNotification</key>
-			<string>com.c3x14n.nowlyrics/ReloadPrefs</string>
-			<key>cell</key>
-			<string>PSSwitchCell</string>
-			<key>default</key>
-			<true/>
-			<key>iconColor</key>
-			<string>#FF6482</string>
-			<key>iconSymbol</key>
-			<string>paintbrush.fill</string>
-			<key>key</key>
-			<string>playerTint</string>
-			<key>label</key>
-			<string>Player over its cover</string>
-		</dict>
-		<dict>
-			<key>PostNotification</key>
-			<string>com.c3x14n.nowlyrics/ReloadPrefs</string>
-			<key>cell</key>
-			<string>PSSliderCell</string>
-			<key>cellClass</key>
-			<string>NLOffsetCell</string>
-			<key>default</key>
-			<real>50</real>
-			<key>height</key>
-			<integer>92</integer>
-			<key>iconColor</key>
-			<string>#64A0FF</string>
-			<key>iconSymbol</key>
-			<string>circle.lefthalf.filled</string>
-			<key>key</key>
-			<string>playerTintClear</string>
-			<key>label</key>
-			<string>Transparency</string>
-			<key>max</key>
-			<real>100</real>
-			<key>min</key>
-			<real>0</real>
-			<key>showIf</key>
-			<string>playerTint</string>
-			<key>step</key>
-			<real>5</real>
-			<key>unit</key>
-			<string>%</string>
-		</dict>
-		<dict>
-			<key>cell</key>
-			<string>PSGroupCell</string>
 		</dict>
 		<dict>
 			<key>cell</key>

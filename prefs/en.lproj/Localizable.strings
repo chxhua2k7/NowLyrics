@@ -89,6 +89,7 @@
 "Clear" = "Clear";
 "Apple Music lyrics" = "Apple Music lyrics";
 "Automatic" = "Automatic";
+"Off for This Song" = "Off for This Song";
 "Preview what’s playing" = "Preview what’s playing";
 "Paste the debug info from the Musixmatch app (Settings → Get help → Copy debug info), or use an API key of your own." = "Paste the debug info from the Musixmatch app (Settings → Get help → Copy debug info), or use an API key of your own.";
 "Size" = "Size";
@@ -235,3 +236,21 @@
 "Top Apps" = "Top Apps";
 "Previous" = "Previous";
 "Next" = "Next";
+
+/* Control Center: the media player's lists (NLSystemPlayerSB.x), NowLyrics' own modules (cc/, which gets a copy of this file) and their settings page. */
+"NowLyrics Settings…" = "NowLyrics Settings…";
+"Off in this app" = "Off in this app";
+"Player Size" = "Player Size";
+"Not Playing" = "Not Playing";
+"Control Center" = "Control Center";
+"Media Module (System)" = "Media Module (System)";
+"System Default" = "System Default";
+"Lyrics When Closed" = "Lyrics When Closed";
+"Lyrics When Open" = "Lyrics When Open";
+"Lyrics Sources in Outputs" = "Lyrics Sources in Outputs";
+"Lyrics show in the closed player at 2×4 and larger." = "Lyrics show in the closed player at 2×4 and larger.";
+"Lyrics Modules" = "Lyrics Modules";
+"Add in Control Center" = "Add in Control Center";
+"Add NowLyrics 1×1 to 3×4 in Settings › Control Center: each is its own size, and you can add more than one." = "Add NowLyrics 1×1 to 3×4 in Settings › Control Center: each is its own size, and you can add more than one.";
+"Install CCSupport to add NowLyrics' own modules to Control Center." = "Install CCSupport to add NowLyrics' own modules to Control Center.";
+"Background" = "Background";

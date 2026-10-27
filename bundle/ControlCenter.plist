@@ -1,0 +1,194 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>items</key>
+	<array>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>Lyrics show in the closed player at 2×4 and larger.</string>
+			<key>label</key>
+			<string>Media Module (System)</string>
+			<key>showIf</key>
+			<string>nlSystemPlayer</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.c3x14n.nowlyrics/ReloadPrefs</string>
+			<key>cell</key>
+			<string>PSDefaultCell</string>
+			<key>cellClass</key>
+			<string>NLPopUpCell</string>
+			<key>default</key>
+			<string>default</string>
+			<key>iconColor</key>
+			<string>#8E8E93</string>
+			<key>iconSymbol</key>
+			<string>square.grid.2x2</string>
+			<key>key</key>
+			<string>systemPlayerSize</string>
+			<key>label</key>
+			<string>Size</string>
+			<key>showIf</key>
+			<string>nlSystemPlayerSizes</string>
+			<key>validTitles</key>
+			<array>
+				<string>System Default</string>
+				<string>1×4</string>
+				<string>2×2</string>
+				<string>2×4</string>
+				<string>3×4</string>
+			</array>
+			<key>validValues</key>
+			<array>
+				<string>default</string>
+				<string>1x4</string>
+				<string>2x2</string>
+				<string>2x4</string>
+				<string>3x4</string>
+			</array>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.c3x14n.nowlyrics/ReloadPrefs</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>iconColor</key>
+			<string>#FF2D55</string>
+			<key>iconSymbol</key>
+			<string>quote.bubble</string>
+			<key>key</key>
+			<string>ccClosedLyrics</string>
+			<key>label</key>
+			<string>Lyrics When Closed</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.c3x14n.nowlyrics/ReloadPrefs</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>iconColor</key>
+			<string>#5856D6</string>
+			<key>iconSymbol</key>
+			<string>arrow.up.left.and.arrow.down.right</string>
+			<key>key</key>
+			<string>ccOpenLyrics</string>
+			<key>label</key>
+			<string>Lyrics When Open</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.c3x14n.nowlyrics/ReloadPrefs</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>iconColor</key>
+			<string>#34C759</string>
+			<key>iconSymbol</key>
+			<string>list.bullet</string>
+			<key>key</key>
+			<string>ccSourcesInOutputs</string>
+			<key>label</key>
+			<string>Lyrics Sources in Outputs</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>Add NowLyrics 1×1 to 3×4 in Settings › Control Center: each is its own size, and you can add more than one.</string>
+			<key>label</key>
+			<string>Lyrics Modules</string>
+			<key>showIf</key>
+			<string>nlCCSupport</string>
+		</dict>
+		<dict>
+			<key>action</key>
+			<string>nlOpenControlCenterSettings</string>
+			<key>cell</key>
+			<string>PSButtonCell</string>
+			<key>iconColor</key>
+			<string>#8E8E93</string>
+			<key>iconSymbol</key>
+			<string>switch.2</string>
+			<key>label</key>
+			<string>Add in Control Center</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>Install CCSupport to add NowLyrics' own modules to Control Center.</string>
+			<key>showIf</key>
+			<array>
+				<string>nlSystemPlayerSizes</string>
+				<string>!nlCCSupport</string>
+			</array>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>Colors the now-playing player in Settings, on the lock screen and in Control Center: its cover, blurred and darkened.</string>
+			<key>label</key>
+			<string>Background</string>
+			<key>showIf</key>
+			<string>nlPlayerTintAvailable</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.c3x14n.nowlyrics/ReloadPrefs</string>
+			<key>cell</key>
+			<string>PSSwitchCell</string>
+			<key>default</key>
+			<true/>
+			<key>iconColor</key>
+			<string>#FF6482</string>
+			<key>iconSymbol</key>
+			<string>paintbrush.fill</string>
+			<key>key</key>
+			<string>playerTint</string>
+			<key>label</key>
+			<string>Player over its cover</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.c3x14n.nowlyrics/ReloadPrefs</string>
+			<key>cell</key>
+			<string>PSSliderCell</string>
+			<key>cellClass</key>
+			<string>NLOffsetCell</string>
+			<key>default</key>
+			<real>50.0</real>
+			<key>height</key>
+			<integer>92</integer>
+			<key>iconColor</key>
+			<string>#64A0FF</string>
+			<key>iconSymbol</key>
+			<string>circle.lefthalf.filled</string>
+			<key>key</key>
+			<string>playerTintClear</string>
+			<key>label</key>
+			<string>Transparency</string>
+			<key>max</key>
+			<real>100.0</real>
+			<key>min</key>
+			<real>0.0</real>
+			<key>showIf</key>
+			<string>playerTint</string>
+			<key>step</key>
+			<real>5.0</real>
+			<key>unit</key>
+			<string>%</string>
+		</dict>
+	</array>
+	<key>title</key>
+	<string>Control Center</string>
+</dict>
+</plist>

@@ -110,6 +110,8 @@
 			<string>#FF2D55</string>
 			<key>iconSymbol</key>
 			<string>waveform</string>
+			<key>id</key>
+			<string>nowPlaying</string>
 			<key>label</key>
 			<string>Now Playing</string>
 		</dict>
@@ -124,6 +126,20 @@
 			<string>capsule.fill</string>
 			<key>label</key>
 			<string>Lyrics Island</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSLinkCell</string>
+			<key>detail</key>
+			<string>NLSubListController</string>
+			<key>iconColor</key>
+			<string>#8E8E93</string>
+			<key>iconSymbol</key>
+			<string>switch.2</string>
+			<key>label</key>
+			<string>Control Center</string>
+			<key>subPlist</key>
+			<string>ControlCenter</string>
 		</dict>
 		<dict>
 			<key>cell</key>
