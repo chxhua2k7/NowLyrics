@@ -171,14 +171,18 @@ static __weak UIViewController *gNLSPModuleGrid;
 // modules one (CCUIContentModuleContext, its delegate the module manager):
 // what opens a URL from Control Center (asking for the passcode first when
 // locked, Control Center going away for the app) and asks the module's size
-// again. nil without them.
+// again. nil without them. Its init declared so ARC sees it as one (it takes
+// alloc's object and hands back its own).
+@interface CCUIContentModuleContext : NSObject
+- (instancetype)initWithModuleIdentifier:(NSString *)identifier;
+@end
 static id NLSPMediaContext(void) {
     static id context;
     if (!context) {
         Class contextClass = NSClassFromString(@"CCUIContentModuleContext"), managerClass = NSClassFromString(@"CCUIModuleInstanceManager");
         if (![contextClass instancesRespondToSelector:@selector(initWithModuleIdentifier:)] || ![managerClass respondsToSelector:@selector(sharedInstance)] ||
             ![contextClass instancesRespondToSelector:@selector(setDelegate:)]) return nil;
-        context = ((id (*)(id, SEL, NSString *))objc_msgSend)([contextClass alloc], @selector(initWithModuleIdentifier:), kNLSPMediaModule);
+        context = [[contextClass alloc] initWithModuleIdentifier:kNLSPMediaModule];
         id manager = ((id (*)(id, SEL))objc_msgSend)(managerClass, @selector(sharedInstance));
         ((void (*)(id, SEL, id))objc_msgSend)(context, @selector(setDelegate:), manager);
     }
