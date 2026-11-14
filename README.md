@@ -1,328 +1,218 @@
 # NowLyrics
 
-<img src="logo/NowLyrics-1024.png" width="96" alt="NowLyrics">
+<img src="logo/NowLyrics-1024.png" width="128" alt="NowLyrics">
 
-Synced lyrics in place of the track title on the lock screen, Control Center,
-the Dynamic Island and CarPlay, for Spotify, Apple Music and any player that
-publishes now-playing info, plus an optional strip with the current line under
-the compact Dynamic Island and an optional listening history. Sources: Apple
-Music (with a subscription), Musixmatch, LRCLIB, NetEase.
+While a song plays, NowLyrics puts the line being sung **in place of the track
+title** on the lock screen, in Control Center, the Dynamic Island and CarPlay,
+so the words follow the music without opening anything. Optionally it adds a
+strip with the current line under the Dynamic Island, lit up word by word.
 
-Private source repo. Public page: [chxhua2k7/NowLyrics](https://github.com/chxhua2k7/NowLyrics).
-Sold on Havoc as `com.c3x14n.nowlyrics`; listing material in `havoc/`.
+Works with Spotify, Apple Music and any player that shows what it plays on the
+lock screen. Lyrics come from Apple Music (with a subscription), Musixmatch,
+LRCLIB and NetEase Cloud Music.
 
-繁體中文:[README.zh-Hant.md](README.zh-Hant.md)
+Current version: **1.3.0** · [Changelog](CHANGELOG.md) · [How it works](docs/development.md) · 繁體中文說明:[README.zh-Hant.md](README.zh-Hant.md)
 
-## How it works
+## Features
 
-- **Third-party players** call `-[MPNowPlayingInfoCenter setNowPlayingInfo:]`.
-  The hook lets it through, reads title/artist/duration/elapsed/rate, and at
-  every line boundary pushes a copy of the dictionary with the title replaced
-  and the elapsed time re-anchored. Spotify Connect's `Title • Artist` /
-  `Playing on X` pair is rewritten before the system sees it.
-- **Apple Music** never calls that; its `MPNowPlayingContentItem` setters are
-  hooked instead and the line is written into the item itself (like AMLyrics,
-  which is why the package conflicts with `com.82flex.amlyrics`).
-- **Engine**: track = title + artist; resolve manual `.lrc` → disk cache →
-  sources in the user's order (`sourceOrder`); position extrapolated from the last anchor;
-  `dispatch_after` per line. Blank lines count as gaps only if the next line is
-  ≥ 5 s away.
-- **Spotify timing** (`NowLyrics.xm`, Spotify only): the engine goes by the
-  position heard (`NLHeardPosition`): the app's count less an output delay and
-  a lead. Spotify reports what it hands its audio unit, so the delay is
-  `AVAudioSession.outputLatency` + 0.04 s on the phone's own outputs and
-  Bluetooth (none for AirPlay, CarPlay, USB or Connect), worked out again on
-  route changes. Its running count is a clock of its own that gets ahead of the
-  sound in two ways, until it next reads its position off the audio (pause,
-  resume, seek). A track it plays into the next is announced from 0 about a
-  second before it sounds (15 tracks measured: 0.91–1.43 s, median 0.98), so a
-  track going back to 0 in its last 3.5 s, and a new title within 1 s of that,
-  gets a lead of 0.98 s. A route change stops the output for 0.1–0.85 s while
-  the count runs on: a render notification on Spotify's RemoteIO unit (found
-  through `AudioOutputUnitStart`) times the stall, which goes into the lead at
-  the next report and 1.5 s and 4 s after the change. A lead holds while the
-  reports go on with the count and ends with a new track, a rate change or a
-  seek.
+- **Lyrics in place of the title**: lock screen, Control Center, Dynamic
+  Island and CarPlay. The artist field can keep the track and artist, show the
+  next line, or stay as the player set it.
+- **Lyrics Island**: the current line at the bottom of the compact Dynamic
+  Island, which grows down to the status bar's edge. White or album color, a
+  fade or scroll-up line change, adjustable font size and scroll speed. Long
+  lines scroll, and lyrics with word times light up word by word as they are
+  sung. With Always show on, the island stays up in the app that is playing
+  too. A live preview on its settings page shows every change at once.
+- **Four lyrics sources**, tried in the order you drag them into: Apple Music,
+  Musixmatch, LRCLIB and NetEase. When one has nothing, the next fills in.
+- **Now Playing page** in Settings: the lock screen's player, where the song's
+  lyrics came from (or why each source found none), a source picked for this
+  song, and this song's own offset.
+- **Your own lyrics**: paste them or import them from Files (LRC, word-by-word
+  LRC, Apple Music / AMLL TTML); lyrics you add win over every source.
+- **Lyrics Library**: every saved song by app, searchable; view, edit and
+  delete, or clear the cache (lyrics you added are kept).
+- **Listening History** (optional): every song you play, in any app, written
+  down on your device; songs left within 30 seconds are marked as skipped.
+  Your week as in Screen Time (listening time against last week, by day and by
+  hour, the songs, artists, albums and apps you played most), each day as a
+  timeline, and a page for each song with its first lyric lines, its plays and
+  its week. Hold a song to play it again: Apple Music opens the song itself,
+  other apps search for it. Kept 30 days, 90 days, a year or forever; export
+  and import it as one file.
+- **Player over its cover**: the player on the lock screen, in Control Center
+  and in Settings sits on its cover, blurred and darkened, with adjustable
+  transparency (iOS 15–18).
+- **Offset**: a default for every song and one per song, −3 s to +3 s, applied
+  as you drag; or type an exact value such as `0.25` or `-300ms`.
+- **Hide explicit badge**: drops the "E" that would follow the lyric line.
+- **Spotify Connect**: "Track • Artist / Playing on …" is turned back into the
+  real title and artist.
+- **Other tweaks**: Crescendo's volume slider and NextUp 3's Up Next row also
+  show in the player and the island preview in Settings. Tweaks that show the
+  now-playing title, such as Letterpress, show the lyric line too.
+- **Settings in four languages**: English, 繁體中文, 简体中文 and 日本語.
 
-- **Lyrics Island** (`NowLyricsIsland.x`, SpringBoard only, off by
-  default): the now-playing element's compact frame is grown through
-  `-[SBSystemApertureSceneElement preferredEdgeOutsetsForLayoutMode:…]` until it
-  ends on the top safe-area line, measured from the fixed sensor region. The
-  strip goes into the pill's content view with
-  `-[SBSystemApertureContainerView addContentSubview:]`, so SpringBoard scales,
-  fades and clips it with the artwork and waveform, and is laid out only from
-  the pill's `layoutSubviews`, centred under the camera. Text, explicit flag and
-  artwork (album color) come from `MRMediaRemoteGetNowPlayingInfo`. Always show
-  (`islandAlwaysShow`): SpringBoard puts an element away while its app or scene
-  is on screen (`-shouldSuppressElementWhilePresentingAppWithBundleId:` and
-  `…SceneWithIdentifier:`, by the element's associated app); the now-playing
-  element answers no, and a switch of the setting has
-  `-[SBSystemApertureViewController _reevaluateElementSuppression]` ask again at
-  once (16.5.1, 18.5 and 26.1 alike).
-- **Apple Music lyrics** (behind a switch): by the song's adam ID through
-  `MPStoreLyricsMusicKitRequestOperation`, the same TTML Music's lyrics view
-  gets (storefront text, word timing). In Music the ID is the content item's
-  `lyricsAdamID`/`storeID`. Other apps (Spotify) have neither the ID nor Apple
-  Music access, so SpringBoard does it (`NLAppleMusicSB.x`): the app writes
-  `am-request.plist` in its Library/NowLyrics and posts a Darwin notification;
-  SpringBoard finds the song with Apple's public search by title, artist and
-  length (`NLAppleMusicFind.m`), asks for the lyrics and writes
-  `am-response.plist` back. Everything Apple Music stays hidden until
-  "Unlock" confirms a subscription (SpringBoard asks iTunesCloud's
-  `ICMusicSubscriptionStatusController`, then StoreKit, then tries one song's
-  lyrics). SpringBoard checks again when iTunesCloud says the subscription
-  changed, when SpringBoard starts, and when an Apple Music lyrics request
-  fails; a lapsed one, or no Apple ID signed in for Media & Purchases, locks
-  it again. While Apple Music's privacy notice waits to be agreed to
-  (`AMSAcknowledgePrivacyTask`, `com.apple.onboarding.applemusic`), nothing
-  past iTunesCloud is asked and no lyrics are fetched: StoreKit would put the
-  notice up over whatever is on screen. The settings page sends you to Music
-  to agree to it.
-- **Word by word**: Apple Music, Musixmatch (`track.richsync.get`, with a token), NetEase
-  (`yrc` from `/api/song/lyric/v1`) and imported TTML or word-by-word LRC carry
-  word times, stored as enhanced LRC (`<mm:ss.xx>`). The lock screen still shows
-  the line; the island finds the lyrics file through the app's `nowplaying.plist`, matches
-  the line by MediaRemote's position the way the app does, and moves a soft
-  mask along the word times (long lines glide with the singing).
-  Musixmatch has one richsync per track, timed to one cut, which need not be
-  the cut playing: the subtitle is asked for by the song's length
-  (`q_duration`), and the richsync is dropped for it when its
-  `richsync_length` is more than 3 s off, when its lines drift from the
-  subtitle's, or when it runs faster than anyone sings (any source). The
-  position MediaRemote reports is the app's own: `MPNowPlayingInfoCenter` holds
-  a third-party app's update back 0.5 s when it comes within 0.5 s of the last
-  one (`_pushDate`), so each lyric push clears that first, on the center's queue.
-- **Lyrics management** (Settings: Now Playing, Lyrics Library): Preferences is
-  not sandboxed, so it reads and writes the lyrics files in each app's container
-  (`NLLocate.m` maps bundle IDs from the container metadata plists), then posts
-  `com.c3x14n.nowlyrics/LyricsChanged`; the apps drop their memory cache and look again.
-  The apps re-read the settings first. Per-song offsets and picked sources live
-  in the prefs file as `trackOffsets` and `trackSources` (a pick of `off`, Off
-  for This Song, shows that song no lyrics anywhere); the page shows one
-  offset (the default one under Advanced plus the song's own). The main page
-  and the Now Playing page embed the lock screen's player (MediaControls'
-  `+[MRPlatterViewController coverSheetPlatterViewController]`, `NLPlayerHeader`);
-  on the main page Advanced › Top of main page (`pageHeader`) swaps it for the
-  island preview or nothing, and Advanced › Other pages too (`topOnEveryPage`,
-  on by default, `NLPageTop`) gives the other pages the same top (the island
-  preview as their table's header), but for Lyrics Island (its own island
-  preview), Now Playing (its own player) and the lyrics editor. Outside the
-  lock screen the player has no background of its own (its material shows
-  nothing there), so it sits on one: glass (`UIGlassEffect`) on iOS 26, a
-  system material below; Player over its cover lies over it. Lyrics Sources
-  lists the sources in the order they
-  are tried (`source` on their plist rows). Musixmatch, like Apple Music, sits
-  behind an unlock: the Musixmatch app installed (`musixmatchVerified`); with
-  the app gone it stays while a User Token or API key is saved.
-- **Control Center's media player** (`NLSystemPlayerSB.x`, in NowLyricsIsland;
-  iOS 16 and 26, 17 to 25 left as they are): under its outputs the sources the
-  Now Playing page offers, the song's pick ticked with the lyrics' status, Off
-  for This Song, and NowLyrics Settings… (iOS 16: the outputs table's footer in
-  `MRURoutingView`; iOS 26: under the route picker's collection view, the rows
-  measured off the outputs' own). On iOS 16 a size picked there or on the
-  settings page (`systemPlayerSize`: 1×4, 2×2, 2×4, 3×4 or the system's) goes
-  into the grid (`-[CCUIModuleCollectionViewController
-  _sizesForModuleIdentifiers:…]`, with a full-cell first-fit packing once a
-  module is wider than two cells), and the closed player's own views are laid
-  out for it: 1×4 a row, 2×2 the cover over the song, 2×4 a big cover with the
-  song and three lines of lyrics, 3×4 the cover, the lyrics, the time bar and
-  the buttons (MediaControls takes a card over 200 pt wide for the open one,
-  so its state is held closed). Open, the lyrics are Apple Music's: upright
-  under a big cover and the song, on its side between the time bar and the
-  buttons, on iOS 26 beside the outputs too; the sung line lit word by word,
-  the others dim and blurred, dots in a long pause, a long line moving up as
-  it is sung, the song's own title over them and the output's name away. iOS
-  26's MediaControls is Swift: its views' fields are read by name
-  (`class_getInstanceVariable`); 2×4, 4×4, tall and wide get the lyrics, and
-  the small sizes' titles keep their marquee running. Settings › Control
-  Center: the size (iOS 16), Lyrics When Closed, Lyrics When Open, Lyrics
-  Sources in Outputs (`ccClosedLyrics`, `ccOpenLyrics`, `ccSourcesInOutputs`)
-  and Player over its cover (moved there from Advanced). Closed, Control
-  Center hides its window but keeps its views in it, and MediaControls lays
-  every player out at each now-playing change: NowLyrics' own readings and
-  display links stop while the window is hidden and start again as it shows
-  (`UIWindowDidBecomeVisibleNotification`).
-- **NowLyrics' Control Center modules** (`cc/`, a CCSupport module provider in
-  `/Library/ControlCenter/CCSupport_Providers`): "NowLyrics 1×1" to
-  "NowLyrics 3×4" among Settings › Control Center's controls, each its own
-  size (`-moduleSizeForOrientation:`; from iOS 17 on only the two tiles), as
-  many as wanted. Each is a copy of the media player made as the media module
-  makes its own (`[MRUControlCenterViewController new]` and its dismissal,
-  home-gesture and corner-tap blocks) and handed to the island
-  (`NLSPOwnModule`), which lays it out as the media module's at that size. Its
-  output buttons show a lyrics glyph (`quote.bubble`) and its outputs' list
-  holds the sources alone: the outputs' table stays hidden under them (its
-  data source is left alone, as MediaControls applies batch updates to it).
-  1×1 (the cover and the app's icon) and 1×2 (the cover, the title and the
-  artist scrolling as MediaControls' `MRUMarqueeLabel`, play or pause) are the
-  module's own tile over the card, fading out as it opens.
-- **Player over its cover** (`NLPlayerTint`, switch `playerTint`): in Control
-  Center over `-[MRUControlCenterView materialView]`; on the lock screen over the
-  player's `PLPlatterView` material, the player told from Live Activities (same
-  ActivityUIServices scene) by its notification-list group
-  `com.apple.MediaRemoteUI`. The cover blurred under a scrim sized from its
-  brightest tenth, whatever color the lyrics are; between songs the old look
-  stays until the new cover is there. Advanced › Transparency (`playerTintClear`,
-  default 50 %) thins the cover and the system material under it together
-  (`MTMaterialView` `weighting`) so the wallpaper shows through; the thinned
-  material first gets a backdrop group of its own (`groupNameBase`), as the
-  materials of one group share their filters.
-- **Crescendo** (if installed): its switches come from its notify state
-  (`com.yves.crescendo.state`); the settings player's dormant volume row is
-  forced on (`-[MRUNowPlayingView setShowVolumeControlsView:]`) and the island
-  preview gets a `MRUNowPlayingVolumeControlsView` of its own, 40 pt taller.
-- **NextUp 3** (if installed): its library is loaded into Settings after
-  MediaControls, so the settings player gets its Up Next row as the lock
-  screen does. Its iOS 17 island hooks also reach the preview's view on 16.5,
-  so the preview takes that view back (`NLNextUpKeepOut`) and places a
-  `NUNextUpRowView` of its own, as on the real island.
-- **Advanced › Supported Tweaks** (`Tweaks.plist`): a switch each for
-  Crescendo (`tweakCrescendo`, below iOS 17, where the system's Always Show
-  Volume Control takes over) and NextUp 3 (`tweakNextUp`, iOS 16 and later),
-  both on by default, each with the tweak's own icon (its preference bundle's)
-  and dimmed when not installed. Off, NextUp's library is not loaded, and one
-  already loaded is told it has no next track (`-[NUNextUpManager isActive]`
-  in Settings only), so the player's row goes at once.
-  On iOS 17 and later the settings player shows the volume row by Always Show
-  Volume Control (`-[MRUserSettings alwaysShowVolumeControls]`), as the lock
-  screen does; the open island has none either way.
-- **Island preview** (island settings page): with music, MediaControls'
-  `MRUActivityNowPlayingViewController` (what MediaRemoteUI draws the island
-  with): its leading/trailing views as cover and waveform, its open layout when
-  opened. Preferences has no island host, so the preview answers
-  `-[UIView SBUISA_layoutMode]` and the camera layout guide for views in its
-  pill. Waveform levels need an audio tap, so they are made up
-  (`NLWaveformDriver`). It stretches when dragged and opens on a long press.
-  The open view's `-layoutSubviews` sets the cover's and waveform's frames in
-  its own coordinates on every pass, wherever they now live; the preview wraps
-  it and puts them back in the same pass. Preview island (`islandPreviewOpen`)
-  sets how it comes up: Compact, Expanded, or Auto compact (opens, then closes
-  after 5 s left alone).
-- **Hide explicit badge** clears `MPMediaItemPropertyIsExplicit` (and Music's
-  `explicitItem`) before the system sees it, so no "E" follows the lyric line.
-- **Choose Apps** (`NLAppListController`): AltList's app list with a filter at
-  the top right (`appListFilter`), music apps by default (the App Store's Music
-  genre 6011, Music, Podcasts and the apps already chosen) or all. The filter is
-  an AltList section predicate; the subclass is made at runtime, as AltList is
-  dlopen'ed rather than linked.
-- **Listening History** (`NLHistorySB.x` in SpringBoard, `NLHistory.m`; switch
-  `history`, off by default): SpringBoard hears every now-playing change
-  (`-[SBMediaController _mediaRemoteNowPlayingInfoDidChange:]`) and asks
-  MediaRemote what plays, in any app. While NowLyrics runs in that app the
-  title is a lyric line, so the song comes from the app's `nowplaying.plist`
-  (its `started` time tells the song's start). A play counts after 30 s or half
-  the song; one left earlier, after 2 s or more, is written as skipped
-  (`historySkipped` shows or hides them). Only playing time counts; a play is
-  written when it counts, at each pause, at its end and once a minute between,
-  into one JSON file per local day in `/var/mobile/Library/NowLyrics/History`
-  under the jailbreak root (`NLJBPath`), covers in `Artwork/`; `historyDays`
-  (default 90, 0 = forever) prunes older days. The pages
-  (`prefsbundle/NLHistory*.m`) use Screen Time's own charts where iOS has
-  ScreenTimeSettingsUI (`NLScreenTime.m`: `STUsageGraphViewController`, its
-  title view, legend and date bar) and draw their own elsewhere. Listen in and
-  a long press on a song (`NLListen.m`) open Apple Music at the song itself
-  (its `trackViewUrl` from Apple's search) and other apps at their search.
-  Export and import are one JSON file with the covers inside.
-- **Preferences** live under `com.c3x14n.nowlyrics` since 1.3.0; the keys of the
-  old `app.nowlyrics` domain are copied over once (`NLMoveOldPrefs`, in
-  SpringBoard and the settings page), and a file by the old name is still read
-  as a fallback.
+## Supported apps
 
-Lyrics are cached per app in `Library/NowLyrics/` (max 300 files; since 1.2.0
-with `[ti:]`/`[ar:]`/`[nl-source:]` tags on top, added to older files when they
-are next played); added lyrics (pasted or imported in Settings, or dropped in by
-hand) in `Library/NowLyrics/manual/Title - Artist.lrc` win over every source.
-Each app also writes `Library/NowLyrics/nowplaying.plist`: the real title, the
-lyrics file, its source and whether it has word times.
+- **Spotify** and **Apple Music**: full support.
+- **YouTube Music, KKBOX, SoundCloud, TIDAL, Deezer, Amazon Music**: on by
+  default, through the system's now-playing info.
+- **Any other player** that shows what it plays on the lock screen: pick it
+  under Choose Apps, which lists music apps (or, with its filter, all apps).
 
-## Build and release
+## Lyrics sources
+
+| Source | Needs | Notes |
+|---|---|---|
+| **Apple Music** | An Apple Music subscription, iOS 16 or later | Apple's own lyrics in your region's store text (Traditional Chinese in Taiwan), word by word where Apple has it. Works in Music and, through SpringBoard, in Spotify and other apps |
+| **Musixmatch** | The Musixmatch app, then its User Token or your own API key | The largest catalogue, much of it word by word |
+| **LRCLIB** | Nothing | On by default |
+| **NetEase Cloud Music** | Nothing | On by default; lyrics are Simplified Chinese |
+
+**Apple Music lyrics** stay hidden until you unlock them: Lyrics Sources ›
+Unlock Apple Music lyrics checks your subscription. Agree to Apple Music's
+privacy notice in the Music app first, and be signed in under Settings › your
+name › Media & Purchases. The subscription is checked again only when
+something changes: when Apple Music reports a change, after a respring, and
+when Apple Music refuses a lyrics request. A lapsed subscription, or signing
+out of Media & Purchases, locks Apple Music again and NowLyrics carries on with
+the other sources. In other apps the song is found on Apple Music by title,
+artist and length; Test with the song playing shows each step.
+
+**Musixmatch** is unlocked once the Musixmatch app is installed. Paste its
+debug info into User Token (in the Musixmatch app: Settings → Get help → Copy
+debug info), or enter an API key of your own. The User Token identifies your
+Musixmatch account, so treat it like a password.
+
+## Settings
+
+NowLyrics has its own page in Settings (on iOS 18 and later at the bottom of
+Settings › General). **Apply** at the top right of every page restarts SpringBoard; it is
+needed once after installing, for what runs there: Lyrics Island, Player over
+its cover and Apple Music lyrics in other apps. Everything else applies at
+once.
+
+- **Enabled** and **Choose Apps**: the main switch and the apps NowLyrics
+  works in.
+- **Now Playing**: the song playing now. Artist field, Hide explicit badge and
+  this song's Offset; Auto or a source picked for this song; Paste lyrics,
+  Import from Files, Remove added lyrics, and View and edit for the lyrics in
+  use.
+- **Lyrics Island**: Enabled, Always show, Preview what's playing, Preview island (Compact,
+  Expanded or Auto compact), Lyrics color (White or Album color), Line change
+  (Fade or Scroll up), Word by word, Font size, Scroll speed. The preview at
+  the top works like the real island: tap or hold it.
+- **Listening History**: This Week and Show All Activity, Most Played This
+  Week, and the days; Record Listening History, Keep History (30 days, 90
+  days, 1 year, Forever), Show Skipped Songs, Export History and Import
+  History, Delete All History.
+- **Lyrics Sources**: Lyrics Library, Source order, Apple Music lyrics (with
+  Use in other apps and a test), Musixmatch, LRCLIB and NetEase Music.
+- **Advanced**:
+  - Default offset;
+  - Top of main page (Player, Island or Hidden), and Other pages too to put
+    the same at the top of the other pages;
+  - Player over its cover and Transparency;
+  - Supported Tweaks (Crescendo, NextUp 3);
+  - Diagnostics (the source that answered, in the artist field);
+  - Quit app on change (quits the music app when a setting it uses changes);
+  - Fix Spotify Connect titles.
+
+## Adding your own lyrics
+
+The easiest way is Settings › NowLyrics › Now Playing while the song plays:
+**Paste lyrics** (copy LRC or TTML first) or **Import from Files**. Lyrics you
+add are used before every source until you remove them.
+
+By hand: put an `.lrc` file named `Title - Artist.lrc` (or `Title.lrc`) into
+the app's container, under `Library/NowLyrics/manual/`. An `[offset:±ms]` tag
+at the top shifts that one song. Lyrics fetched online are kept per app in
+`Library/NowLyrics/` (at most 300 songs per app) and can be edited in the
+Lyrics Library.
+
+## Requirements and install
+
+- **iOS 15.0 – 26.1**, rootless jailbreak (Dopamine, palera1n), arm64 and arm64e.
+- **AltList**, installed automatically with NowLyrics.
+- **iOS 18 and later**: PreferenceLoader 2.2.8 from
+  [dhinakg's repo](https://dhinakg.github.io/repo/), which the settings page
+  needs there.
+- Cannot be installed alongside **AMLyrics**: both rewrite the same Apple Music
+  item.
+
+NowLyrics is sold on [Havoc](https://havoc.app): add the Havoc repo in your
+package manager, buy NowLyrics and install it, then tap **Apply** on its
+settings page once.
+
+## Building from source
+
+The whole source is in this repository. With [Theos](https://theos.dev) and
+Xcode on a Mac:
 
 ```bash
-make package FINALPACKAGE=1   # release; plain `make package` = debug with NSLog
-make package FINALPACKAGE=1 THEOS=~/theos-roothide THEOS_PACKAGE_SCHEME=roothide   # roothide, iphoneos-arm64e
+make package FINALPACKAGE=1
 ```
 
-- Theos + Xcode on a Mac, rootless, `ARCHS = arm64 arm64e`. The arm64e slice
-  makes Apple Music work and only Xcode's toolchain produces one that passes
-  pointer authentication.
-- roothide needs roothide's Theos; its packages link libroothide and find
-  jailbreak files through `jbroot()` (`NLJBPath()` in `NLShared.h`). Each scheme
-  builds in its own `.theos/obj/<scheme>`, so the two never mix. Not yet run on
-  a roothide jailbreak.
-- Version lives only in the Makefile's `PACKAGE_VERSION` (package, `NL_VERSION`
-  define, `bundle/Info.plist` filled at stage time).
-- Runtime deps: PreferenceLoader, AltList; CCSupport for NowLyrics' Control
-  Center modules (not a dependency: without it the provider is simply not
-  loaded). Install with `sudo dpkg -i`, then
-  respring once (Apply on the settings page) so SpringBoard loads
-  NowLyricsIsland; the lyrics themselves only need the player relaunched.
-- iOS 18 and later rewrote Settings in Swift: PreferenceLoader 2.2.6 shows no
-  tweak pages there. With dhinakg's 2.2.8 (https://dhinakg.github.io/repo/)
-  NowLyrics is at the bottom of Settings › General.
+The arm64e slice, which Apple Music needs, only passes pointer authentication
+when built with Xcode's toolchain. How NowLyrics works, the roothide build,
+the source layout and how it was tested are in
+[docs/development.md](docs/development.md).
 
-## Layout
+## Troubleshooting
 
-| | |
-|---|---|
-| `NowLyrics.xm` | hooks, both publishers, Connect rewrite, explicit flag, notification observers |
-| `NowLyricsIsland.x` | SpringBoard: lyrics strip under the compact Dynamic Island |
-| `NLEngine.m` / `NLSources.m` / `NLLyrics.m` / `NLSettings.m` | engine, providers, LRC (word times, yrc) + cache, settings snapshot |
-| `NLIslandStrip.m` / `NLLocate.m` | the island's line strip (word mask); app containers and `nowplaying.plist` (Settings and the island) |
-| `prefsbundle/NLNowPlayingController.m`, `NLLibraryController.m`, `NLLyricsEditor.m`, `NLLyricsImport.m` | Now Playing, the library (by app), the editor, paste/import and TTML |
-| `NLSystemPlayerSB.x` | SpringBoard: Control Center's media player (iOS 16, 26) and NowLyrics' modules' copies of it: sources under the outputs, sizes, lyrics |
-| `NLLyricsSources.m` | the sources offered and picked, the lyrics' status: the Now Playing page and Control Center |
-| `cc/` | Control Center modules: the provider and the module (`NLCCModule.m`), the 1×1 and 1×2 tile (`NLCCViews.m`) |
-| `prefs/`, `prefsbundle/`, `bundle/Island.plist` | settings page: plist + 4 languages; controller (runtime icons, Apply, version, island page), slider rows, text rows |
-| `NLHistorySB.x` / `NLHistory.m`, `prefsbundle/NLHistory*.m`, `NLScreenTime.m`, `NLListen.m` | listening history: the recorder in SpringBoard and the day files; its pages, Screen Time's charts, listening again |
-| `docs/`, `havoc/` | vPhone runbook; listing text, changelog, clean-install checklist |
+- **No lyrics for a song**: open Settings › NowLyrics › Now Playing. It shows
+  what each source answered; pick another source for the song, or add the
+  lyrics yourself.
+- **Lyrics a little early or late**: drag Offset on Now Playing (this song) or
+  Default offset under Advanced (every song).
+- **Nothing under the Dynamic Island**: Lyrics Island needs the Dynamic Island
+  (an iPhone that has it, or a device given one by a MobileGestalt edit or a
+  tweak, iPads too) and one respring (Apply) after installing.
+- **Apple Music lyrics missing**: make sure Apple Music lyrics is unlocked and
+  on under Lyrics Sources; the unlock tells you what is missing.
 
-## Testing
+## Known limitations
 
-iPhone 14 Pro / iOS 16.5.1 for everything; vphone-cli VMs (iOS 26.1, 18.6.2)
-for the Spotify path, the island, the lock screen and Control Center, and,
-with PreferenceLoader 2.2.8, the settings page (no Apple Music there, and no
-Settings page with the old 2.2.6). The island strip is verified on the 14 Pro
-(16.5.1) and in the 18.6.2 and 26.1 VMs; its animation work was checked frame
-by frame on screen recordings. On iOS 17+ it hangs in the element's own view:
-there the container's content views assert a single subview, so
-`addContentSubview:` would replace the element. iOS 17+ also resizes the
-island by laying that view out step by step (26 springs past its size and
-widens it again a moment later), so the line waits until the view has stopped
-moving on screen before it fades in. Private API used on 18.5 and 26.1 was
-checked symbol by symbol against those builds. Control Center was checked on
-the 14 Pro (16.5.1, CCSupport 1.3.13) and, for iOS 26, in the ios26 and
-ipados26 VMs (26.6.2).
+- The lock screen, Control Center and CarPlay show the whole line; only Lyrics
+  Island goes word by word, and only with lyrics that have word times.
+- Inside Apple Music the lyric line also appears in Music's own now-playing
+  views.
+- Songs are matched by title, artist and length, so live versions, remasters
+  and rare tracks can be missed; add those lyrics yourself.
+- NetEase lyrics are Simplified Chinese, with no conversion. The NetEase and
+  Musixmatch User Token services are unofficial and may stop working; a free
+  Musixmatch API key usually has no timed lyrics.
+- Apple Music lyrics and Lyrics Island rely on iOS internals, checked on iOS
+  16.5.1, 18.6.2 and 26.1; another iOS version may need an update.
+- On iOS 26, Player over its cover is hidden: the lock screen's player is
+  glass there and Control Center already takes the cover's colors.
+- Spotify with crossfade or Automix, or a song skipped in its last few
+  seconds, can leave the lyrics up to a second off until you pause; on a
+  Spotify Connect device they follow Spotify's position, without that
+  device's own delay.
 
-## Limitations
+## Privacy
 
-The lock screen shows the line; only the island goes word by word, and only
-with lyrics that have word times. NetEase is Simplified Chinese. Musixmatch needs the
-app's token (unofficial) or an API key whose timed endpoint is usually paid.
-Matching is by strings; Apple Music relies on private API. Lyrics Island
-needs the Dynamic Island as SpringBoard has it: SpringBoardServices'
-`SBSIsSystemApertureAvailable` asked in SpringBoard once it has launched and
-published as the notify state `com.c3x14n.nowlyrics.island`, so a device given the
-island by other means (a MobileGestalt edit, a tweak in SpringBoard; an iPad
-too) counts, and the settings page says so on others. It rests on
-SpringBoard internals checked on 16.5.1, 18.6.2 and 26.1 (and iPadOS 26.6.2
-with the island turned on); other versions may need adjusting. iPadOS 26's
-Settings floats its sidebar over the page, so the player and the island
-preview go by the table's margins and safe area, not its width. Player over its cover: lock screen and Control Center on 16
-and 18; on 26 the lock screen's player is glass, which shows what is behind it
-over the tint, and Control Center's media module already takes the cover's
-colors, so it stays as the system draws it; there the setting is hidden and
-the settings page's player keeps the system look too, like the lock screen's.
-Spotify timing rests on measurements on 16.5.1: a track that takes longer than
-usual to sound after it is announced (up to 1.43 s seen) has its lyrics up to
-0.45 s early, and skipping or going back to the start in a song's last 3.5 s
-makes the lyrics that follow about 1 s late, both until the next pause;
-crossfade and Automix are not accounted for, nor is a Spotify Connect device's
-delay. Control Center's media player is laid out on iOS 16 and 26 only;
-NowLyrics' own modules need CCSupport and hold iOS 16's player. Each module
-is a whole MediaControls player, which MediaControls updates at every
-now-playing change (every lyric line) even while Control Center is closed, so
-many modules cost more.
+To find lyrics, NowLyrics sends the track's title, artist, album and length to
+the lyrics sources you have on. Apple Music lyrics are asked of Apple through
+your own Apple ID, after the song is found with Apple's public search; the
+subscription check also asks Apple. A Musixmatch User Token or API key is
+stored only in NowLyrics' settings on your device and sent only to Musixmatch.
+Listening History stays on your device unless you export it.
+No accounts, no analytics, no tracking.
+
+## Credits
+
+Inspired by [Lessica/AMLyrics](https://github.com/Lessica/AMLyrics). App
+picker by [AltList](https://github.com/opa334/AltList). Lyrics from Apple
+Music, [Musixmatch](https://www.musixmatch.com), [LRCLIB](https://lrclib.net)
+and NetEase Cloud Music.
 
 ## License
 
-© 2026 chxhua2k7. All rights reserved. Not open source.
+© 2026 chxhua2k7. NowLyrics is free software under the
+[GNU General Public License v3.0](LICENSE): you may use, change and share it,
+and anything you distribute that is built on it must be released under the
+same license with its source.

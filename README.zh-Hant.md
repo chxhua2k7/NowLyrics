@@ -1,203 +1,170 @@
 # NowLyrics
 
-<img src="logo/NowLyrics-1024.png" width="96" alt="NowLyrics">
+<img src="logo/NowLyrics-1024.png" width="128" alt="NowLyrics">
 
-把同步歌詞放到曲名的位置:鎖定畫面、控制中心、動態島、CarPlay。支援 Spotify、Apple Music
-和任何會發布 now-playing 資訊的播放器;另可在縮小的動態島底部多一列顯示當前歌詞,也可以記下聆聽紀錄。
-來源:Apple Music(需訂閱)、Musixmatch、LRCLIB、網易雲。
+播放音樂時，NowLyrics 把正在唱的那句歌詞**放到曲名的位置**：鎖定畫面、控制中心、
+動態島和 CarPlay 都看得到，不用打開任何 App。也可以在動態島底下多一列當前歌詞，
+有逐字時間的歌詞會跟著演唱一個字一個字亮起來。
 
-私人原始碼 repo。公開頁面:[chxhua2k7/NowLyrics](https://github.com/chxhua2k7/NowLyrics)。
-以 `com.c3x14n.nowlyrics` 在 Havoc 販售,上架素材在 `havoc/`。
+支援 Spotify、Apple Music，以及任何會在鎖定畫面顯示播放資訊的播放器。歌詞來源有
+Apple Music（需訂閱）、Musixmatch、LRCLIB 和網易雲音樂。
 
-English: [README.md](README.md)
+目前版本：**1.3.0** · [更新紀錄](CHANGELOG.md) · [運作方式](docs/development.zh-Hant.md) · English: [README.md](README.md)
 
-## 運作方式
+## 功能
 
-- **第三方播放器**會呼叫 `-[MPNowPlayingInfoCenter setNowPlayingInfo:]`。hook 放它通過,
-  讀曲名/演出者/時長/進度/速率,每到一行的邊界就把字典複製一份、換掉曲名、重新定錨進度後推回去。
-  Spotify Connect 的「曲名 • 演出者 / 正在用某裝置播放」在系統看到之前就改回真實值。
-- **Apple Music** 不呼叫那個方法,改掛它的 `MPNowPlayingContentItem` setter,直接把歌詞寫進 item
-  (和 AMLyrics 同一招,所以套件對 `com.82flex.amlyrics` 宣告衝突)。
-- **引擎**:曲目 = 曲名 + 演出者;依序找手動 `.lrc` → 磁碟快取 → 使用者排的來源順序(`sourceOrder`);位置從上一個錨點外推;
-  每行一個 `dispatch_after`。空行只在下一行 ≥ 5 秒才算空檔。
-- **Spotify 的時間**(`NowLyrics.xm`,只在 Spotify):引擎用聽到的位置(`NLHeardPosition`),
-  也就是 App 自己數的時間減掉輸出延遲和超前量。Spotify 回報的是交給音訊單元的位置,所以延遲是
-  `AVAudioSession.outputLatency` + 0.04 秒,只算手機自己的輸出和藍牙(AirPlay、CarPlay、USB 和 Connect 不算),
-  換輸出時重算。它播放中的時間是自己另外數的,有兩種情況會跑在聲音前面,直到它下次從音訊讀回位置
-  (暫停、繼續、拖動)為止。一首歌自己接到下一首時,下一首在聲音出來前約一秒就從 0 開始數
-  (量了 15 首:0.91–1.43 秒,中位數 0.98),所以最後 3.5 秒內回到 0 的歌,以及之後 1 秒內換上的新曲名,
-  超前量記 0.98 秒。換輸出時音訊會停 0.1–0.85 秒,時間照數:Spotify 的 RemoteIO 單元(從
-  `AudioOutputUnitStart` 找到)掛 render notification 量出停頓,在下一次回報、以及換輸出後 1.5 秒和 4 秒
-  加進超前量。回報接著同一個時間數下去時超前量保留,換歌、改速率或拖動時歸零。
+- **歌詞取代曲名**：鎖定畫面、控制中心、動態島和 CarPlay。演出者欄位可以顯示
+  曲名與演出者、下一句歌詞，或維持播放器原本的內容。
+- **歌詞上島**：在縮小的動態島底部顯示當前歌詞，動態島會往下長到剛好貼齊狀態列。
+  白色或專輯顏色、淡入淡出或向上捲動的換行動畫，字體大小和捲動速度都能調。太長的
+  句子會捲動；有逐字時間的歌詞會照著演唱逐字亮起。開啟「常駐顯示」後，在正在播放的 App
+  裡島也不會收起來。設定頁上的即時預覽會馬上反映每個改動。
+- **四個歌詞來源**，照你拖曳排好的順序嘗試：Apple Music、Musixmatch、LRCLIB 和
+  網易雲。前一個找不到，就由下一個補上。
+- **「正在播放」頁**：鎖定畫面的播放器、這首歌的歌詞從哪裡來（找不到時每個來源各自
+  的原因）、替這首歌指定來源，以及這首歌自己的偏移。
+- **自己加歌詞**：直接貼上，或從「檔案」匯入（LRC、逐字 LRC、Apple Music / AMLL
+  TTML）；你加的歌詞優先於所有來源。
+- **歌詞庫**：依 App 列出所有存過的歌詞，可搜尋、查看、編輯、刪除，也能清除快取
+  （你手動加的歌詞會保留）。
+- **聆聽紀錄**（選用）：記下任何 App 播放的每一首歌，只存在你的裝置上；播放不到 30 秒的
+  標成「已跳過」。像「螢幕使用時間」一樣看本週（聆聽時間與上週比較、每天和每小時的圖表、
+  最常聽的歌曲、歌手、專輯與 App），每天有時間軸，每首歌有自己的頁面（開頭幾句歌詞、
+  播放次數、那一週的圖表）。長按一首歌可以再聽一次：Apple Music 直接打開那首歌，其他 App
+  幫你搜尋。紀錄可保留 30 天、90 天、1 年或永久，也能匯出、匯入成一個檔案。
+- **播放器用封面背景**：鎖定畫面、控制中心和設定頁的播放器背景換成模糊並加深的封面，
+  透明度可調（iOS 15–18）。
+- **偏移**：所有歌的預設偏移，加上每首歌各自的偏移，−3 秒到 +3 秒，邊拖邊套用；
+  也可以直接輸入，例如 `0.25` 或 `-300ms`。
+- **隱藏「E」標記**：不讓歌詞後面跟著 explicit 的「E」。
+- **Spotify Connect**：把「曲名 • 演出者 / 正在用某裝置播放」還原成真正的曲名和演出者。
+- **其他插件**：設定頁的播放器和預覽島也會顯示 Crescendo 的音量條和 NextUp 3 的
+  「接著播放」列。Letterpress 這類顯示播放標題的插件，也會跟著顯示歌詞。
+- **四種語言的設定頁**：English、繁體中文、简体中文、日本語。
 
-- **歌詞上島**(`NowLyricsIsland.x`,只注入 SpringBoard,預設關閉):透過
-  `-[SBSystemApertureSceneElement preferredEdgeOutsetsForLayoutMode:…]` 讓播放元件的 compact 外框
-  往下長,剛好停在頂部安全區的線上(以固定的感測區量測)。歌詞列用
-  `-[SBSystemApertureContainerView addContentSubview:]` 放進內容層,讓 SpringBoard 跟封面、聲波一起縮放、
-  淡化、裁切;只在容器的 `layoutSubviews` 排版,置中於鏡頭下方。文字、explicit 旗標與封面(專輯顏色)
-  來自 `MRMediaRemoteGetNowPlayingInfo`。常駐顯示(`islandAlwaysShow`):App 或它的場景在畫面上時,
-  SpringBoard 會依元件關聯的 App 把元件收起(`-shouldSuppressElementWhilePresentingAppWithBundleId:` 與
-  `…SceneWithIdentifier:`);播放元件改回答不收,切換設定時呼叫
-  `-[SBSystemApertureViewController _reevaluateElementSuppression]` 立刻重新判斷(16.5.1、18.5、26.1 相同)。
-- **Apple Music 歌詞**(有獨立開關):以歌曲的 adam ID 呼叫 `MPStoreLyricsMusicKitRequestOperation`,
-  拿到 Music 歌詞頁同一份 TTML(店面語系、逐字時間)。在「音樂」App 裡 ID 來自 content item 的
-  `lyricsAdamID`/`storeID`;其他 App(Spotify)沒有 ID 也沒有 Apple Music 權限,改由 SpringBoard 代勞
-  (`NLAppleMusicSB.x`):App 在自己的 Library/NowLyrics 寫 `am-request.plist` 並發 Darwin 通知,
-  SpringBoard 用 Apple 公開搜尋依歌名、歌手、長度找到這首(`NLAppleMusicFind.m`),要到歌詞後寫回
-  `am-response.plist`。確認有訂閱前 Apple Music 相關的設定全部隱藏:按「解鎖」時由 SpringBoard
-  問 iTunesCloud 的 `ICMusicSubscriptionStatusController`,再問 StoreKit,最後實際要一首歌的歌詞;
-  之後在 iTunesCloud 通知訂閱狀態改變、SpringBoard 啟動、Apple Music 歌詞請求失敗時由 SpringBoard
-  重新確認,訂閱過期或「媒體與購買項目」沒登入 Apple ID 就再鎖起來。還沒同意 Apple Music 的隱私權說明時(`AMSAcknowledgePrivacyTask`、
-  `com.apple.onboarding.applemusic`)只問 iTunesCloud、也不抓歌詞,因為 StoreKit 會把同意畫面蓋在當下的畫面上;
-  設定頁會請你到「音樂」裡同意。
-- **逐字歌詞**:Apple Music、Musixmatch(有 token 時的 `track.richsync.get`)、網易雲(`/api/song/lyric/v1` 的 `yrc`)
-  與匯入的 TTML 或逐字 LRC 有逐字時間,存成 enhanced LRC(`<mm:ss.xx>`)。鎖定畫面照舊一行;島從 App 的
-  `nowplaying.plist` 找到歌詞檔,用 MediaRemote 的進度和 App 一樣的方式對到這一行,遮罩照時間推進
-  (柔邊、長句跟著唱到的位置平滑捲動)。Musixmatch 一首歌只有一份 richsync,對的是某一個版本,
-  不一定是正在播的:逐行字幕用歌曲長度挑(`q_duration`),richsync 的 `richsync_length` 差超過 3 秒、
-  各行和逐行字幕越差越遠,或快到人唱不出來(任何來源都檢查)時就改用逐行。MediaRemote 的進度就是
-  App 推的:`MPNowPlayingInfoCenter` 對第三方 App 距上次不到 0.5 秒的更新會延後 0.5 秒(`_pushDate`),
-  所以每次推歌詞前先在它的佇列上清掉。
-- **歌詞管理**(設定頁「正在播放」「歌詞庫」):Preferences 沒有沙盒,直接讀寫各 App 容器裡的歌詞檔
-  (`NLLocate.m` 用容器的 metadata plist 找 bundle ID),改完發 `com.c3x14n.nowlyrics/LyricsChanged`,
-  App 先重讀設定再清掉記憶體快取、找一次。每首偏移和每首指定的來源存在設定檔的 `trackOffsets`、
-  `trackSources`(曲目 key → 秒 / 來源名;來源是 `off` 就是「這首不顯示歌詞」,這首歌在哪裡都不顯示歌詞);
-  頁面上只顯示一個偏移(「進階」的預設偏移加上這首的)。
-  主頁和「正在播放」頁最上面嵌入鎖定畫面的播放器
-  (MediaControls 的 `+[MRPlatterViewController coverSheetPlatterViewController]`,`NLPlayerHeader`);
-  主頁可在「進階 › 主頁頂端」(`pageHeader`)換成島預覽或隱藏;「進階 › 其他頁也一樣」
-  (`topOnEveryPage`,預設開,`NLPageTop`)讓其他頁面頂端跟主頁一樣(島預覽放在表格的 header),
-  「歌詞上島」頁(有自己的預覽島)、「正在播放」頁(有自己的播放器)和歌詞編輯頁除外。播放器離開鎖定畫面
-  就沒有自己的背景(它的材質在別處什麼都不顯示),所以墊一層:iOS 26 是玻璃(`UIGlassEffect`),以下是系統材質;
-  「播放器用封面背景」蓋在上面。「歌詞來源」頁照嘗試順序列出來源
-  (plist 列上的 `source`)。Musixmatch 跟 Apple Music 一樣要先解鎖:有安裝 Musixmatch App
-  (`musixmatchVerified`);App 刪掉後,有存 User Token 或 API Key 就繼續用。
-- **控制中心的媒體播放器**(`NLSystemPlayerSB.x`,在 NowLyricsIsland 裡;iOS 16 和 26,17 到 25 維持原樣):
-  輸出列表下面列出「正在播放」頁提供的來源,這首指定的打勾、下面寫歌詞狀態,還有「這首不顯示歌詞」和「NowLyrics 設定⋯」
-  (iOS 16:`MRURoutingView` 輸出表格的 footer;iOS 26:路由選擇器的 collection view 下面,列的樣子照輸出列量出來)。
-  iOS 16 在那裡或設定頁選的大小(`systemPlayerSize`:1×4、2×2、2×4、3×4 或系統預設)會放進控制中心的格子
-  (`-[CCUIModuleCollectionViewController _sizesForModuleIdentifiers:…]`,有模組超過兩格寬時改用整格檢查的排列),
-  收合的播放器用它自己的元件照大小排:1×4 一列,2×2 封面在歌曲上面,2×4 大封面加歌曲和三行歌詞,
-  3×4 封面、歌詞、時間條和按鈕(MediaControls 把超過 200 pt 寬的卡片當成展開,所以把它的狀態固定在收合)。
-  展開時歌詞像 Apple Music:直向在大封面和歌曲下面,橫向在時間條和按鈕之間,iOS 26 並排輸出列表時也有;
-  正在唱的那行逐字亮起,其他行變暗模糊,長間奏有圓點,長句隨著唱往上捲,上面顯示歌曲本身的曲名,輸出名稱拿掉。
-  iOS 26 的 MediaControls 是 Swift:元件的欄位照名稱讀(`class_getInstanceVariable`);2×4、4×4、直向、橫向有歌詞,
-  小尺寸的標題保持跑馬燈。設定頁「控制中心」:大小(iOS 16)、收合時顯示歌詞、展開時顯示歌詞、輸出列表顯示歌詞來源
-  (`ccClosedLyrics`、`ccOpenLyrics`、`ccSourcesInOutputs`),以及從「進階」搬來的「播放器用封面背景」。
-  控制中心收起時只是把視窗藏起來,元件都還在裡面,MediaControls 每次正在播放的資訊一變就把每個播放器重排:
-  NowLyrics 自己的讀取和逐格更新在視窗隱藏時停下,視窗再出現時恢復(`UIWindowDidBecomeVisibleNotification`)。
-- **NowLyrics 的控制中心模組**(`cc/`,CCSupport 的 module provider,在 `/Library/ControlCenter/CCSupport_Providers`):
-  「設定 › 控制中心」的控制項裡有「NowLyrics 1×1」到「NowLyrics 3×4」,每個是一種大小(`-moduleSizeForOrientation:`;
-  iOS 17 起只有兩個小方塊),可以加好幾個。每個模組是一份照媒體模組方式建立的播放器
-  (`[MRUControlCenterViewController new]` 和它的關閉、Home 手勢、角落按鈕三個 block),交給島(`NLSPOwnModule`)
-  照媒體模組的方式依那個大小排版。輸出按鈕換成歌詞圖示(`quote.bubble`),輸出列表只有歌詞來源:
-  輸出表格藏在下面(MediaControls 用批次更新改它,所以不動它的資料來源)。1×1(封面和 App 圖示)
-  與 1×2(封面、用 MediaControls 的 `MRUMarqueeLabel` 跑馬燈的曲名和演出者、播放/暫停)是模組自己的小方塊,
-  蓋在卡片上,展開時淡出。
-- **播放器用封面背景**(`NLPlayerTint`,開關 `playerTint`):控制中心蓋在
-  `-[MRUControlCenterView materialView]` 上;鎖定畫面蓋在播放器 `PLPlatterView` 的毛玻璃上,
-  靠通知列表的群組 `com.apple.MediaRemoteUI` 和即時動態(同樣是 ActivityUIServices 的 scene)分開。
-  把封面模糊、依最亮的一成加深(不管歌詞是什麼顏色);換歌時封面還沒到就維持原本的樣子。
-  「進階 › 透明度」(`playerTintClear`,預設 50%)把封面和底下系統的毛玻璃(`MTMaterialView` 的 `weighting`)
-  一起調淡,透出桌布;調淡的毛玻璃先換到自己的 backdrop 群組(`groupNameBase`),因為同一群組的毛玻璃共用濾鏡。
-- **Crescendo**(有裝時):開關從它的 notify state(`com.yves.crescendo.state`)讀;設定頁播放器裡
-  休眠的音量列強制打開(`-[MRUNowPlayingView setShowVolumeControlsView:]`),歌詞上島的預覽另外放一條
-  `MRUNowPlayingVolumeControlsView`,展開時高 40 pt。
-- **NextUp 3**(有裝時):在 MediaControls 之後把它的 dylib 載入設定 App,設定頁播放器就和鎖定畫面一樣
-  有「接著播放」列。它給 iOS 17 島的 hook 在 16.5 也會碰到預覽的 view,所以預覽把那個 view 收回來
-  (`NLNextUpKeepOut`),自己照真正的島放一條 `NUNextUpRowView`。
-- **進階 › 支援的插件**(`Tweaks.plist`):Crescendo(`tweakCrescendo`,iOS 17 以下;17 起改由系統的
-  「永遠顯示音量控制」)和 NextUp 3(`tweakNextUp`,iOS 16 起)各一個開關,預設開,圖示用插件自己的(它的偏好設定
-  bundle 裡的),沒裝的會變灰。關掉 NextUp 就不載入它的 dylib;已經載入的,只在設定 App 裡讓它以為沒有下一首
-  (`-[NUNextUpManager isActive]`),播放器的列馬上消失。iOS 17 起設定頁播放器照「永遠顯示音量控制」
-  (`-[MRUserSettings alwaysShowVolumeControls]`)顯示音量列,和鎖定畫面一樣;展開的島兩種情況都沒有。
-- **歌詞上島頁的預覽**:有音樂時用 MediaControls 的 `MRUActivityNowPlayingViewController`(MediaRemoteUI
-  畫島的同一個),封面、聲波是它的 leading/trailing view,展開是它的展開版面;設定 App 沒有島的宿主,
-  所以 `-[UIView SBUISA_layoutMode]` 與鏡頭的 layout guide 由預覽代答(只限膠囊裡的 view)。聲波的
-  音量需要音訊 tap 權限,這裡餵模擬值(`NLWaveformDriver`)。可拖動拉長、長按展開。
-  展開版面的 `-layoutSubviews` 每次排版都用自己的座標設定封面和聲波的 frame,不管它們現在在哪裡;
-  預覽包住這個方法,在同一次排版裡放回原位。「預覽島」(`islandPreviewOpen`)決定它出現時的樣子:
-  縮小、展開,或自動縮小(展開後放著不動 5 秒就縮回)。
-- **隱藏 E 標記**:在系統看到之前清掉 `MPMediaItemPropertyIsExplicit`(Apple Music 為 `explicitItem`),
-  歌詞後面就不會出現「E」。
-- **選擇 App**(`NLAppListController`):AltList 的 App 清單,右上角可篩選(`appListFilter`):預設只列音樂 App
-  (App Store 音樂類別 6011、「音樂」、「Podcast」和已勾選的),或列出全部。篩選是 AltList 區段的 predicate;
-  AltList 是 dlopen 載入而不是連結,所以子類別在執行期才建立。
-- **聆聽紀錄**(SpringBoard 裡的 `NLHistorySB.x`、`NLHistory.m`;開關 `history`,預設關):SpringBoard 收到每次
-  now-playing 變動(`-[SBMediaController _mediaRemoteNowPlayingInfoDidChange:]`)就問 MediaRemote 正在播什麼,
-  不分 App。NowLyrics 在那個 App 裡時曲名是歌詞,所以歌名改讀 App 的 `nowplaying.plist`(`started` 記這首開始的時間)。
-  播滿 30 秒或半首才算一次;更早離開但播了 2 秒以上的記成「已跳過」(`historySkipped` 決定顯不顯示)。
-  只算播放中的時間;算數時、每次暫停、結束時和中間每分鐘寫一次,每個本地日期一個 JSON,放在越獄根目錄下的
-  `/var/mobile/Library/NowLyrics/History`(`NLJBPath`),封面在 `Artwork/`;`historyDays`(預設 90,0 = 永久)
-  刪掉更舊的日子。頁面(`prefsbundle/NLHistory*.m`)在有 ScreenTimeSettingsUI 的 iOS 上用螢幕使用時間自己的圖表
-  (`NLScreenTime.m`:`STUsageGraphViewController`、標題、圖例、日期列),沒有的就自己畫。「在 … 收聽」和長按歌曲
-  (`NLListen.m`)讓 Apple Music 直接開那首歌(Apple 搜尋給的 `trackViewUrl`),其他 App 開它們的搜尋。
-  匯出、匯入是一個 JSON 檔,封面包在裡面。
-- **設定**從 1.3.0 起存在 `com.c3x14n.nowlyrics`;舊的 `app.nowlyrics` 的值會複製過來一次(`NLMoveOldPrefs`,
-  SpringBoard 和設定頁各會做),舊檔名的檔案仍會當備援讀取。
+## 支援的 App
 
-歌詞依 App 快取在 `Library/NowLyrics/`(最多 300 檔,1.2.0 起檔頭有 `[ti:]`/`[ar:]`/`[nl-source:]`,
-舊檔播到時補上);手動加入的(設定頁貼上/匯入,或自己放)`Library/NowLyrics/manual/曲名 - 演出者.lrc`
-優先於所有來源。App 另寫 `Library/NowLyrics/nowplaying.plist`(真正的曲名、歌詞檔、來源、有無逐字)。
+- **Spotify** 和 **Apple Music**：完整支援。
+- **YouTube Music、KKBOX、SoundCloud、TIDAL、Deezer、Amazon Music**：預設開啟，
+  透過系統的播放資訊運作。
+- **其他播放器**：只要會在鎖定畫面顯示播放資訊都可以，在「選擇 App」勾選即可。清單
+  預設只列音樂 App，用「篩選」可以改成列出所有 App。
 
-## 編譯與發布
+## 歌詞來源
+
+| 來源 | 需要 | 說明 |
+|---|---|---|
+| **Apple Music** | Apple Music 訂閱、iOS 16 以上 | Apple 自己的歌詞，依你所在地區商店的文字（台灣為繁體中文），有的歌還有逐字時間。Music 裡可用，Spotify 等其他 App 也能透過 SpringBoard 使用 |
+| **Musixmatch** | Musixmatch App，再貼上它的 User Token，或用你自己的 API Key | 曲庫最大，很多有逐字時間 |
+| **LRCLIB** | 不用 | 預設開啟 |
+| **網易雲音樂** | 不用 | 預設開啟；歌詞為簡體中文 |
+
+**Apple Music 歌詞**要先解鎖才會出現：「歌詞來源 › 解鎖 Apple Music 歌詞」會確認你的
+訂閱。請先在 Music App 同意 Apple Music 的隱私權說明，並在「設定 › 你的名稱 › 媒體與
+購買項目」登入 Apple ID。之後只有狀態可能改變時才會重新確認：Apple Music 通知訂閱有
+變動、重新整理（respring）之後，以及 Apple Music 拒絕歌詞請求時。訂閱過期或登出「媒體
+與購買項目」，Apple Music 就會再鎖起來，NowLyrics 改用其他來源。在其他 App 裡，會先用
+歌名、歌手和長度在 Apple Music 找到這首歌；「用正在播放的歌測試」會把每一步的結果顯示出來。
+
+**Musixmatch** 只要裝了 Musixmatch App 就能解鎖。把它的 debug info 貼到 User Token
+（在 Musixmatch App：設定 → Get help → Copy debug info），或填你自己的 API Key。
+User Token 等同你的 Musixmatch 帳號憑證，請當密碼保管。
+
+## 設定
+
+NowLyrics 在「設定」App 有自己的頁面（iOS 18 以上在「設定 › 一般」最下面）。每一頁右上角的
+**套用**會重新啟動 SpringBoard；安裝後要按一次，給在 SpringBoard 裡運作的部分用：
+歌詞上島、播放器用封面背景，以及其他 App 的 Apple Music 歌詞。其他設定都會立即生效。
+
+- **啟用**、**選擇 App**：總開關，以及要在哪些 App 裡運作。
+- **正在播放**：目前播放的歌。演出者欄位、隱藏「E」標記、這首歌的偏移；「自動」或
+  替這首歌指定來源；貼上歌詞、從檔案匯入、移除手動歌詞，以及查看與編輯正在用的歌詞。
+- **歌詞上島**：啟用、常駐顯示、預覽正在播放、預覽島（縮小、展開、自動縮小）、歌詞顏色（白色、
+  專輯顏色）、換行動畫（淡入淡出、向上捲動）、逐字歌詞、字體大小、捲動速度。頁面頂端的
+  預覽島和真的一樣，可以點也可以長按。
+- **聆聽紀錄**：本週與「查看所有活動」、本週最常聽、每一天；記錄聆聽紀錄、保留紀錄
+  （30 天、90 天、1 年、永久）、顯示跳過的歌曲、匯出紀錄與匯入紀錄、刪除所有紀錄。
+- **歌詞來源**：歌詞庫、來源順序、Apple Music 歌詞（含「用在其他 App」和測試）、
+  Musixmatch、LRCLIB、網易雲音樂。
+- **進階**：
+  - 預設偏移；
+  - 主頁頂端（播放器、動態島、隱藏），以及讓其他頁面頂端也一樣的「其他頁也一樣」；
+  - 播放器用封面背景、透明度；
+  - 支援的插件（Crescendo、NextUp 3）；
+  - 診斷（在演出者欄位顯示是哪個來源回應的）；
+  - 改設定時結束 App（App 用到的設定改變時把音樂 App 關掉）；
+  - Spotify Connect 曲名修正。
+
+## 自己加歌詞
+
+最簡單的方法是在播放時打開「設定 › NowLyrics › 正在播放」：**貼上歌詞**（先複製 LRC
+或 TTML）或**從檔案匯入**。你加的歌詞會優先於所有來源，直到你移除為止。
+
+手動放檔案也可以：把 `曲名 - 演出者.lrc`（或 `曲名.lrc`）放進該 App 容器裡的
+`Library/NowLyrics/manual/`。檔案開頭加 `[offset:±毫秒]` 可以單獨調整那一首。線上抓到
+的歌詞依 App 存在 `Library/NowLyrics/`（每個 App 最多 300 首），可以在歌詞庫編輯。
+
+## 系統需求與安裝
+
+- **iOS 15.0 – 26.1**，rootless 越獄（Dopamine、palera1n），arm64 和 arm64e。
+- **AltList**，安裝 NowLyrics 時會自動一起裝。
+- **iOS 18 以上**：設定頁需要 PreferenceLoader 2.2.8（[dhinakg 的軟體源](https://dhinakg.github.io/repo/)）。
+- 不能和 **AMLyrics** 同時安裝：兩者都會改寫同一個 Apple Music 項目。
+
+NowLyrics 在 [Havoc](https://havoc.app) 販售：在套件管理器加入 Havoc 軟體源，購買並安裝，
+再到它的設定頁按一次**套用**。
+
+## 從原始碼編譯
+
+完整原始碼都在這個 repo。在 Mac 上裝好 [Theos](https://theos.dev) 和 Xcode：
 
 ```bash
-make package FINALPACKAGE=1   # 正式版;單純 `make package` 是帶 NSLog 的 DEBUG 版
-make package FINALPACKAGE=1 THEOS=~/theos-roothide THEOS_PACKAGE_SCHEME=roothide   # roothide,iphoneos-arm64e
+make package FINALPACKAGE=1
 ```
 
-- Mac 上的 Theos + Xcode,rootless,`ARCHS = arm64 arm64e`。arm64e slice 是 Apple Music 能用的關鍵,
-  只有 Xcode 的工具鏈編出來的能過指標驗證。
-- roothide 要用 roothide 版的 Theos;套件會連結 libroothide,越獄的檔案用 `jbroot()` 找(`NLShared.h` 的 `NLJBPath()`)。
-  兩種方案各自編在 `.theos/obj/<scheme>`,不會混在一起。還沒在 roothide 越獄上實際跑過。
-- 版本號只在 Makefile 的 `PACKAGE_VERSION`(套件版本、`NL_VERSION` 定義、stage 時填入 `bundle/Info.plist`)。
-- 執行期相依:PreferenceLoader、AltList;NowLyrics 的控制中心模組要 CCSupport(不列為相依:沒裝就只是不載入那個 provider)。`sudo dpkg -i` 安裝後 respring 一次(設定頁的「套用」),SpringBoard 才會載入 NowLyricsIsland;歌詞本身只要播放器重開。
-- iOS 18 起「設定」改用 Swift 重寫,PreferenceLoader 2.2.6 在那裡掛不出 tweak 頁面。裝 dhinakg 的 2.2.8
-  (https://dhinakg.github.io/repo/)後,NowLyrics 在「設定 › 一般」最下面。
+Apple Music 需要的 arm64e slice 只有用 Xcode 的工具鏈編譯才能通過指標驗證。運作方式、
+roothide 版的編法、原始碼結構和測試方式寫在
+[docs/development.zh-Hant.md](docs/development.zh-Hant.md)。
 
-## 結構
+## 疑難排解
 
-| | |
-|---|---|
-| `NowLyrics.xm` | hook、兩個發布器、Connect 改寫、explicit 旗標、通知觀察 |
-| `NowLyricsIsland.x` | SpringBoard:縮小動態島底部的歌詞列 |
-| `NLEngine.m` / `NLSources.m` / `NLLyrics.m` / `NLSettings.m` | 引擎、來源、LRC(含逐字、yrc)與快取、設定快照 |
-| `NLIslandStrip.m` / `NLLocate.m` | 島的歌詞列(逐字遮罩);找 App 容器與 `nowplaying.plist`(設定頁與島共用) |
-| `prefsbundle/NLNowPlayingController.m`、`NLLibraryController.m`、`NLLyricsEditor.m`、`NLLyricsImport.m` | 正在播放、歌詞庫(依 App 分類)、編輯器、貼上/匯入與 TTML |
-| `NLSystemPlayerSB.x` | SpringBoard:控制中心的媒體播放器(iOS 16、26)和 NowLyrics 模組裡的副本:輸出下的來源、大小、歌詞 |
-| `NLLyricsSources.m` | 提供和指定的來源、歌詞狀態:「正在播放」頁與控制中心共用 |
-| `cc/` | 控制中心模組:provider 和模組(`NLCCModule.m`)、1×1 與 1×2 的小方塊(`NLCCViews.m`) |
-| `prefs/`、`prefsbundle/`、`bundle/Island.plist` | 設定頁:plist 加四種語言;控制器(執行期圖示、套用、版本、歌詞上島頁)、拉桿列、文字列 |
-| `NLHistorySB.x` / `NLHistory.m`、`prefsbundle/NLHistory*.m`、`NLScreenTime.m`、`NLListen.m` | 聆聽紀錄:SpringBoard 裡的記錄器與每日檔案;頁面、螢幕使用時間的圖表、再聽一次 |
-| `docs/`、`havoc/` | vPhone 手冊;上架文案、changelog、乾淨重裝檢查表 |
+- **某首歌沒有歌詞**：打開「設定 › NowLyrics › 正在播放」，那裡會列出每個來源的結果；
+  可以替這首歌換一個來源，或自己加歌詞。
+- **歌詞早一點或晚一點**：在「正在播放」調「偏移」（只影響這首），或在「進階」調
+  「預設偏移」（所有歌）。
+- **動態島底下沒有歌詞**：歌詞上島需要動態島（本身有動態島的 iPhone，或用改 MobileGestalt、插件等方式開出動態島的機型，iPad 也可以），安裝後也要重新整理一次（套用）。
+- **沒有 Apple Music 歌詞**：確認「歌詞來源」裡的 Apple Music 歌詞已解鎖並開啟；解鎖時
+  會告訴你缺了什麼。
 
-## 測試
+## 已知限制
 
-iPhone 14 Pro / iOS 16.5.1 測全部;vphone-cli VM(iOS 26.1、18.6.2)測 Spotify 路徑、島、鎖定畫面、控制中心,
-裝 PreferenceLoader 2.2.8 後也測設定頁(VM 沒有 Apple Music;舊的 2.2.6 掛不出設定頁)。歌詞上島在 14 Pro(16.5.1)
-與 18.6.2、26.1 的 VM 上驗證過,動畫是用螢幕錄影逐格檢查的。
-iOS 17 以上改掛在元件自己的 view:那裡容器的內容 view 規定只能有一個子 view,`addContentSubview:` 會把元件換掉。
-17 以上島變大小是一步步重排那個 view(26 會先回彈,過一下再變寬),所以歌詞等它在螢幕上停住才淡入。
-18.5 與 26.1 用到的私有 API 逐一對過該版的符號。控制中心在 14 Pro(16.5.1、CCSupport 1.3.13)上確認過,
-iOS 26 在 ios26 和 ipados26 VM(26.6.2)上確認過。
+- 鎖定畫面、控制中心和 CarPlay 顯示整句；只有歌詞上島會逐字亮起，而且只限有逐字時間的歌詞。
+- 在 Apple Music 裡，Music 自己的播放畫面也會看到歌詞行。
+- 靠歌名、歌手和長度對歌，現場版、重製版和冷門歌可能對不上；這些請自己加歌詞。
+- 網易雲的歌詞是簡體中文，沒有轉換。網易雲和 Musixmatch User Token 用的是非官方服務，
+  隨時可能失效；Musixmatch 免費方案的 API Key 通常拿不到帶時間的歌詞。
+- Apple Music 歌詞和歌詞上島依賴 iOS 內部機制，已在 iOS 16.5.1、18.6.2 和 26.1 確認過；
+  其他版本可能需要更新。
+- iOS 26 上「播放器用封面背景」會隱藏：那裡鎖定畫面的播放器是玻璃材質，控制中心也已經
+  自己用封面的顏色。
+- Spotify 開了交叉淡化或 Automix，或在一首歌最後幾秒切歌時，歌詞可能差到一秒，暫停一下就會
+  恢復；用 Spotify Connect 在其他裝置播放時，歌詞照 Spotify 回報的位置走，不含那台裝置的延遲。
 
-## 限制
+## 隱私
 
-鎖定畫面一次一行;只有島會逐字,而且要歌詞有逐字時間。網易雲是簡體。Musixmatch 要 App 的 token(非官方)或 API key(帶時間軸的端點通常要付費)。
-比對靠字串;Apple Music 依賴私有 API。歌詞上島需要 SpringBoard 裡有動態島(SpringBoard 啟動完成後問 SpringBoardServices 的
-`SBSIsSystemApertureAvailable`,以 notify state `com.c3x14n.nowlyrics.island` 發布,所以用其他方式開出動態島的機型也算,
-例如改 MobileGestalt 或 SpringBoard 裡的插件,iPad 也一樣;其他機型設定頁會說明),
-依賴在 16.5.1、18.6.2、26.1(以及開了動態島的 iPadOS 26.6.2)確認過的 SpringBoard 內部實作,其他版本可能需要調整。
-iPadOS 26 的「設定」側邊欄浮在頁面上,所以播放器和預覽島依表格的邊距與安全區域排版,而不是表格寬度。播放器用封面背景:16 與 18 的
-鎖定畫面和控制中心;26 的鎖定畫面播放器是玻璃,會把背後的畫面蓋在顏色上,控制中心的媒體模組本來就取封面顏色,
-所以維持系統原樣;26 上這個設定會隱藏,設定頁的播放器也維持系統外觀,跟鎖定畫面一致。
-Spotify 的時間依據的是 16.5.1 上的量測:宣告後比平常更久才出聲的歌(看過最長 1.43 秒)歌詞最多早 0.45 秒,
-在一首歌最後 3.5 秒內切歌或回到開頭,之後的歌詞會晚約 1 秒,兩者都到下次暫停為止;交叉淡化和 Automix
-沒有處理,Spotify Connect 裝置的延遲也沒有。控制中心的媒體播放器只在 iOS 16 和 26 排版;NowLyrics 自己的模組要 CCSupport,
-裡面是 iOS 16 的播放器。每個模組都是一整份 MediaControls 播放器,控制中心收起時 MediaControls 也會在每次正在播放的資訊
-變動(每句歌詞)時更新它們,所以模組加越多越耗資源。
+為了找歌詞，NowLyrics 會把曲名、演出者、專輯和長度送給你開啟的歌詞來源。Apple Music
+歌詞是先用 Apple 的公開搜尋找到這首歌，再透過你自己的 Apple ID 向 Apple 取得；確認訂閱時
+也只問 Apple。Musixmatch 的 User Token 或 API Key 只存在你裝置上 NowLyrics 的設定裡，也只會
+送給 Musixmatch。聆聽紀錄除非你自己匯出，否則不會離開裝置。不需要帳號，沒有分析，沒有追蹤。
+
+## 致謝
+
+概念來自 [Lessica/AMLyrics](https://github.com/Lessica/AMLyrics)。App 選擇器使用
+[AltList](https://github.com/opa334/AltList)。歌詞來自 Apple Music、
+[Musixmatch](https://www.musixmatch.com)、[LRCLIB](https://lrclib.net) 和網易雲音樂。
 
 ## 授權
 
-© 2026 chxhua2k7。保留所有權利,不開源。
+© 2026 chxhua2k7。NowLyrics 是自由軟體，以
+[GNU 通用公共授權條款第 3 版（GPL-3.0）](LICENSE)釋出：可以自由使用、修改和分享；
+以它為基礎再發布的東西，也必須用同一個授權並附上原始碼。
