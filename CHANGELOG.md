@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.3.1
+
+### Features
+
+- Control Center's media player (iOS 16 and 26): the lyrics sources sit under its outputs, with the song's lyrics word by word, the others dimmed, upright under the cover or on its side
+- iOS 16: the media player can be 1×4, 2×2, 2×4 or 3×4, and from 2×4 up the closed player shows lyrics too
+- NowLyrics own modules for Control Center: NowLyrics 1×1 to 3×4 in Settings › Control Center, each a copy of the media player with the lyrics sources in place of the outputs; add as many as you like
+- A new Control Center page in NowLyrics' settings: the player's size, Lyrics When Closed, Lyrics When Open, Lyrics Sources in Outputs, and Player over its cover (moved there from Advanced)
+- Off for This Song: no lyrics for this one song, until you pick a source again
+- The source is now public on GitHub under GPL-3.0; the package on Havoc stays paid, or build it yourself for free
+- Added more bugs to fix later D:
+
 ## 1.3.0
 
 ### Features

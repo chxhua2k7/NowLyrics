@@ -11,36 +11,31 @@ Works with Spotify, Apple Music and any player that shows what it plays on the
 lock screen. Lyrics come from Apple Music (with a subscription), Musixmatch,
 LRCLIB and NetEase Cloud Music.
 
-Current version: **1.3.0** · [Changelog](CHANGELOG.md) · [How it works](docs/development.md) · 繁體中文說明:[README.zh-Hant.md](README.zh-Hant.md)
+Current version: **1.3.1** · [Changelog](CHANGELOG.md) · 繁體中文說明:[README.zh-Hant.md](README.zh-Hant.md)
 
 ## Features
 
 - **Lyrics in place of the title**: lock screen, Control Center, Dynamic
   Island and CarPlay. The artist field can keep the track and artist, show the
   next line, or stay as the player set it.
-- **Lyrics Island**: the current line at the bottom of the compact Dynamic
-  Island, which grows down to the status bar's edge. White or album color, a
-  fade or scroll-up line change, adjustable font size and scroll speed. Long
-  lines scroll, and lyrics with word times light up word by word as they are
-  sung. With Always show on, the island stays up in the app that is playing
-  too. A live preview on its settings page shows every change at once.
+- **Lyrics Island** (optional): the current line in a strip at the bottom of
+  the compact Dynamic Island, which grows down to meet the status bar. With
+  Always show, the island stays up in the app that is playing too.
+- **Control Center**: the media player lists the lyrics sources under its
+  outputs, shows the lyrics as Apple Music does, lit word by word (iOS 16 and
+  26). On iOS 16 it can also be 1×4, 2×2, 2×4 or 3×4, with lyrics in the
+  closed player from 2×4 up, and with CCSupport you can add NowLyrics' own
+  modules, 1×1 to 3×4, each a copy of the media player with the sources in
+  place of the outputs.
 - **Four lyrics sources**, tried in the order you drag them into: Apple Music,
   Musixmatch, LRCLIB and NetEase. When one has nothing, the next fills in.
-- **Now Playing page** in Settings: the lock screen's player, where the song's
-  lyrics came from (or why each source found none), a source picked for this
-  song, and this song's own offset.
 - **Your own lyrics**: paste them or import them from Files (LRC, word-by-word
   LRC, Apple Music / AMLL TTML); lyrics you add win over every source.
 - **Lyrics Library**: every saved song by app, searchable; view, edit and
   delete, or clear the cache (lyrics you added are kept).
 - **Listening History** (optional): every song you play, in any app, written
-  down on your device; songs left within 30 seconds are marked as skipped.
-  Your week as in Screen Time (listening time against last week, by day and by
-  hour, the songs, artists, albums and apps you played most), each day as a
-  timeline, and a page for each song with its first lyric lines, its plays and
-  its week. Hold a song to play it again: Apple Music opens the song itself,
-  other apps search for it. Kept 30 days, 90 days, a year or forever; export
-  and import it as one file.
+  down on your device. Kept 30 days, 90 days, a year or forever; export and
+  import it as one file.
 - **Player over its cover**: the player on the lock screen, in Control Center
   and in Settings sits on its cover, blurred and darkened, with adjustable
   transparency (iOS 15–18).
@@ -108,13 +103,15 @@ once.
   Week, and the days; Record Listening History, Keep History (30 days, 90
   days, 1 year, Forever), Show Skipped Songs, Export History and Import
   History, Delete All History.
+- **Control Center**: the media player's Size (iOS 16), Lyrics When Closed,
+  Lyrics When Open, Lyrics Sources in Outputs, Add in Control Center for
+  NowLyrics' own modules, and Player over its cover with Transparency.
 - **Lyrics Sources**: Lyrics Library, Source order, Apple Music lyrics (with
   Use in other apps and a test), Musixmatch, LRCLIB and NetEase Music.
 - **Advanced**:
   - Default offset;
   - Top of main page (Player, Island or Hidden), and Other pages too to put
     the same at the top of the other pages;
-  - Player over its cover and Transparency;
   - Supported Tweaks (Crescendo, NextUp 3);
   - Diagnostics (the source that answered, in the artist field);
   - Quit app on change (quits the music app when a setting it uses changes);
@@ -139,12 +136,17 @@ Lyrics Library.
 - **iOS 18 and later**: PreferenceLoader 2.2.8 from
   [dhinakg's repo](https://dhinakg.github.io/repo/), which the settings page
   needs there.
+- **CCSupport** (optional, iOS 16): for NowLyrics' own Control Center
+  modules.
 - Cannot be installed alongside **AMLyrics**: both rewrite the same Apple Music
   item.
 
 NowLyrics is sold on [Havoc](https://havoc.app): add the Havoc repo in your
 package manager, buy NowLyrics and install it, then tap **Apply** on its
 settings page once.
+
+NowLyrics is open source, but the package is not free: the one on Havoc is
+paid. If you want it for free, build it yourself from this repository (below).
 
 ## Building from source
 
@@ -155,10 +157,14 @@ Xcode on a Mac:
 make package FINALPACKAGE=1
 ```
 
+For roothide, build with [roothide's Theos](https://github.com/roothide/theos):
+
+```bash
+make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=roothide THEOS=~/theos-roothide
+```
+
 The arm64e slice, which Apple Music needs, only passes pointer authentication
-when built with Xcode's toolchain. How NowLyrics works, the roothide build,
-the source layout and how it was tested are in
-[docs/development.md](docs/development.md).
+when built with Xcode's toolchain.
 
 ## Troubleshooting
 
@@ -182,10 +188,13 @@ the source layout and how it was tested are in
 - Songs are matched by title, artist and length, so live versions, remasters
   and rare tracks can be missed; add those lyrics yourself.
 - NetEase lyrics are Simplified Chinese, with no conversion. The NetEase and
-  Musixmatch User Token services are unofficial and may stop working; a free
+  Musixmatch User Token services are unofficial and **may stop working**; a free
   Musixmatch API key usually has no timed lyrics.
 - Apple Music lyrics and Lyrics Island rely on iOS internals, checked on iOS
   16.5.1, 18.6.2 and 26.1; another iOS version may need an update.
+- Control Center's media player gets the sources and lyrics on iOS 16 and 26
+  only; NowLyrics' own modules are for iOS 16 with CCSupport, and each one is a
+  whole media player, so many of them cost more.
 - On iOS 26, Player over its cover is hidden: the lock screen's player is
   glass there and Control Center already takes the cover's colors.
 - Spotify with crossfade or Automix, or a song skipped in its last few
